@@ -1,0 +1,39 @@
+name: Develop CI
+
+on:
+  workflow_call:
+    inputs:
+      enable_ls_lint:
+        description: Run ls-lint file naming check
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - run: yarn lint
+
+  ls-lint:
+    name: ls-lint
+    runs-on: ubuntu-latest
+    if: ${{ inputs.enable_ls_lint }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ls-lint/ls-lint@v2
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - run: yarn typecheck
