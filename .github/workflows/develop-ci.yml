@@ -3,6 +3,11 @@ name: Develop CI
 on:
   workflow_call:
     inputs:
+      pr_number:
+        description: github.event.pull_request.number from the caller (required for correct concurrency grouping)
+        type: number
+        required: false
+        default: 0
       enable_ls_lint:
         description: Run ls-lint file naming check
         type: boolean
@@ -11,8 +16,11 @@ on:
 permissions:
   contents: read
 
+# Scoped per repo+PR so callers don't cancel each other.
+# pr_number must be passed explicitly because github.event.pull_request
+# is not populated in the called workflow context.
 concurrency:
-  group: pr-${{ github.event.pull_request.number }}
+  group: ${{ github.repository }}-pr-${{ inputs.pr_number }}
   cancel-in-progress: true
 
 jobs:
@@ -20,7 +28,19 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'package.json'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .yarn/cache
+            .yarn/install-state.gz
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+      - run: yarn install --frozen-lockfile
       - run: yarn lint
 
   ls-lint:
@@ -35,5 +55,17 @@ jobs:
     name: typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'package.json'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .yarn/cache
+            .yarn/install-state.gz
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+      - run: yarn install --frozen-lockfile
       - run: yarn typecheck
