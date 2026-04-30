@@ -207,3 +207,14 @@ jobs:
             echo "$CREATE_RESPONSE" | jq '.' >&2
             exit 1
           fi
+
+      - name: Notify Slack
+        if: always()
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          curl -s -X POST "https://hooks.slack.com/services/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" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \":red_circle: *CI failed on main* — \`${REPO_NAME}\` / ${WORKFLOW_NAME} — <${RUN_URL}|View run>\"}"
