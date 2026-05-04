@@ -94,20 +94,7 @@ jobs:
 
           [View CI Run]($RUN_URL)"
 
-          SEARCH_QUERY='query {
-            issues(
-              filter: {
-                team: { key: { eq: "LAB" } },
-                state: { type: { nin: ["completed", "cancelled"] } },
-                title: { contains: "CI failing on main: '"$REPO_NAME"'" }
-              },
-              first: 1
-            ) {
-              nodes {
-                id identifier title state { name }
-              }
-            }
-          }'
+          SEARCH_QUERY="query { issues( filter: { team: { key: { eq: \"LAB\" } }, state: { type: { nin: [\"completed\", \"cancelled\"] } }, title: { contains: \"CI failing on main: ${REPO_NAME}\" } }, first: 1 ) { nodes { id identifier title state { name } } } }"
 
           SEARCH_RESPONSE=$(curl -s -X POST https://api.linear.app/graphql \
             -H "Authorization: $LINEAR_API_KEY" \
