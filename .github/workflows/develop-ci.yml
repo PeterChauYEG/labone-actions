@@ -49,7 +49,19 @@ jobs:
     if: ${{ inputs.enable_ls_lint }}
     steps:
       - uses: actions/checkout@v4
-      - uses: ls-lint/ls-lint@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'package.json'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .yarn/cache
+            .yarn/install-state.gz
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint:ls
 
   typecheck:
     name: typecheck
