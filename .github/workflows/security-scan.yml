@@ -1,0 +1,31 @@
+name: Security Scan (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      scan-ref:
+        description: Path to scan
+        type: string
+        default: '.'
+
+permissions:
+  contents: read
+
+jobs:
+  trivy:
+    name: Trivy vulnerability & secret scan
+    # GitHub-hosted runners (ubuntu-latest) are blocked account-wide (billing).
+    # Every consumer repo must have a catfood-runner registered (see
+    # ops/scripts/gha-runner/add-runner.sh) before calling this workflow.
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.scan-ref }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
