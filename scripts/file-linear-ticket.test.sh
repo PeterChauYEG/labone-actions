@@ -59,6 +59,51 @@ assert_contains "$output" "existing open ticket LAB-999" "dedups against existin
 assert_contains "$(cat "$log_file")" "COMMENT_CALLED" "posts a comment instead of creating a duplicate"
 rm -f "$log_file"
 
+# ── Test 2b: two different PR numbers for the same job+repo produce the ────
+# same dedup search title (no PR number baked in) — this is the core fix:
+# cross-PR dedup must match regardless of which PR is currently failing.
+log_file="$(mktemp)"
+cat > "$mock_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+payload=""
+for arg in "$@"; do
+  if [[ "$arg" == "@-" ]]; then
+    payload="$(cat)"
+    break
+  fi
+done
+haystack="$*$payload"
+echo "$haystack" >> "$MOCK_LOG"
+if [[ "$haystack" == *"commentCreate"* || "$haystack" == *"issueId"* ]]; then
+  echo '{"data":{"commentCreate":{"success":true}}}'
+  exit 0
+fi
+echo '{"data":{"issues":{"nodes":[{"id":"abc-123","identifier":"LAB-999","url":"https://linear.app/x/LAB-999"}]}}}'
+EOF
+chmod +x "$mock_bin/curl"
+
+PATH="$mock_bin:$PATH" MOCK_LOG="$log_file" LINEAR_API_KEY="fake" \
+  GITHUB_REPOSITORY="PeterChauYEG/labone-actions" PR_NUMBER=1 PR_URL="https://x/pr/1" RUN_URL="https://x/run/1" \
+  bash "$script" actionlint > /dev/null 2>&1
+title_pr1=$(grep -o '"title": *"[^"]*"' "$log_file" | head -1 || true)
+
+: > "$log_file"
+PATH="$mock_bin:$PATH" MOCK_LOG="$log_file" LINEAR_API_KEY="fake" \
+  GITHUB_REPOSITORY="PeterChauYEG/labone-actions" PR_NUMBER=999 PR_URL="https://x/pr/999" RUN_URL="https://x/run/2" \
+  bash "$script" actionlint > /dev/null 2>&1
+title_pr999=$(grep -o '"title": *"[^"]*"' "$log_file" | head -1 || true)
+
+if [[ "$title_pr1" == "$title_pr999" && -n "$title_pr1" ]]; then
+  echo "PASS: dedup search title is identical across different PR numbers ($title_pr1)"
+else
+  echo "FAIL: dedup search title differs across PR numbers"
+  echo "  PR #1:   $title_pr1"
+  echo "  PR #999: $title_pr999"
+  fail=1
+fi
+assert_contains "$title_pr1" "actionlint: labone-actions failing" "dedup search title omits PR number"
+rm -f "$log_file"
+
 # ── Test 3: no existing ticket — creates one ────────────────────────────────
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
