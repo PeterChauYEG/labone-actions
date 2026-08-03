@@ -1,0 +1,286 @@
+name: Main CI
+
+# Reusable push-to-main CI+deploy for yarn/Next.js-ish web repos. Callers
+# are thin wrappers: `on: push: branches: [main]` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/main-ci.yml@main` with
+# `secrets: inherit`. See README.md for the full caller example.
+#
+# Mirrors develop-ci.yml's job set as plain pass/fail gates (no sticky PR
+# comments, no Linear ticket filing - there's no PR to comment on at this
+# point) plus `deploy` and `slack-notification`, matching main.yml's
+# current behavior in laboratory-one-web / ai-harness-web. Input and job
+# names are intentionally identical to develop-ci.yml's - see that file's
+# header comment for the enable_*/is_dependabot rationale.
+
+on:
+  workflow_call:
+    inputs:
+      is_dependabot:
+        description: >
+          Whether the triggering commit was authored by dependabot[bot].
+          Caller must compute this from github.event.head_commit.author.name,
+          since reusable workflows can't see that context directly. When
+          true, every job except lint/typecheck/build is skipped, and
+          deploy itself is skipped (matches existing main.yml behavior).
+        type: boolean
+        required: false
+        default: false
+      enable_ls_lint:
+        description: Run the ls-lint file naming check.
+        type: boolean
+        default: true
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_a11y:
+        description: Run `yarn a11y` (accessibility scan) as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_design_system:
+        description: Run `yarn design-system` as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_dead_code:
+        description: Run `yarn dead-code` as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_duplicate_code:
+        description: Run `yarn duplicate-code` as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_e2e:
+        description: Run `yarn run-e2e-scan` (Playwright e2e) as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_react_tech_debt:
+        description: Run `yarn react-tech-debt` as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_max_lines:
+        description: Run `yarn max-lines` as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_deploy:
+        description: Push to the dokku remote after all gates pass.
+        type: boolean
+        default: true
+      dokku_remote_url:
+        description: >
+          Dokku git remote URL to push to, e.g.
+          ssh://dokku@192.168.1.31:22/<app-name>. Required if enable_deploy
+          is true.
+        type: string
+        required: false
+        default: ''
+      enable_slack_notification:
+        description: Post the deploy result to Slack after `deploy` completes.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-ci-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  DEPS_ARTIFACT: deps-${{ github.run_id }}
+
+jobs:
+  setup:
+    name: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+
+  lint:
+    name: lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn lint
+
+  ls-lint:
+    name: ls-lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn lint:ls
+
+  typecheck:
+    name: typecheck
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn typecheck
+
+  build:
+    name: build
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn build
+
+  test:
+    name: test
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn test:coverage
+
+  a11y:
+    name: a11y
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: npx playwright install chromium
+      - run: yarn a11y
+
+  design-system:
+    name: design-system
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn design-system
+
+  dead-code:
+    name: dead-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn dead-code
+
+  duplicate-code:
+    name: duplicate-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn duplicate-code
+
+  run-e2e-tests:
+    name: run-e2e-tests
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_e2e && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: npx playwright install chromium
+      - run: yarn run-e2e-scan
+
+  react-tech-debt:
+    name: react-tech-debt
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn react-tech-debt
+
+  max-lines:
+    name: max-lines
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_max_lines && !inputs.is_dependabot }}
+    steps:
+      - uses: ./.github/actions/restore-deps
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn max-lines
+
+  deploy:
+    name: deploy
+    runs-on: [self-hosted, catfood]
+    needs:
+      [
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        a11y,
+        design-system,
+        dead-code,
+        duplicate-code,
+        run-e2e-tests,
+        react-tech-debt,
+        max-lines,
+      ]
+    # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
+    # only actual failures/cancellations should - hence checking needs.*.result
+    # instead of relying on the default all-must-succeed job dependency
+    # semantics, which treats "skipped" the same as "failed" for a needs chain.
+    if: >-
+      inputs.enable_deploy && !inputs.is_dependabot &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Push to Dokku
+        uses: dokku/github-action@master
+        with:
+          git_remote_url: ${{ inputs.dokku_remote_url }}
+          ssh_private_key: ${{ secrets.DOKKU_DEPLOY_SSH_KEY }}
+
+  slack-notification:
+    name: slack-notification
+    needs: [deploy]
+    if: ${{ always() && inputs.enable_slack_notification }}
+    runs-on: [self-hosted, catfood]
+    steps:
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v4
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ github.repository }} deploy: ${{ needs.deploy.result }}"
+            }
