@@ -12,8 +12,9 @@ inputs:
   artifact-name:
     description: >
       Name for the uploaded deps artifact. Callers should pass something
-      unique per-run (e.g. `deps-${{ github.run_id }}`) so concurrent runs
-      never collide. Must match the `artifact-name` given to `restore-deps`.
+      unique per-run (e.g. "deps-" followed by the run id) so concurrent
+      runs never collide. Must match the `artifact-name` given to
+      `restore-deps`.
     required: true
 
 runs:
