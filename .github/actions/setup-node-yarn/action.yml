@@ -44,23 +44,22 @@ runs:
       shell: bash
       run: yarn install --frozen-lockfile
 
-    - name: Check for .next/cache
-      id: next-cache
+    - name: Archive deps into a single tarball
       shell: bash
+      # actions/upload-artifact does not reliably round-trip symlinks or
+      # exec permissions (see restore-deps/action.yml for the fallout: it
+      # was silently dereferencing node_modules/.bin/* symlinks into plain
+      # file copies at the wrong path, breaking every tool invoked via
+      # `npx <bin>` or a `.bin/<bin>` shell-out with e.g.
+      # "Cannot find module './lib/program'"). tar preserves both natively,
+      # so archive node_modules (+ .next/cache, if present) ourselves and
+      # upload the single tarball instead of raw files.
       run: |
-        if [ -d .next/cache ]; then
-          echo "present=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "present=false" >> "$GITHUB_OUTPUT"
-        fi
+        tar -czf deps.tar.gz node_modules $( [ -d .next/cache ] && echo .next/cache )
 
     - name: Publish deps artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact-name }}
-        path: |
-          node_modules
-          .next/cache
-        if-no-files-found: ignore
+        path: deps.tar.gz
         retention-days: 1
-        include-hidden-files: true

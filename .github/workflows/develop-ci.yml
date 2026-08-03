@@ -174,7 +174,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: npx playwright install chromium
+      - run: node node_modules/playwright/cli.js install chromium
       - run: yarn a11y
         id: scan
         continue-on-error: true
@@ -310,7 +310,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: npx playwright install chromium
+      - run: node node_modules/playwright/cli.js install chromium
       - run: yarn run-e2e-scan
         id: scan
         continue-on-error: true
