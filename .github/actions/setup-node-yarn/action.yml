@@ -1,17 +1,37 @@
-name: Setup Node.js + Yarn
-description: Checkout, setup Node.js from package.json, restore Yarn cache, and install dependencies.
+name: Setup Node.js + Yarn (install + publish deps artifact)
+description: >
+  Checkout, enable Corepack, setup Node.js from package.json, restore the
+  Yarn cache, run `yarn install --frozen-lockfile`, and publish the
+  resulting node_modules (+ .next/cache, if present) as a build artifact so
+  downstream jobs can restore it with the sibling `restore-deps` action
+  instead of each running their own install. Intended to be used exactly
+  once, by a workflow's `setup` job — see `restore-deps/action.yml` for the
+  consumer side of this contract.
+
+inputs:
+  artifact-name:
+    description: >
+      Name for the uploaded deps artifact. Callers should pass something
+      unique per-run (e.g. "deps-" followed by the run id) so concurrent
+      runs never collide. Must match the `artifact-name` given to
+      `restore-deps`.
+    required: true
 
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
-    - uses: actions/setup-node@v4
+    - name: Enable Corepack
+      shell: bash
+      run: corepack enable
+
+    - uses: actions/setup-node@v7
       with:
         node-version-file: 'package.json'
 
-    - name: Cache dependencies
-      uses: actions/cache@v4
+    - name: Cache Yarn cache
+      uses: actions/cache@v6
       with:
         path: |
           .yarn/cache
@@ -21,5 +41,25 @@ runs:
           ${{ runner.os }}-yarn-
 
     - name: Install dependencies
-      run: yarn install --frozen-lockfile
       shell: bash
+      run: yarn install --frozen-lockfile
+
+    - name: Archive deps into a single tarball
+      shell: bash
+      # actions/upload-artifact does not reliably round-trip symlinks or
+      # exec permissions (see restore-deps/action.yml for the fallout: it
+      # was silently dereferencing node_modules/.bin/* symlinks into plain
+      # file copies at the wrong path, breaking every tool invoked via
+      # `npx <bin>` or a `.bin/<bin>` shell-out with e.g.
+      # "Cannot find module './lib/program'"). tar preserves both natively,
+      # so archive node_modules (+ .next/cache, if present) ourselves and
+      # upload the single tarball instead of raw files.
+      run: |
+        tar -czf deps.tar.gz node_modules $( [ -d .next/cache ] && echo .next/cache )
+
+    - name: Publish deps artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: deps.tar.gz
+        retention-days: 1

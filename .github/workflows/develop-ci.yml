@@ -1,15 +1,93 @@
 name: Develop CI
 
+# Reusable PR-time CI for yarn/Next.js-ish web repos. Callers are thin
+# wrappers: `on: pull_request` -> `uses: PeterChauYEG/labone-actions/.github/workflows/develop-ci.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example and a
+# stability note on the input/job names below (a phase-2 migration of
+# laboratory-one-web depends on them being exact).
+#
+# Job coverage mirrors the a11y/design-system/dead-code/duplicate-code/
+# run-e2e-tests/react-tech-debt/max-lines jobs that today are hand-copied
+# into laboratory-one-web's and ai-harness-web's develop.yml. Every job past
+# lint/typecheck is optional via an `enable_*` boolean input (default true),
+# following the pre-existing `enable_ls_lint` precedent, so a repo without
+# (say) an `a11y` yarn script can turn that job off instead of being forced
+# to run it.
+#
+# Caching: a single `setup` job runs `yarn install --frozen-lockfile` once
+# and publishes node_modules (+ .next/cache) as a build artifact; every
+# other job downloads it via the `restore-deps` composite action instead of
+# reinstalling. See README.md "Caching strategy" for why this beats N
+# independent installs on the self-hosted runner fleet.
+
 on:
   workflow_call:
     inputs:
       pr_number:
-        description: github.event.pull_request.number from the caller (required for correct concurrency grouping)
+        description: >
+          github.event.pull_request.number from the caller (required for
+          correct concurrency grouping and for the Linear ticket / sticky
+          comment steps below).
         type: number
         required: false
         default: 0
+      pr_url:
+        description: >
+          github.event.pull_request.html_url from the caller (used by the
+          Linear ticket-filing steps; reusable workflows can't see
+          github.event.pull_request directly).
+        type: string
+        required: false
+        default: ''
+      is_dependabot:
+        description: >
+          Whether this PR was opened by dependabot[bot]. Caller must compute
+          this from github.event.pull_request.user.login, since reusable
+          workflows can't see that context directly. When true, every
+          optional scan/test job below is skipped except `lint`, `typecheck`
+          and `build` (a broken build is exactly what a dependency bump can
+          cause, so it stays on even for dependabot).
+        type: boolean
+        required: false
+        default: false
       enable_ls_lint:
-        description: Run ls-lint file naming check
+        description: Run the ls-lint file naming check.
+        type: boolean
+        default: true
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_a11y:
+        description: Run `yarn a11y` (accessibility scan), with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_design_system:
+        description: Run `yarn design-system`, with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_dead_code:
+        description: Run `yarn dead-code`, with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_duplicate_code:
+        description: Run `yarn duplicate-code`, with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_e2e:
+        description: Run `yarn run-e2e-scan` (Playwright e2e), with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_react_tech_debt:
+        description: Run `yarn react-tech-debt`, with PR sticky comment on failure (no ticket).
+        type: boolean
+        default: true
+      enable_max_lines:
+        description: Run `yarn max-lines`, with PR sticky comment on failure (no ticket).
         type: boolean
         default: true
 
@@ -19,65 +97,285 @@ permissions:
 # Scoped per repo+PR so callers don't cancel each other.
 # pr_number must be passed explicitly because github.event.pull_request
 # is not populated in the called workflow context.
-concurrency:
-  group: ${{ github.repository }}-pr-${{ inputs.pr_number }}
-  cancel-in-progress: true
+env:
+  DEPS_ARTIFACT: deps-${{ github.run_id }}
 
 jobs:
-  lint:
-    name: lint
+  setup:
+    name: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@feat/reusable-web-ci
         with:
-          node-version-file: 'package.json'
-      - uses: actions/cache@v6
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+
+  lint:
+    name: lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
-          path: |
-            .yarn/cache
-            .yarn/install-state.gz
-          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-      - run: yarn install --frozen-lockfile
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint
 
   ls-lint:
     name: ls-lint
+    needs: setup
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_ls_lint }}
+    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
-          node-version-file: 'package.json'
-      - uses: actions/cache@v6
-        with:
-          path: |
-            .yarn/cache
-            .yarn/install-state.gz
-          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-      - run: yarn install --frozen-lockfile
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint:ls
 
   typecheck:
     name: typecheck
+    needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
-          node-version-file: 'package.json'
-      - uses: actions/cache@v6
-        with:
-          path: |
-            .yarn/cache
-            .yarn/install-state.gz
-          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-      - run: yarn install --frozen-lockfile
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn typecheck
+
+  build:
+    name: build
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn build
+
+  test:
+    name: test
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn test:coverage
+
+  a11y:
+    name: a11y
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: node node_modules/playwright/cli.js install chromium
+      - run: yarn a11y
+        id: scan
+        continue-on-error: true
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always()
+        with:
+          number: ${{ inputs.pr_number }}
+          header: a11y-scan
+          path: a11y-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/file-linear-ticket.sh a11y a11y-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  design-system:
+    name: design-system
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn design-system
+        id: scan
+        continue-on-error: true
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always()
+        with:
+          number: ${{ inputs.pr_number }}
+          header: design-system-scan
+          path: design-system-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/file-linear-ticket.sh design-system design-system-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  dead-code:
+    name: dead-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn dead-code
+        id: scan
+        continue-on-error: true
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always()
+        with:
+          number: ${{ inputs.pr_number }}
+          header: dead-code-scan
+          path: dead-code-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  duplicate-code:
+    name: duplicate-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn duplicate-code
+        id: scan
+        continue-on-error: true
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always()
+        with:
+          number: ${{ inputs.pr_number }}
+          header: duplicate-code-scan
+          path: duplicate-code-report.md
+      # Standardized to file a ticket like the other scans do (one of the
+      # two source repos this was consolidated from skipped this step,
+      # which was an inconsistency, not a deliberate choice - see README.md).
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/file-linear-ticket.sh duplicate-code duplicate-code-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  run-e2e-tests:
+    name: run-e2e-tests
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_e2e && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: node node_modules/playwright/cli.js install chromium
+      - run: yarn run-e2e-scan
+        id: scan
+        continue-on-error: true
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always()
+        with:
+          number: ${{ inputs.pr_number }}
+          header: e2e-scan
+          path: e2e-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/file-linear-ticket.sh e2e e2e-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  react-tech-debt:
+    name: react-tech-debt
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn react-tech-debt
+        id: scan
+        continue-on-error: true
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always()
+        with:
+          number: ${{ inputs.pr_number }}
+          header: react-tech-debt-scan
+          path: react-tech-debt-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  max-lines:
+    name: max-lines
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_max_lines && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+      - run: yarn max-lines
+        id: scan
+        continue-on-error: true
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always()
+        with:
+          number: ${{ inputs.pr_number }}
+          header: max-lines-scan
+          path: max-lines-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
