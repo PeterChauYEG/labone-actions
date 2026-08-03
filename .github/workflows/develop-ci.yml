@@ -97,10 +97,6 @@ permissions:
 # Scoped per repo+PR so callers don't cancel each other.
 # pr_number must be passed explicitly because github.event.pull_request
 # is not populated in the called workflow context.
-concurrency:
-  group: ${{ github.repository }}-pr-${{ inputs.pr_number }}
-  cancel-in-progress: true
-
 env:
   DEPS_ARTIFACT: deps-${{ github.run_id }}
 
@@ -109,7 +105,7 @@ jobs:
     name: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: ./.github/actions/setup-node-yarn
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
 
@@ -118,7 +114,7 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint
@@ -129,7 +125,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint:ls
@@ -139,7 +135,7 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn typecheck
@@ -150,7 +146,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build }}
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn build
@@ -161,7 +157,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn test:coverage
@@ -175,7 +171,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: npx playwright install chromium
@@ -209,7 +205,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn design-system
@@ -242,7 +238,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn dead-code
@@ -275,7 +271,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn duplicate-code
@@ -311,7 +307,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: npx playwright install chromium
@@ -345,7 +341,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn react-tech-debt
@@ -369,7 +365,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn max-lines
