@@ -34,4 +34,15 @@ runs:
 
     - name: Make node_modules executables runnable
       shell: bash
-      run: chmod -R a+rX node_modules
+      # `chmod -R a+rX` looks right but capital X only *propagates* an
+      # existing execute bit (or sets it on directories) — it never grants
+      # execute on a plain file that has none. actions/upload-artifact's
+      # zip round-trip commonly zeroes the execute bit on real binaries
+      # (playwright/cli.js, esbuild, @sentry/cli, etc.), so files that had
+      # no execute bit anywhere came out of `download-artifact` still
+      # non-executable and this chmod was a no-op for them — hence e.g.
+      # `npx playwright install` failing with "Permission denied". Force
+      # execute on every regular file explicitly instead.
+      run: |
+        chmod -R a+rX node_modules
+        find node_modules -type f -exec chmod a+x {} +
