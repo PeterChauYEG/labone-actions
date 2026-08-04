@@ -1,0 +1,44 @@
+name: Dependabot Auto-merge
+
+# Reusable workflow_call version of dependabot auto-merge. Callers are thin
+# wrappers: `on: pull_request` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/dependabot-automerge.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example.
+#
+# Converged from three near-identical copies: this repo's own prior
+# standalone version (no --delete-branch, PR-URL-based merge), plus
+# laboratory-one-web's and ai-harness-web's byte-identical copies (both use
+# --delete-branch + PR-number-based merge, and trigger on
+# [opened, synchronize, reopened] rather than [opened, synchronize]).
+# Kept --delete-branch (matches 2 of the 3 prior copies, and is generally
+# the better default), and [opened, synchronize, reopened] for the same
+# reason. No workflow_call inputs are needed: none of the three copies
+# varied in anything a caller would plausibly want to override.
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Auto-merge minor/patch updates
+    runs-on: [self-hosted, catfood]
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for minor and patch updates
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
