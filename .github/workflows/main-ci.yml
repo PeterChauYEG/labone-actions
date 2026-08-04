@@ -90,6 +90,17 @@ on:
         description: Post the deploy result to Slack after `deploy` completes.
         type: boolean
         default: true
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules and .next/cache — e.g. a
+          gitignored src/generated/ directory populated by a `postinstall`
+          codegen script. Passed straight through to setup-node-yarn's
+          extra-paths input.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -119,6 +130,7 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
 
   lint:
     name: lint
