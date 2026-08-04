@@ -130,6 +130,12 @@ jobs:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
+          # Optional per-repo secret — only set for repos with a private
+          # git-dependency package.json entry (e.g.
+          # "eslint-plugin-lab-react-standards": "github:...#main"). Empty
+          # string for every other repo, which setup-node-yarn treats as
+          # "skip ssh-agent setup".
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
 
   lint:
     name: lint
