@@ -1,0 +1,233 @@
+name: Develop Node CI
+
+# Reusable PR-time CI for yarn/Node/NestJS backend service repos (LAB-1247).
+# Callers are thin wrappers: `on: pull_request` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example.
+#
+# This is the backend-service sibling of develop-ci.yml (which targets
+# Next.js/React web repos) - same `setup` + artifact-restore caching
+# strategy and the same `enable_*`/`is_dependabot` input conventions, but a
+# different, backend-appropriate job set: no a11y/design-system/e2e/
+# react-tech-debt/max-lines scans (those are web-specific and have no
+# NestJS equivalent yarn script), and no sticky PR comments or Linear
+# ticket filing - every job here is a plain pass/fail gate, matching how
+# main-ci.yml's jobs already behave.
+#
+# `lint` is a HARD, ZERO-TOLERANCE gate: this workflow only runs `yarn
+# lint` and fails the job on any non-zero exit. It CANNOT itself enforce
+# "zero warnings" - that depends entirely on the caller's own `lint` script
+# in package.json invoking eslint with `--max-warnings=0` (e.g. `eslint .
+# --max-warnings=0`). A caller whose `lint` script omits that flag will
+# have warnings silently pass through as a green check. See README.md.
+#
+# `typecheck` expects the caller to run `tsc --noEmit` (or equivalent)
+# against a `tsconfig.json` that extends the shared `strict: true`
+# `tsconfig.base.json` in labone-eslint-plugin.
+#
+# `test` runs `yarn test:coverage` as a HARD gate, but this workflow has no
+# visibility into per-service coverage thresholds - it relies entirely on
+# the test runner's own exit code. Coverage-threshold enforcement (jest
+# `coverageThreshold` / vitest `coverage.thresholds`) is each consumer's
+# responsibility; a recommended default is 90% lines/branches. A caller
+# with no coverage threshold configured gets a green check on any coverage
+# number, including 0%. See README.md.
+#
+# `security-scan` restores deps then runs the same Trivy invocation
+# security-scan.yml already established (severity HIGH,CRITICAL,
+# exit-code 1, no default `.trivyignore` baseline shipped from here - any
+# suppression is a deliberate, visible `.trivyignore`/`.trivyignore.yaml`
+# living in the consumer repo, passed in via `security_scan_trivyignores`).
+# Reimplemented as inline steps here (not a nested `uses:
+# security-scan.yml` call) so it can restore the deps artifact like every
+# other job below and scan the installed tree, not just the lockfile.
+#
+# `dependency-audit` runs `yarn npm audit` (this repo, and the NestJS
+# services it targets, are on Yarn Berry - see setup-node-yarn's `.yarn/
+# cache` paths - so this is the Berry command; Yarn Classic repos would use
+# `yarn audit` instead) as a HARD gate with no severity floor: any known
+# vulnerability fails the job.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Node/NestJS service
+          lives in. Defaults to `.` (repo root) so a single-service repo
+          caller keeps working with zero changes. Set this for a monorepo
+          caller.
+        type: string
+        required: false
+        default: '.'
+      is_dependabot:
+        description: >
+          Whether this PR was opened by dependabot[bot]. Caller must
+          compute this from github.event.pull_request.user.login, since
+          reusable workflows can't see that context directly. When true,
+          `test`, `security-scan` and `dependency-audit` are skipped
+          (`lint`, `typecheck` and `build` stay on - a broken build/type
+          error is exactly what a dependency bump can cause).
+        type: boolean
+        required: false
+        default: false
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      enable_dependency_audit:
+        description: Run `yarn npm audit` (fails on any known vulnerability).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file, passed straight through to
+          trivy-action's `trivyignores` input. Empty by default - this
+          shared workflow ships no default ignore baseline, so every
+          suppression is a deliberate, visible file living in the consumer
+          repo. See README.md.
+        type: string
+        required: false
+        default: ''
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules - e.g. a gitignored
+          src/generated/ directory populated by a `postinstall` codegen
+          script (e.g. an OpenAPI SDK). Passed straight through to
+          setup-node-yarn's extra-paths input.
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  DEPS_ARTIFACT: deps-${{ github.run_id }}
+
+jobs:
+  setup:
+    name: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          # Same secret already used by web callers for the private
+          # eslint-plugin-lab-react-standards git dependency - a sibling
+          # ticket adds a lab-nest-standards rule set to that same
+          # labone-eslint-plugin package for backend services, consumed the
+          # same way, so this needs to be wired up here too.
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+
+  lint:
+    name: lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Zero-tolerance gate: this just runs `yarn lint` and fails on any
+      # non-zero exit. Whether that actually means "zero warnings" depends
+      # on the caller's own lint script passing --max-warnings=0 to eslint
+      # - see this file's header comment and README.md.
+      - run: yarn lint
+        working-directory: ${{ inputs.working-directory }}
+
+  typecheck:
+    name: typecheck
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn typecheck
+        working-directory: ${{ inputs.working-directory }}
+
+  build:
+    name: build
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn build
+        working-directory: ${{ inputs.working-directory }}
+
+  test:
+    name: test
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Hard gate - does NOT enforce a coverage threshold itself. That's
+      # each consumer's responsibility via their own jest/vitest config
+      # (recommended default: 90% lines/branches). See README.md.
+      - run: yarn test:coverage
+        working-directory: ${{ inputs.working-directory }}
+
+  security-scan:
+    name: security-scan
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Same severity/exit-code/no-default-ignore contract as
+      # security-scan.yml's own `trivy` job - reimplemented inline (rather
+      # than a nested `uses: security-scan.yml` call) so it runs against
+      # the restored, installed tree like every other job here.
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  dependency-audit:
+    name: dependency-audit
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Hard gate, no severity floor - any known vulnerability fails the
+      # job. Yarn Berry command (this repo and its Node/NestJS callers use
+      # Berry, per setup-node-yarn's .yarn/cache paths); a Yarn Classic
+      # repo would need `yarn audit` instead.
+      - run: yarn npm audit
+        working-directory: ${{ inputs.working-directory }}

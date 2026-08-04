@@ -12,8 +12,10 @@ these workflows.
 
 | Workflow | Trigger it's meant for | Purpose |
 |---|---|---|
-| `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. |
-| `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. |
+| `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. For yarn/Next.js-ish **web** repos. |
+| `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
+| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn/Node/NestJS **backend service** repos. |
+| `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
@@ -79,6 +81,56 @@ jobs:
       is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' }}
       dokku_remote_url: 'ssh://dokku@192.168.1.31:22/<app-name>'
 ```
+
+For a Node/NestJS **backend service** repo, use `develop-node-ci.yml` and
+`main-node-ci.yml` instead — same thin-wrapper pattern, no `pr_url`/
+`pr_number` (there are no sticky PR comments on this job set):
+
+```yaml
+name: Develop CI
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main
+    secrets: inherit
+    with:
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+      # Turn off any job your repo doesn't have a yarn script for, e.g.:
+      # enable_security_scan: false
+```
+
+And `main.yml`:
+
+```yaml
+name: Main CI
+on:
+  push:
+    branches: [main]
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/main-node-ci.yml@main
+    with:
+      is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' }}
+      dokku_remote_url: ssh://dokku@192.168.1.31:22/<app-name>
+    secrets: inherit
+```
+
+**Before wiring either of these up, your service's `package.json` MUST**:
+
+- have its `lint` script invoke eslint with `--max-warnings=0` (e.g.
+  `"lint": "eslint . --max-warnings=0"`) — the `lint` job here just runs
+  `yarn lint` and fails on any non-zero exit, so a `lint` script without
+  that flag lets warnings through as a green check. This shared workflow
+  cannot enforce the flag on your script's behalf.
+- have its own coverage-threshold enforcement configured in whatever
+  runs `yarn test:coverage` (jest `coverageThreshold` / vitest
+  `coverage.thresholds`) — recommended default: 90% lines/branches. The
+  `test` job here is a hard pass/fail gate on the test runner's exit code
+  only; it has no visibility into per-service coverage numbers, so a repo
+  with no threshold configured gets a green check regardless of coverage.
 
 And `version-bump.yml` (requires the caller repo to have its own
 `./scripts/bump-version.sh <new-version>` — that script is repo-specific
@@ -175,6 +227,80 @@ failure), but any real failure or cancellation does.
 `laboratory-one-web` to call these exact workflows, so treat the
 `workflow_call` input names and job names above as a stable interface —
 don't rename them without also updating every caller.
+
+### `develop-node-ci.yml` — inputs and jobs
+
+Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
+`workflow_call` inputs, `enable_*` default `true`):
+
+- `working-directory` (string, default `.`) — same role as in
+  `develop-ci.yml`, threaded through to `setup-node-yarn`/`restore-deps`
+  and every `yarn <script>` step.
+- `is_dependabot` (boolean) — caller-computed from
+  `github.event.pull_request.user.login`. Skips `test`, `security-scan`
+  and `dependency-audit` (`lint`/`typecheck`/`build` stay on).
+- `enable_build`, `enable_test`, `enable_security_scan`,
+  `enable_dependency_audit` (boolean) — turn a job off if your repo has no
+  matching yarn script.
+- `security_scan_trivyignores` (string, default `''`) — passed straight
+  through to the `security-scan` job's `trivy-action` call. Empty by
+  default: this shared workflow ships **no default `.trivyignore`
+  baseline** — any suppression must be a deliberate, visible ignore file
+  living in the consumer repo, referenced here explicitly.
+- `extra_deps_paths` (string, default `''`) — same role as in
+  `develop-ci.yml`.
+
+No `secrets:` are declared here either — every caller uses
+`secrets: inherit`, same `LAB_GIT_DEPS_SSH_KEY` convention as
+`develop-ci.yml` above (a sibling ticket adds a `lab-nest-standards` rule
+set to the same `labone-eslint-plugin` package for backend services,
+consumed the same way via a private git dependency).
+
+Jobs: `setup`, `lint`, `typecheck`, `build`, `test`, `security-scan`,
+`dependency-audit`. All plain pass/fail gates — no sticky PR comments, no
+Linear ticket filing (unlike `develop-ci.yml`'s scan jobs). Two gates are
+worth calling out explicitly because this shared workflow can't fully
+enforce them on its own:
+
+- **`lint` is zero-tolerance**, but only if the caller's own `lint` script
+  passes `--max-warnings=0` to eslint (e.g. `"lint": "eslint .
+  --max-warnings=0"`). This workflow just runs `yarn lint` and fails on
+  any non-zero exit — a caller whose script omits that flag gets a green
+  check with warnings still present.
+- **`test` runs `yarn test:coverage` as a hard gate**, but coverage
+  *threshold* enforcement is entirely the caller's responsibility (jest
+  `coverageThreshold` / vitest `coverage.thresholds`, recommended default
+  90% lines/branches) — this workflow has no visibility into per-service
+  coverage config and only sees the test runner's exit code.
+
+`security-scan` restores deps, then runs the same Trivy invocation as
+`security-scan.yml`'s own `trivy` job (`severity: HIGH,CRITICAL`,
+`exit-code: '1'`), against the working directory. `dependency-audit` runs
+`yarn npm audit` (this repo and its Node/NestJS callers are on Yarn Berry)
+as a hard gate with no severity floor — any known vulnerability fails the
+job.
+
+### `main-node-ci.yml` — inputs and jobs
+
+Same `working-directory`/`enable_*`/`is_dependabot`/
+`security_scan_trivyignores` inputs as `develop-node-ci.yml`
+(`is_dependabot` here is caller-computed from
+`github.event.head_commit.author.name` instead — there's no PR at
+push-to-main time), plus:
+
+- `enable_deploy` (boolean, default `true`)
+- `dokku_remote_url` (string) — required if `enable_deploy` is true.
+- `enable_slack_notification` (boolean, default `true`)
+
+Jobs: the same `setup`/`lint`/`typecheck`/`build`/`test`/`security-scan`/
+`dependency-audit` set as plain pass/fail gates, plus `deploy` (pushes to
+`dokku_remote_url` using secret `DOKKU_DEPLOY_SSH_KEY`) and
+`slack-notification` (posts the deploy result using secret
+`SLACK_WEBHOOK_URL`), identical semantics to `main-ci.yml`'s `deploy`/
+`slack-notification` — `deploy` runs only if every enabled gate job
+actually passed (skipped-via-`enable_*: false` doesn't block it, but any
+real failure or cancellation does) and is skipped entirely for
+`is_dependabot`.
 
 ## Caching strategy
 

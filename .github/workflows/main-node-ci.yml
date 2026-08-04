@@ -1,0 +1,269 @@
+name: Main Node CI
+
+# Reusable push-to-main CI+deploy for yarn/Node/NestJS backend service repos
+# (LAB-1247). Callers are thin wrappers: `on: push: branches: [main]` ->
+# `uses: PeterChauYEG/labone-actions/.github/workflows/main-node-ci.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example.
+#
+# Mirrors develop-node-ci.yml's job set as plain pass/fail gates (same as
+# main-ci.yml's relationship to develop-ci.yml) plus `deploy` and
+# `slack-notification`. Input and job names are intentionally identical to
+# develop-node-ci.yml's - see that file's header comment for the
+# lint/typecheck/test/security-scan/dependency-audit rationale
+# (zero-warnings lint, strict typecheck, coverage-threshold-is-the-
+# consumer's-job test gate, HIGH/CRITICAL Trivy scan with no shipped
+# ignore baseline, zero-severity-floor dependency audit) - it all applies
+# here unchanged.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Node/NestJS service
+          lives in. Defaults to `.` (repo root) so a single-service repo
+          caller keeps working with zero changes. Set this for a monorepo
+          caller.
+        type: string
+        required: false
+        default: '.'
+      is_dependabot:
+        description: >
+          Whether the triggering commit was authored by dependabot[bot].
+          Caller must compute this from github.event.head_commit.author.name,
+          since reusable workflows can't see that context directly. When
+          true, `test`, `security-scan` and `dependency-audit` are skipped
+          (`lint`, `typecheck` and `build` stay on), and deploy itself is
+          skipped.
+        type: boolean
+        required: false
+        default: false
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      enable_dependency_audit:
+        description: Run `yarn npm audit` (fails on any known vulnerability).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file, passed straight through to
+          trivy-action's `trivyignores` input. Empty by default - this
+          shared workflow ships no default ignore baseline, so every
+          suppression is a deliberate, visible file living in the consumer
+          repo. See README.md.
+        type: string
+        required: false
+        default: ''
+      enable_deploy:
+        description: Push to the dokku remote after all gates pass.
+        type: boolean
+        default: true
+      dokku_remote_url:
+        description: >
+          Dokku git remote URL to push to, e.g.
+          ssh://dokku@192.168.1.31:22/<app-name>. Required if enable_deploy
+          is true.
+        type: string
+        required: false
+        default: ''
+      enable_slack_notification:
+        description: Post the deploy result to Slack after `deploy` completes.
+        type: boolean
+        default: true
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules - e.g. a gitignored
+          src/generated/ directory populated by a `postinstall` codegen
+          script (e.g. an OpenAPI SDK). Passed straight through to
+          setup-node-yarn's extra-paths input.
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# This workflow owns its concurrency group. Callers must NOT declare their
+# own `concurrency:` block with this same group - a caller and its nested
+# `workflow_call` fighting over one identical group name deadlocks (GitHub
+# can't resolve a group shared between a parent run and its own child run)
+# and the run gets canceled. See main-ci.yml's identical comment (bit
+# laboratory-one-web in production 2026-08-04, blocking every push-to-main
+# deploy until the caller's duplicate concurrency block was removed) and
+# README.md "Concurrency" for the full explanation, including how this is
+# unrelated to (and doesn't replace) the gha-runner host's own per-repo/
+# global job-concurrency semaphore.
+concurrency:
+  group: main-node-ci-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  DEPS_ARTIFACT: deps-${{ github.run_id }}
+
+jobs:
+  setup:
+    name: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          # Same secret already used by web callers for the private
+          # eslint-plugin-lab-react-standards git dependency - a sibling
+          # ticket adds a lab-nest-standards rule set to that same
+          # labone-eslint-plugin package for backend services, consumed the
+          # same way, so this needs to be wired up here too.
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+
+  lint:
+    name: lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Zero-tolerance gate: this just runs `yarn lint` and fails on any
+      # non-zero exit. Whether that actually means "zero warnings" depends
+      # on the caller's own lint script passing --max-warnings=0 to eslint
+      # - see develop-node-ci.yml's header comment and README.md.
+      - run: yarn lint
+        working-directory: ${{ inputs.working-directory }}
+
+  typecheck:
+    name: typecheck
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn typecheck
+        working-directory: ${{ inputs.working-directory }}
+
+  build:
+    name: build
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn build
+        working-directory: ${{ inputs.working-directory }}
+
+  test:
+    name: test
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Hard gate - does NOT enforce a coverage threshold itself. That's
+      # each consumer's responsibility via their own jest/vitest config
+      # (recommended default: 90% lines/branches). See README.md.
+      - run: yarn test:coverage
+        working-directory: ${{ inputs.working-directory }}
+
+  security-scan:
+    name: security-scan
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Same severity/exit-code/no-default-ignore contract as
+      # security-scan.yml's own `trivy` job - reimplemented inline (rather
+      # than a nested `uses: security-scan.yml` call) so it runs against
+      # the restored, installed tree like every other job here.
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  dependency-audit:
+    name: dependency-audit
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Hard gate, no severity floor - any known vulnerability fails the
+      # job. Yarn Berry command (this repo and its Node/NestJS callers use
+      # Berry, per setup-node-yarn's .yarn/cache paths); a Yarn Classic
+      # repo would need `yarn audit` instead.
+      - run: yarn npm audit
+        working-directory: ${{ inputs.working-directory }}
+
+  deploy:
+    name: deploy
+    runs-on: [self-hosted, catfood]
+    needs: [lint, typecheck, build, test, security-scan, dependency-audit]
+    # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
+    # only actual failures/cancellations should - hence checking
+    # needs.*.result instead of relying on the default all-must-succeed job
+    # dependency semantics, which treats "skipped" the same as "failed" for
+    # a needs chain.
+    if: >-
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled') &&
+      !inputs.is_dependabot && inputs.enable_deploy
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Push to Dokku
+        uses: dokku/github-action@master
+        with:
+          git_remote_url: ${{ inputs.dokku_remote_url }}
+          ssh_private_key: ${{ secrets.DOKKU_DEPLOY_SSH_KEY }}
+
+  slack-notification:
+    name: slack-notification
+    needs: [deploy]
+    if: ${{ always() && inputs.enable_slack_notification }}
+    runs-on: [self-hosted, catfood]
+    steps:
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v4
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ github.repository }} deploy: ${{ needs.deploy.result }}"
+            }
