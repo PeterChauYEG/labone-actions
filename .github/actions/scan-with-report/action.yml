@@ -15,6 +15,16 @@ inputs:
   script:
     description: yarn script to run, e.g. `a11y`, `design-system`.
     required: true
+  working-directory:
+    description: >
+      Directory (relative to the repo root) the Next.js/yarn app lives in.
+      Defaults to `.` (repo root), matching every existing caller. Applied
+      to the `yarn <script>` and Playwright install steps below; scan
+      scripts write their report relative to their own cwd, so callers
+      must pass a `report-file` that already accounts for this (e.g.
+      `${{ inputs.working-directory }}/a11y-report.md`).
+    required: false
+    default: '.'
   report-file:
     description: Path to the markdown report the script writes, e.g. `a11y-report.md`.
     required: true
@@ -56,11 +66,13 @@ runs:
   steps:
     - if: inputs.playwright == 'true'
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: node node_modules/playwright/cli.js install chromium
 
     - run: yarn ${{ inputs.script }}
       id: scan
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       continue-on-error: true
 
     - uses: marocchino/sticky-pull-request-comment@v3

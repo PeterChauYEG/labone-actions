@@ -12,6 +12,14 @@ inputs:
       Name of the deps artifact to download. Must match the `artifact-name`
       given to the `setup-node-yarn` action in this workflow's `setup` job.
     required: true
+  working-directory:
+    description: >
+      Directory (relative to the repo root) the Next.js/yarn app lives in.
+      Defaults to `.` (repo root), matching every existing caller. Must
+      match the `working-directory` given to `setup-node-yarn` in this
+      workflow's `setup` job.
+    required: false
+    default: '.'
 
 runs:
   using: composite
@@ -24,7 +32,7 @@ runs:
 
     - uses: actions/setup-node@v7
       with:
-        node-version-file: 'package.json'
+        node-version-file: '${{ inputs.working-directory }}/package.json'
 
     - name: Download deps artifact
       uses: actions/download-artifact@v4

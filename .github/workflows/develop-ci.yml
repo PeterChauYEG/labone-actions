@@ -23,6 +23,15 @@ name: Develop CI
 on:
   workflow_call:
     inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Next.js/yarn app lives
+          in. Defaults to `.` (repo root) so every existing caller keeps
+          working with zero changes. Set this for a monorepo caller, e.g.
+          `prototype`.
+        type: string
+        required: false
+        default: '.'
       pr_number:
         description: >
           github.event.pull_request.number from the caller (required for
@@ -108,6 +117,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
 
   lint:
     name: lint
@@ -117,7 +127,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn lint
+        working-directory: ${{ inputs.working-directory }}
 
   ls-lint:
     name: ls-lint
@@ -128,7 +140,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn lint:ls
+        working-directory: ${{ inputs.working-directory }}
 
   typecheck:
     name: typecheck
@@ -138,7 +152,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn typecheck
+        working-directory: ${{ inputs.working-directory }}
 
   build:
     name: build
@@ -149,7 +165,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn build
+        working-directory: ${{ inputs.working-directory }}
 
   test:
     name: test
@@ -160,7 +178,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn test:coverage
+        working-directory: ${{ inputs.working-directory }}
 
   a11y:
     name: a11y
@@ -174,10 +194,12 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: a11y
-          report-file: a11y-report.md
+          report-file: ${{ inputs.working-directory }}/a11y-report.md
+          working-directory: ${{ inputs.working-directory }}
           sticky-header: a11y-scan
           job-name: a11y
           playwright: 'true'
@@ -197,10 +219,12 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: design-system
-          report-file: design-system-report.md
+          report-file: ${{ inputs.working-directory }}/design-system-report.md
+          working-directory: ${{ inputs.working-directory }}
           sticky-header: design-system-scan
           job-name: design-system
           pr-number: ${{ inputs.pr_number }}
@@ -219,10 +243,12 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: dead-code
-          report-file: dead-code-report.md
+          report-file: ${{ inputs.working-directory }}/dead-code-report.md
+          working-directory: ${{ inputs.working-directory }}
           sticky-header: dead-code-scan
           job-name: dead-code
           pr-number: ${{ inputs.pr_number }}
@@ -241,13 +267,15 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       # Standardized to file a ticket like the other scans do (one of the
       # two source repos this was consolidated from skipped this step,
       # which was an inconsistency, not a deliberate choice - see README.md).
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: duplicate-code
-          report-file: duplicate-code-report.md
+          report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
+          working-directory: ${{ inputs.working-directory }}
           sticky-header: duplicate-code-scan
           job-name: duplicate-code
           pr-number: ${{ inputs.pr_number }}
@@ -266,10 +294,12 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: run-e2e-scan
-          report-file: e2e-report.md
+          report-file: ${{ inputs.working-directory }}/e2e-report.md
+          working-directory: ${{ inputs.working-directory }}
           sticky-header: e2e-scan
           job-name: e2e
           playwright: 'true'
@@ -289,10 +319,12 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: react-tech-debt
-          report-file: react-tech-debt-report.md
+          report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
+          working-directory: ${{ inputs.working-directory }}
           sticky-header: react-tech-debt-scan
           job-name: react-tech-debt
           file-ticket: 'false'
@@ -311,10 +343,12 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: max-lines
-          report-file: max-lines-report.md
+          report-file: ${{ inputs.working-directory }}/max-lines-report.md
+          working-directory: ${{ inputs.working-directory }}
           sticky-header: max-lines-scan
           job-name: max-lines
           file-ticket: 'false'
