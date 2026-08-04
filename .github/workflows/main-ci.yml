@@ -85,6 +85,15 @@ on:
 permissions:
   contents: read
 
+# This workflow owns its concurrency group. Callers must NOT declare their
+# own `concurrency:` block with this same group — a caller and its nested
+# `workflow_call` fighting over one identical group name deadlocks (GitHub
+# can't resolve a group shared between a parent run and its own child run)
+# and the run gets canceled. Bit laboratory-one-web in production 2026-08-04
+# (blocked every push-to-main deploy) before the caller's duplicate was
+# removed. See README.md "Concurrency" section for the full explanation,
+# including how this is unrelated to (and doesn't replace) the gha-runner
+# host's own per-repo/global job-concurrency semaphore.
 concurrency:
   group: main-ci-${{ github.repository }}
   cancel-in-progress: false
