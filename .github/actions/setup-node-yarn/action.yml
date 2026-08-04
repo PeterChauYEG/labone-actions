@@ -16,6 +16,13 @@ inputs:
       runs never collide. Must match the `artifact-name` given to
       `restore-deps`.
     required: true
+  working-directory:
+    description: >
+      Directory (relative to the repo root) the Next.js/yarn app lives in.
+      Defaults to `.` (repo root), matching every existing caller. Set this
+      when the app lives in a subdirectory of a monorepo, e.g. `prototype`.
+    required: false
+    default: '.'
 
 runs:
   using: composite
@@ -28,20 +35,21 @@ runs:
 
     - uses: actions/setup-node@v7
       with:
-        node-version-file: 'package.json'
+        node-version-file: '${{ inputs.working-directory }}/package.json'
 
     - name: Cache Yarn cache
       uses: actions/cache@v6
       with:
         path: |
-          .yarn/cache
-          .yarn/install-state.gz
-        key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          ${{ inputs.working-directory }}/.yarn/cache
+          ${{ inputs.working-directory }}/.yarn/install-state.gz
+        key: ${{ runner.os }}-yarn-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-yarn-
 
     - name: Install dependencies
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: yarn install --frozen-lockfile
 
     - name: Archive deps into a single tarball
@@ -53,9 +61,14 @@ runs:
       # `npx <bin>` or a `.bin/<bin>` shell-out with e.g.
       # "Cannot find module './lib/program'"). tar preserves both natively,
       # so archive node_modules (+ .next/cache, if present) ourselves and
-      # upload the single tarball instead of raw files.
+      # upload the single tarball instead of raw files. Paths are qualified
+      # with `working-directory` (a no-op `./node_modules` when it's the
+      # default `.`) so the tarball still extracts to the right place in
+      # restore-deps regardless of where the app lives in the caller repo.
       run: |
-        tar -czf deps.tar.gz node_modules $( [ -d .next/cache ] && echo .next/cache )
+        NM_DIR="${{ inputs.working-directory }}/node_modules"
+        NEXT_CACHE_DIR="${{ inputs.working-directory }}/.next/cache"
+        tar -czf deps.tar.gz "$NM_DIR" $( [ -d "$NEXT_CACHE_DIR" ] && echo "$NEXT_CACHE_DIR" )
 
     - name: Publish deps artifact
       uses: actions/upload-artifact@v4

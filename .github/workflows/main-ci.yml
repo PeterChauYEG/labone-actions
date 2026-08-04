@@ -15,6 +15,15 @@ name: Main CI
 on:
   workflow_call:
     inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Next.js/yarn app lives
+          in. Defaults to `.` (repo root) so every existing caller keeps
+          working with zero changes. Set this for a monorepo caller, e.g.
+          `prototype`.
+        type: string
+        required: false
+        default: '.'
       is_dependabot:
         description: >
           Whether the triggering commit was authored by dependabot[bot].
@@ -109,6 +118,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
 
   lint:
     name: lint
@@ -118,7 +128,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn lint
+        working-directory: ${{ inputs.working-directory }}
 
   ls-lint:
     name: ls-lint
@@ -129,7 +141,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn lint:ls
+        working-directory: ${{ inputs.working-directory }}
 
   typecheck:
     name: typecheck
@@ -139,7 +153,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn typecheck
+        working-directory: ${{ inputs.working-directory }}
 
   build:
     name: build
@@ -150,7 +166,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn build
+        working-directory: ${{ inputs.working-directory }}
 
   test:
     name: test
@@ -161,7 +179,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn test:coverage
+        working-directory: ${{ inputs.working-directory }}
 
   a11y:
     name: a11y
@@ -172,8 +192,11 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: npx playwright install chromium
+        working-directory: ${{ inputs.working-directory }}
       - run: yarn a11y
+        working-directory: ${{ inputs.working-directory }}
 
   design-system:
     name: design-system
@@ -184,7 +207,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn design-system
+        working-directory: ${{ inputs.working-directory }}
 
   dead-code:
     name: dead-code
@@ -195,7 +220,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn dead-code
+        working-directory: ${{ inputs.working-directory }}
 
   duplicate-code:
     name: duplicate-code
@@ -206,7 +233,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn duplicate-code
+        working-directory: ${{ inputs.working-directory }}
 
   run-e2e-tests:
     name: run-e2e-tests
@@ -217,8 +246,11 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: npx playwright install chromium
+        working-directory: ${{ inputs.working-directory }}
       - run: yarn run-e2e-scan
+        working-directory: ${{ inputs.working-directory }}
 
   react-tech-debt:
     name: react-tech-debt
@@ -229,7 +261,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn react-tech-debt
+        working-directory: ${{ inputs.working-directory }}
 
   max-lines:
     name: max-lines
@@ -240,7 +274,9 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
       - run: yarn max-lines
+        working-directory: ${{ inputs.working-directory }}
 
   deploy:
     name: deploy

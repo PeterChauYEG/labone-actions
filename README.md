@@ -44,6 +44,27 @@ jobs:
       # enable_e2e: false
 ```
 
+For a monorepo where the Next.js/yarn app doesn't live at the repo root, set
+`working-directory`. For example, `chuunibyou` keeps its app under
+`prototype/`:
+
+```yaml
+name: Develop CI
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-ci.yml@main
+    secrets: inherit
+    with:
+      working-directory: prototype
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+```
+
 And `main.yml`:
 
 ```yaml
@@ -114,6 +135,14 @@ Pin to a tag/SHA instead of `@main` once this repo starts cutting releases;
 
 Inputs (all `workflow_call` inputs, `enable_*` default `true`):
 
+- `working-directory` (string, default `.`) — directory (relative to the
+  repo root) the Next.js/yarn app lives in. Defaults to the repo root so
+  every existing caller keeps working with zero changes; set it for a
+  monorepo caller, e.g. `working-directory: prototype`. Threaded through to
+  `setup-node-yarn`/`restore-deps` (install, Node version detection, yarn
+  cache path, lockfile hash key, `node_modules` archive location), every
+  `yarn <script>` step (via the step's `working-directory:` property), and
+  `scan-with-report` (script working directory + report-file path prefix).
 - `pr_number` (number) — for concurrency grouping + Linear ticket linking.
 - `pr_url` (string) — for Linear ticket linking.
 - `is_dependabot` (boolean) — caller-computed; skips every job below
@@ -137,8 +166,9 @@ dedup" below.
 
 ### `main-ci.yml` — inputs and jobs
 
-Same `enable_*`/`is_dependabot` inputs as `develop-ci.yml` (no `pr_number`/
-`pr_url` — there's no PR at push-to-main time), plus:
+Same `working-directory`/`enable_*`/`is_dependabot` inputs as
+`develop-ci.yml` (no `pr_number`/`pr_url` — there's no PR at push-to-main
+time), plus:
 
 - `enable_deploy` (boolean, default `true`)
 - `dokku_remote_url` (string) — required if `enable_deploy` is true.
@@ -174,6 +204,10 @@ not just a cache-key fix:
    `yarn install --frozen-lockfile`, then upload `node_modules` (+
    `.next/cache` if present) as a build artifact named
    `deps-${{ github.run_id }}` — see `.github/actions/setup-node-yarn/action.yml`.
+   All of the paths involved (Node version detection, the Yarn cache dirs,
+   the `yarn.lock` hash key, and the `node_modules`/`.next/cache` archive
+   paths) are qualified with the `working-directory` input, defaulting to
+   `.` so this is a no-op for every existing root-level caller.
 2. Every other job `needs: setup` and downloads that artifact instead of
    installing — see `.github/actions/restore-deps/action.yml`.
 
