@@ -15,7 +15,8 @@ these workflows.
 | `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. |
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
-| `.github/workflows/dependabot-automerge.yml` | not reusable — copy the job or call it directly (see below) | Auto-merges dependabot minor/patch PRs. |
+| `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
+| `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
 ### Caller pattern
 
@@ -59,6 +60,38 @@ jobs:
       dokku_remote_url: 'ssh://dokku@192.168.1.31:22/<app-name>'
 ```
 
+And `dependabot-automerge.yml`:
+
+```yaml
+name: Dependabot Auto-merge
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  automerge:
+    uses: PeterChauYEG/labone-actions/.github/workflows/dependabot-automerge.yml@main
+    secrets: inherit
+```
+
+And `version-bump.yml` (requires the caller repo to have its own
+`./scripts/bump-version.sh <new-version>` — that script is repo-specific
+(which files carry a version string varies per repo) and is deliberately
+not centralized here):
+
+```yaml
+name: Version Bump
+on:
+  schedule:
+    - cron: '0 9 * * 1,3,5'
+  workflow_dispatch:
+
+jobs:
+  version-bump:
+    uses: PeterChauYEG/labone-actions/.github/workflows/version-bump.yml@main
+    secrets: inherit
+```
+
 Pin to a tag/SHA instead of `@main` once this repo starts cutting releases;
 `@main` is fine for now while the interface is still settling.
 
@@ -82,7 +115,10 @@ Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`, `a11y`,
 every run and file/comment-on a Linear ticket (via
 `scripts/file-linear-ticket.sh`) when they fail; `react-tech-debt` and
 `max-lines` only post the sticky comment (no ticket), matching prior
-per-repo behavior.
+per-repo behavior. Internally, each of these 7 jobs is just a
+`restore-deps` call followed by one call to the
+`.github/actions/scan-with-report` composite action — see "Scan job
+dedup" below.
 
 ### `main-ci.yml` — inputs and jobs
 
@@ -144,6 +180,53 @@ none of the current jobs are), it's fine for that job to opt out of
 `needs: setup` and install directly; the composite actions don't assume
 they're the only way to get dependencies in place.
 
+## Scan job dedup — `.github/actions/scan-with-report`
+
+`develop-ci.yml`'s 7 scan jobs (`a11y`, `design-system`, `dead-code`,
+`duplicate-code`, `run-e2e-tests`, `react-tech-debt`, `max-lines`) all
+follow the same shape: run a yarn script that writes a markdown report,
+post/update a sticky PR comment with that report regardless of outcome,
+optionally file/comment-on a Linear ticket on failure, then fail the job if
+the script failed. That's factored into
+`.github/actions/scan-with-report/action.yml`, a composite action with
+inputs:
+
+- `script` (required) — yarn script to run.
+- `report-file` (required) — markdown report path the script writes.
+- `sticky-header` (required) — unique sticky-pull-request-comment header.
+- `job-name` (required) — first arg to `scripts/file-linear-ticket.sh`
+  (note `run-e2e-tests`'s `job-name` is `e2e`, not `run-e2e-tests`, matching
+  prior behavior).
+- `file-ticket` (boolean-as-string, default `'true'`) — set `'false'` for
+  `react-tech-debt`/`max-lines`, which only get the sticky comment.
+- `pr-number` / `pr-url` (string) — forwarded from the caller's inputs.
+- `playwright` (boolean-as-string, default `'false'`) — set `'true'` for
+  `a11y`/`run-e2e-tests` to install Playwright's chromium first.
+- `linear-api-key` (string, default `''`) — composite actions can't see the
+  caller's `secrets` context directly, so each job passes
+  `secrets.LINEAR_API_KEY` in explicitly.
+
+Each of the 7 scan jobs in `develop-ci.yml` now shrinks to its
+`needs`/`runs-on`/`if`/`permissions` header, a `restore-deps` call, and one
+`scan-with-report` call. `scripts/file-linear-ticket.sh` is invoked with a
+bare relative path (`bash scripts/file-linear-ticket.sh ...`), same as
+before the extraction — this still resolves correctly because every caller
+repo keeps its own copy of that script at `scripts/file-linear-ticket.sh`
+(it's not part of labone-actions' own checkout at runtime; reusable
+workflows and the composite actions they call run with the *caller's*
+repo checked out as the working directory, not labone-actions' own).
+
+The `continue-on-error` + `steps.scan.outcome == 'failure'` + final `exit 1`
+pattern still works correctly inside a composite action: composite action
+steps execute in the same job/runner context as the caller, with their own
+scoped `steps` context, so a step failing (via that final `exit 1`) still
+fails the containing job exactly as it did when the steps were written
+inline. Verified with `actionlint`.
+
+`main-ci.yml`'s equivalent jobs (no sticky comments, no ticket filing) are
+already minimal 2-step bodies and were left as-is — not worth
+composite-izing further.
+
 ## `security-scan.yml`
 
 Unchanged. Reusable, `workflow_call` input `scan-ref` (string, default
@@ -151,9 +234,29 @@ Unchanged. Reusable, `workflow_call` input `scan-ref` (string, default
 
 ## `dependabot-automerge.yml`
 
-Left as a standalone (non-reusable) workflow rather than converting it to
-`workflow_call`. It's already tiny (one job, no yarn/build dependency) and
-every consumer wants the same behavior with no meaningful variation to
-parameterize — turning it into a reusable workflow would add an extra
-indirection layer for no real flexibility gain. Copy the file as-is into a
-consumer repo's `.github/workflows/` if it needs auto-merge.
+Now a `workflow_call` reusable workflow (previously a standalone,
+non-reusable workflow that consumer repos had to copy verbatim). Converged
+from three near-identical copies — this repo's own prior version (no
+`--delete-branch`, PR-URL-based merge, `[opened, synchronize]` trigger) and
+laboratory-one-web's/ai-harness-web's byte-identical copies
+(`--delete-branch`, PR-number-based merge,
+`[opened, synchronize, reopened]` trigger) — keeping `--delete-branch` and
+the three-event trigger, since those matched 2 of the 3 prior copies. No
+`workflow_call` inputs: none of the three copies varied in anything worth
+parameterizing. Call it with `secrets: inherit`; see the caller example
+above.
+
+## `version-bump.yml`
+
+Now a `workflow_call` reusable workflow, converged from
+laboratory-one-web's and ai-harness-web's byte-identical
+`.github/workflows/version-bump.yml`. CalVer-bumps the caller repo on a
+schedule (or `workflow_dispatch`), opens+auto-merges a PR, tags a release,
+and fakes `lint`/`ls-lint`/`typecheck`/`build`/`test` check-runs as skipped
+(hardcoded — both existing callers use exactly this same 5-name set, so an
+input wasn't added for it; add one later if a caller ever needs a different
+set). **Depends on the caller repo providing its own
+`./scripts/bump-version.sh <new-version>`** — that script actually rewrites
+version strings in the repo's files, which varies per repo, so it is
+deliberately not centralized here. Call it with `secrets: inherit`; see the
+caller example above.

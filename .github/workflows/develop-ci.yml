@@ -105,7 +105,7 @@ jobs:
     name: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@feat/reusable-web-ci
+      - uses: ./.github/actions/setup-node-yarn
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
 
@@ -114,7 +114,7 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint
@@ -125,7 +125,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint:ls
@@ -135,7 +135,7 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn typecheck
@@ -146,7 +146,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn build
@@ -157,7 +157,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn test:coverage
@@ -171,30 +171,19 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: node node_modules/playwright/cli.js install chromium
-      - run: yarn a11y
-        id: scan
-        continue-on-error: true
-      - uses: marocchino/sticky-pull-request-comment@v3
-        if: always()
+      - uses: ./.github/actions/scan-with-report
         with:
-          number: ${{ inputs.pr_number }}
-          header: a11y-scan
-          path: a11y-report.md
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/file-linear-ticket.sh a11y a11y-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+          script: a11y
+          report-file: a11y-report.md
+          sticky-header: a11y-scan
+          job-name: a11y
+          playwright: 'true'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
 
   design-system:
     name: design-system
@@ -205,29 +194,18 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: yarn design-system
-        id: scan
-        continue-on-error: true
-      - uses: marocchino/sticky-pull-request-comment@v3
-        if: always()
+      - uses: ./.github/actions/scan-with-report
         with:
-          number: ${{ inputs.pr_number }}
-          header: design-system-scan
-          path: design-system-report.md
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/file-linear-ticket.sh design-system design-system-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+          script: design-system
+          report-file: design-system-report.md
+          sticky-header: design-system-scan
+          job-name: design-system
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
 
   dead-code:
     name: dead-code
@@ -238,29 +216,18 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: yarn dead-code
-        id: scan
-        continue-on-error: true
-      - uses: marocchino/sticky-pull-request-comment@v3
-        if: always()
+      - uses: ./.github/actions/scan-with-report
         with:
-          number: ${{ inputs.pr_number }}
-          header: dead-code-scan
-          path: dead-code-report.md
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+          script: dead-code
+          report-file: dead-code-report.md
+          sticky-header: dead-code-scan
+          job-name: dead-code
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
 
   duplicate-code:
     name: duplicate-code
@@ -271,32 +238,21 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: yarn duplicate-code
-        id: scan
-        continue-on-error: true
-      - uses: marocchino/sticky-pull-request-comment@v3
-        if: always()
-        with:
-          number: ${{ inputs.pr_number }}
-          header: duplicate-code-scan
-          path: duplicate-code-report.md
       # Standardized to file a ticket like the other scans do (one of the
       # two source repos this was consolidated from skipped this step,
       # which was an inconsistency, not a deliberate choice - see README.md).
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/file-linear-ticket.sh duplicate-code duplicate-code-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+      - uses: ./.github/actions/scan-with-report
+        with:
+          script: duplicate-code
+          report-file: duplicate-code-report.md
+          sticky-header: duplicate-code-scan
+          job-name: duplicate-code
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
 
   run-e2e-tests:
     name: run-e2e-tests
@@ -307,30 +263,19 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: node node_modules/playwright/cli.js install chromium
-      - run: yarn run-e2e-scan
-        id: scan
-        continue-on-error: true
-      - uses: marocchino/sticky-pull-request-comment@v3
-        if: always()
+      - uses: ./.github/actions/scan-with-report
         with:
-          number: ${{ inputs.pr_number }}
-          header: e2e-scan
-          path: e2e-report.md
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/file-linear-ticket.sh e2e e2e-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+          script: run-e2e-scan
+          report-file: e2e-report.md
+          sticky-header: e2e-scan
+          job-name: e2e
+          playwright: 'true'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
 
   react-tech-debt:
     name: react-tech-debt
@@ -341,20 +286,18 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: yarn react-tech-debt
-        id: scan
-        continue-on-error: true
-      - uses: marocchino/sticky-pull-request-comment@v3
-        if: always()
+      - uses: ./.github/actions/scan-with-report
         with:
-          number: ${{ inputs.pr_number }}
-          header: react-tech-debt-scan
-          path: react-tech-debt-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+          script: react-tech-debt
+          report-file: react-tech-debt-report.md
+          sticky-header: react-tech-debt-scan
+          job-name: react-tech-debt
+          file-ticket: 'false'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
 
   max-lines:
     name: max-lines
@@ -365,17 +308,15 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@feat/reusable-web-ci
+      - uses: ./.github/actions/restore-deps
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - run: yarn max-lines
-        id: scan
-        continue-on-error: true
-      - uses: marocchino/sticky-pull-request-comment@v3
-        if: always()
+      - uses: ./.github/actions/scan-with-report
         with:
-          number: ${{ inputs.pr_number }}
-          header: max-lines-scan
-          path: max-lines-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+          script: max-lines
+          report-file: max-lines-report.md
+          sticky-header: max-lines-scan
+          job-name: max-lines
+          file-ticket: 'false'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
