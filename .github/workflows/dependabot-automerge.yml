@@ -1,8 +1,22 @@
 name: Dependabot Auto-merge
 
+# Reusable workflow_call version of dependabot auto-merge. Callers are thin
+# wrappers: `on: pull_request` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/dependabot-automerge.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example.
+#
+# Converged from three near-identical copies: this repo's own prior
+# standalone version (no --delete-branch, PR-URL-based merge), plus
+# laboratory-one-web's and ai-harness-web's byte-identical copies (both use
+# --delete-branch + PR-number-based merge, and trigger on
+# [opened, synchronize, reopened] rather than [opened, synchronize]).
+# Kept --delete-branch (matches 2 of the 3 prior copies, and is generally
+# the better default), and [opened, synchronize, reopened] for the same
+# reason. No workflow_call inputs are needed: none of the three copies
+# varied in anything a caller would plausibly want to override.
+
 on:
-  pull_request:
-    types: [opened, synchronize]
+  workflow_call: {}
 
 permissions:
   contents: write
@@ -24,7 +38,7 @@ jobs:
         if: |
           steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
           steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

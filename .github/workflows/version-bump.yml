@@ -1,0 +1,187 @@
+name: Version Bump
+
+# Reusable CalVer version-bump workflow. Callers are thin wrappers: `on:
+# schedule` + `workflow_dispatch` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/version-bump.yml@main` with
+# `secrets: inherit`. See README.md for the full caller example.
+#
+# Converged from laboratory-one-web's and ai-harness-web's byte-identical
+# `.github/workflows/version-bump.yml` (verified via diff against
+# laboratory-one-web's copy at the time this was written).
+#
+# IMPORTANT — this workflow depends on the caller repo providing
+# `./scripts/bump-version.sh <new-version>`, which actually rewrites the
+# version in the repo's own files (package.json etc). That script is
+# deliberately NOT centralized here: it's repo-specific (which files carry a
+# version string varies per repo), so every caller must have its own copy at
+# that exact path.
+
+run-name: Version Bump (CalVer)
+
+on:
+  workflow_call: {}
+
+concurrency:
+  group: version-bump-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+  actions: read
+
+jobs:
+  version-bump:
+    name: version-bump
+    runs-on: [self-hosted, catfood]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for new commits since last bump
+        id: check
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || echo "")
+          if [[ -z "$LAST_TAG" ]]; then
+            echo "No previous tag found, proceeding with bump"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          NEW_COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline | grep -v "chore: bump version" || true)
+          if [[ -z "$NEW_COMMITS" ]]; then
+            echo "No new commits since ${LAST_TAG}, skipping version bump"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New commits found since ${LAST_TAG}, proceeding with bump"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate CalVer version
+        if: steps.check.outputs.bumped == 'true'
+        id: calver
+        run: |
+          YEAR=$(date +%y)
+          MONTH=$(date +%-m)
+          DAY=$(date +%-d)
+          CALVER_BASE="${YEAR}.${MONTH}${DAY}"
+
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          if [[ "$CURRENT_VERSION" == "${CALVER_BASE}."* ]]; then
+            PATCH=$(echo "$CURRENT_VERSION" | cut -d'.' -f3)
+            if [[ -z "$PATCH" ]]; then
+              PATCH=0
+            fi
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="${CALVER_BASE}.${NEW_PATCH}"
+          else
+            NEW_VERSION="${CALVER_BASE}.0"
+          fi
+
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "New version: $NEW_VERSION"
+
+      - name: Bump version in all files
+        if: steps.check.outputs.bumped == 'true'
+        run: ./scripts/bump-version.sh ${{ steps.calver.outputs.new_version }}
+
+      - name: Install gh CLI
+        if: steps.check.outputs.bumped == 'true'
+        run: |
+          command -v gh >/dev/null 2>&1 || (
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg &&
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&
+            sudo apt-get update -q &&
+            sudo apt-get install -y gh
+          )
+
+      - name: Clean up stale CalVer branches
+        if: steps.check.outputs.bumped == 'true'
+        run: |
+          git fetch --prune origin
+          git for-each-ref --format='%(refname:short)' refs/remotes/origin/ci/calver- \
+            | sed 's|^origin/||' \
+            | grep -v "^ci/calver-${{ steps.calver.outputs.new_version }}$" \
+            | while IFS= read -r branch; do
+                if git push origin --delete "$branch" 2>/dev/null; then
+                  echo "Deleted stale branch: $branch"
+                fi
+              done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit version bump via PR
+        if: steps.check.outputs.bumped == 'true'
+        run: |
+          NEW_VERSION="${{ steps.calver.outputs.new_version }}"
+          BRANCH="ci/calver-${NEW_VERSION}"
+          REPO="${{ github.repository }}"
+          API="https://api.github.com"
+
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "GitHub Actions"
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+          git add package.json
+          git commit -m "chore: bump version to ${NEW_VERSION} [skip ci]"
+          git push origin "$BRANCH"
+
+          HEAD_SHA=$(git rev-parse HEAD)
+
+          for CHECK_NAME in lint ls-lint typecheck build test; do
+            curl -sf -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${API}/repos/${REPO}/check-runs" \
+              -d "{\"name\":\"${CHECK_NAME}\",\"head_sha\":\"${HEAD_SHA}\",\"status\":\"completed\",\"conclusion\":\"success\",\"output\":{\"title\":\"Skipped for automated version bump\",\"summary\":\"This check is skipped for automated CalVer version bump commits which only modify package.json.\"}}" \
+              > /dev/null || true
+          done
+
+          PR_RESPONSE=$(curl -sf -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${API}/repos/${REPO}/pulls" \
+            -d "{\"title\":\"chore: bump version to ${NEW_VERSION} [skip ci]\",\"body\":\"Automated CalVer version bump to ${NEW_VERSION}.\",\"head\":\"${BRANCH}\",\"base\":\"main\"}")
+
+          PR_NUMBER=$(echo "$PR_RESPONSE" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).number))")
+
+          if ! curl -sf -X PUT \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${API}/repos/${REPO}/pulls/${PR_NUMBER}/auto_merge" \
+              -d '{"merge_method":"squash"}' \
+              > /dev/null 2>&1; then
+            curl -sf -X PUT \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${API}/repos/${REPO}/pulls/${PR_NUMBER}/merge" \
+              -d "{\"merge_method\":\"squash\",\"commit_title\":\"chore: bump version to ${NEW_VERSION} [skip ci]\"}" \
+              > /dev/null
+            curl -sf -X DELETE \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${API}/repos/${REPO}/git/refs/heads/${BRANCH}" \
+              > /dev/null || true
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Git Tag
+        if: steps.check.outputs.bumped == 'true'
+        uses: pkgdeps/git-tag-action@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_repo: ${{ github.repository }}
+          version: ${{ steps.calver.outputs.new_version }}
+          git_commit_sha: ${{ github.sha }}
+          git_tag_prefix: 'v'

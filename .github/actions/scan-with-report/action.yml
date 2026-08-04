@@ -1,0 +1,86 @@
+name: Scan with sticky-comment report (+ optional Linear ticket)
+description: >
+  Shared body for develop-ci.yml's scan jobs (a11y, design-system, dead-code,
+  duplicate-code, run-e2e-tests, react-tech-debt, max-lines): run a yarn
+  script that writes a markdown report, post/update a sticky PR comment with
+  that report regardless of outcome, optionally file/comment-on a Linear
+  ticket when the script fails, then fail the containing job if the script
+  failed. Callers must run the sibling `restore-deps` action first — this
+  action does not restore deps itself, since every caller in develop-ci.yml
+  already does that as its own step (some jobs also need e.g. `permissions:
+  pull-requests: write` set on the job, which a composite action can't set
+  for its caller).
+
+inputs:
+  script:
+    description: yarn script to run, e.g. `a11y`, `design-system`.
+    required: true
+  report-file:
+    description: Path to the markdown report the script writes, e.g. `a11y-report.md`.
+    required: true
+  sticky-header:
+    description: Unique header for the sticky-pull-request-comment, e.g. `a11y-scan`.
+    required: true
+  job-name:
+    description: >
+      Job name passed as the first arg to `scripts/file-linear-ticket.sh`,
+      e.g. `a11y`, `e2e` (note: `run-e2e-tests`'s job-name is `e2e`, not
+      `run-e2e-tests`, matching prior behavior).
+    required: true
+  file-ticket:
+    description: Whether to file/comment-on a Linear ticket when the scan fails.
+    required: false
+    default: 'true'
+  pr-number:
+    description: github.event.pull_request.number from the top-level caller.
+    required: false
+    default: ''
+  pr-url:
+    description: github.event.pull_request.html_url from the top-level caller.
+    required: false
+    default: ''
+  playwright:
+    description: Whether to install Playwright's chromium browser before running the scan.
+    required: false
+    default: 'false'
+  linear-api-key:
+    description: >
+      Linear GraphQL API key, forwarded to `scripts/file-linear-ticket.sh`.
+      Composite actions can't see the caller's `secrets` context directly, so
+      the calling job must pass `secrets.LINEAR_API_KEY` in explicitly.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.playwright == 'true'
+      shell: bash
+      run: node node_modules/playwright/cli.js install chromium
+
+    - run: yarn ${{ inputs.script }}
+      id: scan
+      shell: bash
+      continue-on-error: true
+
+    - uses: marocchino/sticky-pull-request-comment@v3
+      if: always()
+      with:
+        number: ${{ inputs.pr-number }}
+        header: ${{ inputs.sticky-header }}
+        path: ${{ inputs.report-file }}
+
+    - name: File Linear ticket for failure
+      if: steps.scan.outcome == 'failure' && inputs.file-ticket == 'true'
+      shell: bash
+      env:
+        LINEAR_API_KEY: ${{ inputs.linear-api-key }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        PR_URL: ${{ inputs.pr-url }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: bash scripts/file-linear-ticket.sh ${{ inputs.job-name }} ${{ inputs.report-file }}
+
+    - if: steps.scan.outcome == 'failure'
+      shell: bash
+      run: exit 1
