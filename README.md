@@ -16,6 +16,7 @@ these workflows.
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
 | `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
+| `.github/workflows/godot-develop-ci.yml` | `pull_request` | fmt/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
@@ -453,6 +454,81 @@ jobs:
     secrets: inherit
     with:
       trivyignores: '.trivyignore.yaml'
+```
+
+## `godot-develop-ci.yml`
+
+Reusable PR-time CI for Godot 4/GDScript repos, mirroring `develop-ci.yml`'s
+caller pattern for the web stack. `workflow_call` inputs:
+
+- `working-directory` (string, default `.`) — directory the Godot project
+  lives in, for monorepo callers.
+- `pr_number` / `pr_url` (number / string) — forwarded from the caller's
+  `github.event.pull_request` context (needed for the Linear ticket-filing
+  and sticky PR comment steps below).
+- `is_dependabot` (boolean, default `false`) — caller must compute this
+  from `github.event.pull_request.user.login`. `fmt`/`lint` always run in
+  full (there's no separate build/typecheck concept in GDScript);
+  `duplicate-code` and `test` are skipped for dependabot PRs, the same way
+  `develop-ci.yml` gates its optional scan jobs.
+- `enable_test` (boolean, default `true`) — run GUT tests under
+  `tests-path`. Set `false` only for repos that structurally can't run GUT
+  standalone (e.g. a plugin monorepo whose `class_name` symbols only
+  resolve inside a separate host project) — document why in the caller.
+- `tests-path` (string, default `tests`) — GUT test directory, relative to
+  `working-directory`.
+
+Jobs:
+
+- `fmt` — `gdformat --check .`, gated on `.gdlintrc`-adjacent gdtoolkit
+  install via the `setup-gdtoolkit` composite action.
+- `lint` — `gdlint .` against this repo's canonical, intentionally strict
+  `.gdlintrc`.
+- `duplicate-code` — `jscpd` against the caller repo's own `.jscpd.json`,
+  with a sticky PR comment posted from the generated report.
+- `test` — runs GUT (`addons/gut/gut_cmdln.gd`) headless against
+  `tests-path`.
+
+`fmt`, `lint`, and `duplicate-code` are mandatory — unlike `develop-ci.yml`'s
+optional web scan jobs, there's no `enable_*` toggle for them, because the
+whole point of this workflow is a floor every Godot repo shares. `test` is
+the one job that flexes, via `enable_test`, for repos that structurally
+can't run GUT standalone.
+
+`fmt`/`lint`/`duplicate-code`/`test` each file a Linear ticket on failure by
+invoking `scripts/file-linear-ticket.sh` with a bare relative path, the same
+convention `develop-ci.yml`'s plain (non-composite-action) jobs use — every
+caller repo keeps its own copy of that script at
+`scripts/file-linear-ticket.sh`.
+
+**Never keep a `.gdlintrc` in a consumer repo.** The `setup-gdtoolkit`
+composite action installs (and overwrites) this repo's canonical
+`.gdlintrc` into `working-directory` on every run — see the action's own
+description in `.github/actions/setup-gdtoolkit/action.yml`. That's what
+makes "change GDScript lint rules in one place" actually true instead of
+aspirational: a local `.gdlintrc` in a caller repo would silently take
+precedence over gdlint's own config discovery and reintroduce exactly the
+per-repo drift this workflow exists to eliminate.
+
+Caller example:
+
+```yaml
+name: Develop CI
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+  security:
+    uses: PeterChauYEG/labone-actions/.github/workflows/security-scan.yml@main
+    secrets: inherit
 ```
 
 ## `version-bump.yml`
