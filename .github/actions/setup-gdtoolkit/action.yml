@@ -1,0 +1,27 @@
+name: Setup gdtoolkit
+description: >
+  Install gdtoolkit (gdformat/gdlint) pinned to a fixed version, and install this repo's
+  canonical, intentionally strict .gdlintrc into the caller's working directory —
+  overwriting anything the caller repo has locally. This is what makes "change GDScript
+  lint rules in one place" true: consumer repos must not keep their own .gdlintrc.
+
+inputs:
+  working-directory:
+    description: Directory (relative to the repo root) the Godot project lives in.
+    required: false
+    default: '.'
+  gdtoolkit-version:
+    description: Pinned gdtoolkit version.
+    required: false
+    default: '4.5.0'
+
+runs:
+  using: composite
+  steps:
+    - name: Install gdtoolkit
+      shell: bash
+      run: pip3 install --break-system-packages "gdtoolkit==${{ inputs.gdtoolkit-version }}"
+
+    - name: Install canonical .gdlintrc
+      shell: bash
+      run: cp "${{ github.action_path }}/gdlintrc" "${{ inputs.working-directory }}/.gdlintrc"

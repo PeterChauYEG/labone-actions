@@ -1,0 +1,186 @@
+name: Godot Develop CI
+
+# Reusable PR-time CI for Godot 4/GDScript repos. Callers are thin wrappers:
+# `on: pull_request` -> `uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main`
+# with `secrets: inherit`. Mirrors develop-ci.yml's caller pattern for the web stack.
+#
+# fmt/lint/duplicate-code are the mandatory quality gate for this stack — no enable_* toggle,
+# unlike develop-ci.yml's optional web scan jobs, because the whole point of this workflow is an
+# "insanely restrictive" floor every Godot repo shares. `test` (GUT) is the one job that flexes:
+# plugin-monorepo repos without a host project (see mini-games) can't run GUT standalone — set
+# enable_test: false there, with a comment explaining why, rather than adding a fake/no-op job.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Godot project lives in.
+        type: string
+        required: false
+        default: '.'
+      pr_number:
+        type: number
+        required: false
+        default: 0
+      pr_url:
+        type: string
+        required: false
+        default: ''
+      is_dependabot:
+        description: >
+          Whether this PR was opened by dependabot[bot]. Caller must compute this from
+          github.event.pull_request.user.login. fmt/lint always run in full (no separate
+          build/typecheck concept in GDScript); duplicate-code and test are skipped for
+          dependabot PRs the same way develop-ci.yml gates its optional scan jobs.
+        type: boolean
+        required: false
+        default: false
+      enable_test:
+        description: >
+          Run GUT tests under `tests-path`. Default true. Set false only for repos that
+          structurally can't run GUT standalone (e.g. a plugin monorepo whose class_name
+          symbols only resolve inside a separate host project) — document why in the caller.
+        type: boolean
+        required: false
+        default: true
+      tests-path:
+        description: GUT test directory, relative to working-directory.
+        type: string
+        required: false
+        default: 'tests'
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: [self-hosted, catfood]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-gdtoolkit@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - name: Check formatting
+        id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          gdformat --check . 2>&1 | tee fmt-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh fmt fmt-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  lint:
+    name: lint
+    runs-on: [self-hosted, catfood]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-gdtoolkit@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - name: Lint
+        id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          gdlint . 2>&1 | tee lint-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh lint lint-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  duplicate-code:
+    name: duplicate-code
+    runs-on: [self-hosted, catfood]
+    timeout-minutes: 10
+    if: ${{ !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Run duplicate-code scan
+        id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: npx --yes jscpd@5.0.12 -c .jscpd.json
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/report/jscpd-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: duplicate-code-scan
+          path: ${{ inputs.working-directory }}/report/jscpd-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh duplicate-code report/jscpd-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  test:
+    name: test
+    runs-on: [self-hosted, catfood]
+    timeout-minutes: 30
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run GUT tests
+        id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          godot --headless --path . -s addons/gut/gut_cmdln.gd \
+            -gdir=res://${{ inputs.tests-path }}/ -gexit 2>&1 | tee test-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh test test-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
