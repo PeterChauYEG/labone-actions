@@ -4,7 +4,7 @@ name: Godot Develop CI
 # `on: pull_request` -> `uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main`
 # with `secrets: inherit`. Mirrors develop-ci.yml's caller pattern for the web stack.
 #
-# fmt/lint/duplicate-code are the mandatory quality gate for this stack — no enable_* toggle,
+# format/lint/duplicate-code are the mandatory quality gate for this stack — no enable_* toggle,
 # unlike develop-ci.yml's optional web scan jobs, because the whole point of this workflow is an
 # "insanely restrictive" floor every Godot repo shares. `test` (GUT) is the one job that flexes:
 # plugin-monorepo repos without a host project (see mini-games) can't run GUT standalone — set
@@ -29,7 +29,7 @@ on:
       is_dependabot:
         description: >
           Whether this PR was opened by dependabot[bot]. Caller must compute this from
-          github.event.pull_request.user.login. fmt/lint always run in full (no separate
+          github.event.pull_request.user.login. format/lint always run in full (no separate
           build/typecheck concept in GDScript); duplicate-code and test are skipped for
           dependabot PRs the same way develop-ci.yml gates its optional scan jobs.
         type: boolean
@@ -53,8 +53,8 @@ permissions:
   contents: read
 
 jobs:
-  fmt:
-    name: fmt
+  format:
+    name: format
     runs-on: [self-hosted, catfood]
     timeout-minutes: 10
     permissions:
@@ -71,7 +71,7 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         run: |
           set -o pipefail
-          gdformat --check . 2>&1 | tee fmt-report.md
+          gdformat --check . 2>&1 | tee format-report.md
       - name: File Linear ticket for failure
         if: steps.scan.outcome == 'failure'
         env:
@@ -81,7 +81,7 @@ jobs:
           PR_URL: ${{ inputs.pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh fmt fmt-report.md
+        run: bash scripts/file-linear-ticket.sh format format-report.md
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 

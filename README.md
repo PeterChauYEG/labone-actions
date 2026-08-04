@@ -16,7 +16,7 @@ these workflows.
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
 | `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
-| `.github/workflows/godot-develop-ci.yml` | `pull_request` | fmt/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
+| `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
@@ -482,7 +482,7 @@ caller pattern for the web stack. `workflow_call` inputs:
   `github.event.pull_request` context (needed for the Linear ticket-filing
   and sticky PR comment steps below).
 - `is_dependabot` (boolean, default `false`) — caller must compute this
-  from `github.event.pull_request.user.login`. `fmt`/`lint` always run in
+  from `github.event.pull_request.user.login`. `format`/`lint` always run in
   full (there's no separate build/typecheck concept in GDScript);
   `duplicate-code` and `test` are skipped for dependabot PRs, the same way
   `develop-ci.yml` gates its optional scan jobs.
@@ -495,7 +495,7 @@ caller pattern for the web stack. `workflow_call` inputs:
 
 Jobs:
 
-- `fmt` — `gdformat --check .`, gated on `.gdlintrc`-adjacent gdtoolkit
+- `format` — `gdformat --check .`, gated on `.gdlintrc`-adjacent gdtoolkit
   install via the `setup-gdtoolkit` composite action.
 - `lint` — `gdlint .` against this repo's canonical, intentionally strict
   `.gdlintrc`.
@@ -504,13 +504,13 @@ Jobs:
 - `test` — runs GUT (`addons/gut/gut_cmdln.gd`) headless against
   `tests-path`.
 
-`fmt`, `lint`, and `duplicate-code` are mandatory — unlike `develop-ci.yml`'s
+`format`, `lint`, and `duplicate-code` are mandatory — unlike `develop-ci.yml`'s
 optional web scan jobs, there's no `enable_*` toggle for them, because the
 whole point of this workflow is a floor every Godot repo shares. `test` is
 the one job that flexes, via `enable_test`, for repos that structurally
 can't run GUT standalone.
 
-`fmt`/`lint`/`duplicate-code`/`test` each file a Linear ticket on failure by
+`format`/`lint`/`duplicate-code`/`test` each file a Linear ticket on failure by
 invoking `scripts/file-linear-ticket.sh` with a bare relative path, the same
 convention `develop-ci.yml`'s plain (non-composite-action) jobs use — every
 caller repo keeps its own copy of that script at
