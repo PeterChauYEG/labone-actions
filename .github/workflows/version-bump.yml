@@ -21,6 +21,10 @@ run-name: Version Bump (CalVer)
 on:
   workflow_call: {}
 
+# This workflow owns its concurrency group — do NOT also declare
+# `concurrency:` in the caller with this same group. See main-ci.yml's
+# identical comment for why (a caller + its nested workflow_call sharing one
+# group name deadlocks) and README.md "Concurrency" for the full writeup.
 concurrency:
   group: version-bump-${{ github.repository }}
   cancel-in-progress: false

@@ -180,6 +180,47 @@ none of the current jobs are), it's fine for that job to opt out of
 `needs: setup` and install directly; the composite actions don't assume
 they're the only way to get dependencies in place.
 
+## Concurrency
+
+There are **two separate, non-conflicting concurrency mechanisms** in play
+here — don't confuse them:
+
+1. **GitHub Actions `concurrency:` groups** (per-workflow YAML). `main-ci.yml`
+   and `version-bump.yml` each declare their own group
+   (`main-ci-${{ github.repository }}` / `version-bump-${{ github.repository }}`)
+   to stop overlapping *runs of that same reusable workflow* from piling up
+   (e.g. two rapid pushes to `main`, or a scheduled version-bump firing while
+   the previous one is still open). **These reusable workflows own their
+   group — callers must not also declare a `concurrency:` block with the
+   same group.** A caller and the nested `workflow_call` it triggers are not
+   independent runs GitHub can queue against each other; they're parent and
+   child of the same run. Two `concurrency:` blocks resolving to the same
+   group across that parent/child boundary deadlocks (the parent holds the
+   group and won't release it until the child finishes, but the child can't
+   start until it acquires that same group) and GitHub cancels the run. This
+   happened in production on `laboratory-one-web`'s `main.yml` (2026-08-04) —
+   it redeclared `main-ci-${{ github.repository }}` on top of `main-ci.yml`'s
+   own, and every push-to-main deploy got canceled until the caller's
+   duplicate was removed. `develop-ci.yml` has no group of its own for this
+   reason — concurrency for PR runs is owned entirely by the caller instead
+   (grouped per PR number, which the reusable workflow can't see from its own
+   context anyway).
+2. **The gha-runner host's job-concurrency semaphore** (`ci-semaphore-acquire.sh`
+   / `ci-semaphore-release.sh`, provisioned by the `gha-runners` skill in ops)
+   — a *global* cap (`GLOBAL_CI_CONCURRENCY`, default 8) and a *per-repo* cap
+   (`REPO_CI_CONCURRENCY`, default 2) across every self-hosted `catfood`
+   runner on the host, enforced at the runner-process level via
+   `ACTIONS_RUNNER_HOOK_JOB_*` hooks — completely outside GitHub Actions'
+   own YAML. This is what actually limits how many of `main-ci.yml`'s/
+   `develop-ci.yml`'s ~12 jobs run *simultaneously* for one repo: even though
+   the job graph has no `concurrency:` block between `lint`/`typecheck`/
+   `build`/etc. and lets them all become runnable at once after `setup`
+   finishes, only `REPO_CI_CONCURRENCY` (2) actually execute at a time — the
+   rest queue at the host, invisible to the workflow YAML. Don't try to
+   "fix" that queueing by adding more `concurrency:` groups here; it's a
+   different, correctly-functioning layer, and stacking a YAML-level group
+   on top of it is exactly the mistake described in point 1.
+
 ## Scan job dedup — `.github/actions/scan-with-report`
 
 `develop-ci.yml`'s 7 scan jobs (`a11y`, `design-system`, `dead-code`,
