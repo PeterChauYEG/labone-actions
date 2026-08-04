@@ -7,6 +7,17 @@ on:
         description: Path to scan
         type: string
         default: '.'
+      trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file, passed straight through to
+          trivy-action's own `trivyignores` input. NOT auto-detected —
+          trivy-action only auto-discovers a plain `.trivyignore` in the
+          scan root; a `.trivyignore.yaml` (the structured, path-scoped
+          format) requires this input explicitly or its entries are
+          silently ignored. Empty by default (no ignore file).
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -29,3 +40,4 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          trivyignores: ${{ inputs.trivyignores }}
