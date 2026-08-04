@@ -33,6 +33,15 @@ inputs:
       artifact downstream jobs restore from).
     required: false
     default: ''
+  ssh-deploy-key:
+    description: >
+      SSH private key (e.g. secrets.LAB_GIT_DEPS_SSH_KEY) for cloning
+      private git-dependency packages during yarn install — e.g.
+      "pkg": "github:PeterChauYEG/some-private-pkg#main" in package.json.
+      Loaded into an ssh-agent before install. Leave empty (default) for
+      repos with no private git dependencies.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -56,6 +65,20 @@ runs:
         key: ${{ runner.os }}-yarn-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-yarn-
+
+    - name: Load SSH deploy key for private git dependencies
+      if: inputs.ssh-deploy-key != ''
+      uses: webfactory/ssh-agent@v0.9.1
+      with:
+        ssh-private-key: ${{ inputs.ssh-deploy-key }}
+
+    - name: Trust github.com host key
+      # Self-hosted Docker runners (unlike GitHub-hosted ones) don't ship
+      # github.com pre-populated in known_hosts, so the git-dependency
+      # clone above would otherwise fail host-key verification.
+      if: inputs.ssh-deploy-key != ''
+      shell: bash
+      run: ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
 
     - name: Install dependencies
       shell: bash

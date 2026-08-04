@@ -130,6 +130,17 @@ Inputs (all `workflow_call` inputs, `enable_*` default `true`):
   directory and every job restoring from the deps artifact fails with
   "Cannot find module". E.g. `extra_deps_paths: 'src/generated'`.
 
+No `secrets:` are declared on these `workflow_call` inputs — every caller
+uses `secrets: inherit`, so the reusable workflow reads whatever secrets
+the caller has directly. One such secret with special meaning: if a repo
+has a `LAB_GIT_DEPS_SSH_KEY` secret set (an SSH deploy key with read access
+to a private git-dependency package, e.g.
+`"eslint-plugin-lab-react-standards": "github:PeterChauYEG/eslint-plugin-lab-react-standards#main"`
+in `package.json`), `setup-node-yarn` loads it into an `ssh-agent` before
+`yarn install`. Repos without that secret get empty string, which skips
+this step entirely — zero-diff for every repo with no private git
+dependencies.
+
 Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`, `a11y`,
 `design-system`, `dead-code`, `duplicate-code`, `run-e2e-tests`,
 `react-tech-debt`, `max-lines`. Scan jobs (`a11y`, `design-system`,
