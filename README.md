@@ -16,7 +16,6 @@ these workflows.
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
-| `.github/workflows/auto-merge-agent-prs.yml` | `pull_request` | Auto-merges PRs opened from agent/Claude branches (`peterchauesq/lab-*`). |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
 ### Caller pattern
@@ -93,20 +92,6 @@ on:
 jobs:
   automerge:
     uses: PeterChauYEG/labone-actions/.github/workflows/dependabot-automerge.yml@main
-    secrets: inherit
-```
-
-And `auto-merge-agent-prs.yml`:
-
-```yaml
-name: Auto-merge agent PRs
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-jobs:
-  automerge:
-    uses: PeterChauYEG/labone-actions/.github/workflows/auto-merge-agent-prs.yml@main
     secrets: inherit
 ```
 
@@ -335,16 +320,6 @@ the three-event trigger, since those matched 2 of the 3 prior copies. No
 `workflow_call` inputs: none of the three copies varied in anything worth
 parameterizing. Call it with `secrets: inherit`; see the caller example
 above.
-
-## `auto-merge-agent-prs.yml`
-
-A `workflow_call` reusable workflow, converged from ai-harness-web's
-standalone `auto-merge-agent-prs.yml`. Unconditionally squash-merges +
-deletes the branch for any PR whose head branch starts with
-`peterchauesq/lab-` (agent/Claude-authored PRs) — no semver-bump gating
-like `dependabot-automerge.yml` has, since agent PRs don't carry that
-metadata. No `workflow_call` inputs. Call it with `secrets: inherit`; see
-the caller example above.
 
 ## `version-bump.yml`
 
