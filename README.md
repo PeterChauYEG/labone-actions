@@ -18,6 +18,7 @@ these workflows.
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | fmt/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
+| `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
 ### Caller pattern
@@ -81,6 +82,20 @@ jobs:
     with:
       is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' }}
       dokku_remote_url: 'ssh://dokku@192.168.1.31:22/<app-name>'
+```
+
+And `dependabot-automerge.yml`:
+
+```yaml
+name: Dependabot Auto-merge
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  automerge:
+    uses: PeterChauYEG/labone-actions/.github/workflows/dependabot-automerge.yml@main
+    secrets: inherit
 ```
 
 For a Node/NestJS **backend service** repo, use `develop-node-ci.yml` and
@@ -530,6 +545,19 @@ jobs:
     uses: PeterChauYEG/labone-actions/.github/workflows/security-scan.yml@main
     secrets: inherit
 ```
+## `dependabot-automerge.yml`
+
+Now a `workflow_call` reusable workflow (previously a standalone,
+non-reusable workflow that consumer repos had to copy verbatim). Converged
+from three near-identical copies — this repo's own prior version (no
+`--delete-branch`, PR-URL-based merge, `[opened, synchronize]` trigger) and
+laboratory-one-web's/ai-harness-web's byte-identical copies
+(`--delete-branch`, PR-number-based merge,
+`[opened, synchronize, reopened]` trigger) — keeping `--delete-branch` and
+the three-event trigger, since those matched 2 of the 3 prior copies. No
+`workflow_call` inputs: none of the three copies varied in anything worth
+parameterizing. Call it with `secrets: inherit`; see the caller example
+above.
 
 ## `version-bump.yml`
 
