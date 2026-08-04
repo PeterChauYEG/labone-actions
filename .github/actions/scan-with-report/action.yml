@@ -79,7 +79,14 @@ runs:
         PR_NUMBER: ${{ inputs.pr-number }}
         PR_URL: ${{ inputs.pr-url }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      run: bash scripts/file-linear-ticket.sh ${{ inputs.job-name }} ${{ inputs.report-file }}
+      # scripts/file-linear-ticket.sh lives in labone-actions, not in
+      # whatever repo is currently checked out (the caller's, when this
+      # action runs as part of a cross-repo workflow_call) — a bare relative
+      # path resolves against the checked-out workspace and fails for any
+      # external caller. github.action_path points at this action's own
+      # source (fetched from labone-actions regardless of what's checked
+      # out), so anchor the script path off that instead.
+      run: bash "${{ github.action_path }}/../../../scripts/file-linear-ticket.sh" ${{ inputs.job-name }} ${{ inputs.report-file }}
 
     - if: steps.scan.outcome == 'failure'
       shell: bash
