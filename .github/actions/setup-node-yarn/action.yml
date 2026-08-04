@@ -80,6 +80,20 @@ runs:
       shell: bash
       run: ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
 
+    - name: Route git+https git dependencies over SSH
+      # package.json git-dependency entries are commonly written as
+      # git+https://github.com/... (or resolve to that form), which ignores
+      # the ssh-agent key loaded above entirely — https:// clones normally
+      # ride on the credential actions/checkout leaves behind for the
+      # *current* repo only, and dependabot-triggered runs get a
+      # single-repo-scoped GITHUB_TOKEN that can't touch a sibling private
+      # repo at all. Rewriting the URL scheme forces yarn to use the SSH
+      # transport (and therefore the deploy key above) regardless of how
+      # the dependency is declared.
+      if: inputs.ssh-deploy-key != ''
+      shell: bash
+      run: git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
+
     - name: Install dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
