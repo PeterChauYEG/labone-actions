@@ -23,6 +23,16 @@ inputs:
       when the app lives in a subdirectory of a monorepo, e.g. `prototype`.
     required: false
     default: '.'
+  extra-paths:
+    description: >
+      Newline- or space-separated list of additional paths (relative to the
+      repo root) to include in the deps tarball, beyond node_modules and
+      .next/cache — e.g. a gitignored src/generated/ directory populated by
+      a `postinstall` codegen script (yarn install runs postinstall in this
+      job, but only node_modules/.next/cache normally make it into the
+      artifact downstream jobs restore from).
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -68,7 +78,11 @@ runs:
       run: |
         NM_DIR="${{ inputs.working-directory }}/node_modules"
         NEXT_CACHE_DIR="${{ inputs.working-directory }}/.next/cache"
-        tar -czf deps.tar.gz "$NM_DIR" $( [ -d "$NEXT_CACHE_DIR" ] && echo "$NEXT_CACHE_DIR" )
+        EXTRA_PATHS=()
+        for p in ${{ inputs.extra-paths }}; do
+          EXTRA_PATHS+=("${{ inputs.working-directory }}/$p")
+        done
+        tar -czf deps.tar.gz "$NM_DIR" $( [ -d "$NEXT_CACHE_DIR" ] && echo "$NEXT_CACHE_DIR" ) "${EXTRA_PATHS[@]}"
 
     - name: Publish deps artifact
       uses: actions/upload-artifact@v4

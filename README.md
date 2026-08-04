@@ -121,6 +121,14 @@ Inputs (all `workflow_call` inputs, `enable_*` default `true`):
   `enable_design_system`, `enable_dead_code`, `enable_duplicate_code`,
   `enable_e2e`, `enable_react_tech_debt`, `enable_max_lines` (boolean) —
   turn a job off if your repo has no matching yarn script.
+- `extra_deps_paths` (string, default `''`) — space-separated list of
+  additional paths (relative to `working-directory`) to carry from `setup`
+  into every downstream job, beyond `node_modules`/`.next/cache`. Needed if
+  your repo has a `postinstall` script that writes gitignored generated
+  code outside `node_modules` (e.g. an SDK codegen step writing to
+  `src/generated/`) — without this, only the `setup` job sees that
+  directory and every job restoring from the deps artifact fails with
+  "Cannot find module". E.g. `extra_deps_paths: 'src/generated'`.
 
 Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`, `a11y`,
 `design-system`, `dead-code`, `duplicate-code`, `run-e2e-tests`,
