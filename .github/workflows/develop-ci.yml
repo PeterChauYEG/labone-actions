@@ -105,7 +105,7 @@ jobs:
     name: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: ./.github/actions/setup-node-yarn
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
 
@@ -114,7 +114,7 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint
@@ -125,7 +125,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn lint:ls
@@ -135,7 +135,7 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn typecheck
@@ -146,7 +146,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build }}
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn build
@@ -157,7 +157,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       - run: yarn test:coverage
@@ -171,10 +171,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - uses: ./.github/actions/scan-with-report
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: a11y
           report-file: a11y-report.md
@@ -194,10 +194,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - uses: ./.github/actions/scan-with-report
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: design-system
           report-file: design-system-report.md
@@ -216,10 +216,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - uses: ./.github/actions/scan-with-report
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: dead-code
           report-file: dead-code-report.md
@@ -238,13 +238,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
       # Standardized to file a ticket like the other scans do (one of the
       # two source repos this was consolidated from skipped this step,
       # which was an inconsistency, not a deliberate choice - see README.md).
-      - uses: ./.github/actions/scan-with-report
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: duplicate-code
           report-file: duplicate-code-report.md
@@ -263,10 +263,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - uses: ./.github/actions/scan-with-report
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: run-e2e-scan
           report-file: e2e-report.md
@@ -286,10 +286,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - uses: ./.github/actions/scan-with-report
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: react-tech-debt
           report-file: react-tech-debt-report.md
@@ -308,10 +308,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ./.github/actions/restore-deps
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
-      - uses: ./.github/actions/scan-with-report
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: max-lines
           report-file: max-lines-report.md
