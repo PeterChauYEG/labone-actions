@@ -304,8 +304,26 @@ composite-izing further.
 
 ## `security-scan.yml`
 
-Unchanged. Reusable, `workflow_call` input `scan-ref` (string, default
-`.`), single `trivy` job. Call it directly with `secrets: inherit`.
+Reusable, `workflow_call` inputs `scan-ref` (string, default `.`) and
+`trivyignores` (string, default `''`), single `trivy` job. Call it directly
+with `secrets: inherit`.
+
+If your repo has a `.trivyignore.yaml` (the structured, path-scoped ignore
+format), you MUST pass `trivyignores: '.trivyignore.yaml'` explicitly —
+trivy-action only auto-discovers a plain `.trivyignore` in the scan root on
+its own; a `.trivyignore.yaml` silently does nothing without this input
+(discovered via chuunibyou's pre-existing, correctly-written
+`.trivyignore.yaml` for a fictional in-game "leaked secret" that Trivy kept
+flagging anyway because nothing was telling it the file existed).
+
+```yaml
+jobs:
+  trivy:
+    uses: PeterChauYEG/labone-actions/.github/workflows/security-scan.yml@main
+    secrets: inherit
+    with:
+      trivyignores: '.trivyignore.yaml'
+```
 
 ## `dependabot-automerge.yml`
 
