@@ -1,0 +1,31 @@
+name: Auto-merge agent PRs
+
+# Reusable workflow_call version of the agent-PR auto-merge workflow.
+# Callers are thin wrappers: `on: pull_request` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/auto-merge-agent-prs.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example.
+#
+# Converged from ai-harness-web's standalone version. Unconditionally
+# squash-merges + deletes the branch for any PR whose head branch starts
+# with `peterchauesq/lab-` (agent/Claude-authored PRs) — unlike
+# dependabot-automerge.yml, there is no semver-bump gating here, since
+# agent PRs don't carry that metadata. No workflow_call inputs are needed.
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Auto-merge agent PRs
+    runs-on: [self-hosted, catfood]
+    if: startsWith(github.event.pull_request.head.ref, 'peterchauesq/lab-')
+    steps:
+      - name: Enable auto-merge
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
