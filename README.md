@@ -21,6 +21,7 @@ these workflows.
 | `.github/workflows/develop-rust-ci.yml` | `pull_request` | fmt/clippy/test as Linear-ticket-filing gates, optional build/dead-code (cargo-machete)/duplicate-code (cargo-dupes)/file-size/security-scan/dependency-audit (cargo-audit). For **Rust CLI/tool** repos. |
 | `.github/workflows/develop-mobile-ci.yml` | `pull_request` | lint/typecheck as plain pass/fail checks, optional ls-lint/test/a11y/design-system/dead-code (knip)/duplicate-code (jscpd)/security-scan/dependency-audit. For **Expo/React Native mobile** repos. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
+| `.github/workflows/actionlint.yml` | `pull_request` | Lints the caller's own `.github/workflows/*.yml` with actionlint. Stack-agnostic — any repo with a `.github/workflows/` directory can call it. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
@@ -472,6 +473,42 @@ jobs:
     secrets: inherit
     with:
       trivyignores: '.trivyignore.yaml'
+```
+
+## `actionlint.yml`
+
+Reusable, stack-agnostic workflow: lints the caller's own `.github/workflows/*.yml` with
+[actionlint](https://github.com/rhysd/actionlint) (catches invalid expressions, unknown inputs on
+`uses:` reusable-workflow calls, shellcheck issues inside `run:` blocks, etc.). Extracted from
+this repo's own `ci.yml`, which has run actionlint against its own workflows since before this
+reusable workflow existed — every other repo in the org should call this instead of hand-rolling
+the same `curl | bash` install step. `workflow_call` inputs:
+
+- `actionlint-version` (string, default `1.7.12`) — pinned actionlint version, kept in lockstep
+  with the version this repo's own `ci.yml` uses.
+- `pr_number` (number, default `0`) / `pr_url` (string, default `''`) — caller-supplied, used for
+  Linear ticket filing on failure (same `continue-on-error` + `file-linear-ticket.sh` + explicit
+  `exit 1` pattern as `godot-develop-ci.yml`). **Requires the caller repo to already have its own
+  `scripts/file-linear-ticket.sh`** (not something this reusable workflow ships itself) — every
+  repo already onboarded onto Linear-ticket-filing CI has one; a repo with none should add
+  `scripts/file-linear-ticket.sh` before adopting this workflow, or the ticket-filing step
+  itself will fail (file not found) whenever actionlint fails.
+
+Caller example:
+
+```yaml
+name: Actionlint
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  actionlint:
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}
 ```
 
 ## `godot-develop-ci.yml`
