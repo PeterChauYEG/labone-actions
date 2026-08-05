@@ -1,0 +1,395 @@
+name: Develop Mobile CI
+
+# Reusable PR-time CI for Expo/React Native mobile repos
+# (mc-training-arc-sung-jinwoo-mobile, mangalab, shout-mobile). Callers are
+# thin wrappers: `on: pull_request` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/develop-mobile-ci.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example.
+#
+# Same `setup` + artifact-restore caching strategy as develop-node-ci.yml
+# (both are Yarn Berry - reuses the same setup-node-yarn/restore-deps
+# composite actions as-is), but a mobile-app-shaped job set: lint/ls-lint/
+# typecheck/test plus the web-style a11y/design-system/dead-code/
+# duplicate-code scans (all three source repos already run these, unlike
+# develop-node-ci.yml's backend-service callers, which have none of them -
+# this is closer in spirit to develop-ci.yml's Next.js job set than
+# develop-node-ci.yml's plain NestJS one).
+#
+# Every scan job (a11y/design-system/dead-code/duplicate-code) follows the
+# continue-on-error + sticky-PR-comment + file-linear-ticket.sh + explicit
+# `exit 1` pattern all three source repos already use - pr_number/pr_url
+# are caller-supplied for the same reason godot-develop-ci.yml takes them.
+#
+# `is_dependabot` should be computed by the caller to also cover
+# `github-actions[bot]` (the CalVer version-bump PRs main.yml opens against
+# itself) alongside the literal `dependabot[bot]` check - see README.md.
+# Only mangalab's current CI actually guards every job against
+# github-actions[bot] today; the other two repos' PR workflow don't, which
+# looks like a latent gap rather than an intentional difference.
+#
+# `lint`/`typecheck` are HARD, always-on gates (no dependabot skip - a
+# broken lint/type error is exactly what a dependency bump can cause,
+# mirroring develop-node-ci.yml's same reasoning for its own lint/
+# typecheck jobs).
+#
+# `security-scan`/`dependency-audit` reimplement the same Trivy/audit
+# invocations security-scan.yml and develop-node-ci.yml already established
+# as inline steps (not nested `uses:` calls) so they run against the
+# restored, installed tree - same reasoning as develop-node-ci.yml.
+# `dependency-audit` (`yarn npm audit`) is a genuinely new capability: none
+# of the three source repos have an audit job in their PR workflow today.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Expo app lives in.
+        type: string
+        required: false
+        default: '.'
+      pr_number:
+        type: number
+        required: false
+        default: 0
+      pr_url:
+        type: string
+        required: false
+        default: ''
+      is_dependabot:
+        description: >
+          Whether this PR was opened by dependabot[bot] (or, per this
+          file's header comment, by github-actions[bot] for a CalVer
+          version-bump PR). Caller must compute this from
+          github.event.pull_request.user.login. When true, `ls-lint`,
+          `test`, `a11y`, `design-system`, `dead-code`, `duplicate-code`,
+          `security-scan` and `dependency-audit` are skipped (`lint` and
+          `typecheck` stay on).
+        type: boolean
+        required: false
+        default: false
+      enable_ls_lint:
+        description: Run `yarn lint:ls` (filename/directory convention lint).
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage` + upload to Codecov.
+        type: boolean
+        default: true
+      codecov_use_oidc:
+        description: >
+          Use Codecov's OIDC auth instead of a token. Both modes exist
+          across the three source repos' own workflows today (even
+          inconsistently within a single repo) - default false (token
+          mode), set true for OIDC-configured callers.
+        type: boolean
+        default: false
+      codecov_token_secret_name:
+        description: >
+          Name of the secret holding the Codecov upload token, only used
+          when codecov_use_oidc is false. Reusable workflows can't
+          reference `secrets.<dynamic-name>` directly, so this is
+          documentation for the caller's `secrets: inherit` - the job
+          itself always reads `secrets.CODECOV_TOKEN`. Kept as an input so
+          a caller using a differently-named secret knows to rename it
+          before adopting this workflow, rather than silently getting an
+          empty token.
+        type: string
+        required: false
+        default: 'CODECOV_TOKEN'
+      enable_a11y:
+        description: Run `yarn a11y`.
+        type: boolean
+        default: true
+      enable_design_system:
+        description: Run `yarn design-system`.
+        type: boolean
+        default: true
+      enable_dead_code:
+        description: Run `yarn dead-code` (knip).
+        type: boolean
+        default: true
+      enable_duplicate_code:
+        description: >
+          Run `yarn duplicate-code` (jscpd). Off by default -
+          mc-training-arc-sung-jinwoo-mobile has no .jscpd.json/job today,
+          unlike mangalab/shout-mobile which both do.
+        type: boolean
+        default: false
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file, passed straight through to
+          trivy-action's `trivyignores` input. Empty by default.
+        type: string
+        required: false
+        default: ''
+      enable_dependency_audit:
+        description: >
+          Run `yarn npm audit`. Off by default - genuinely new, no source
+          repo has this in its PR workflow today.
+        type: boolean
+        default: false
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules. Passed straight through to
+          setup-node-yarn's extra-paths input.
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  DEPS_ARTIFACT: deps-${{ github.run_id }}
+
+jobs:
+  setup:
+    name: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+
+  lint:
+    name: lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn lint
+        working-directory: ${{ inputs.working-directory }}
+
+  ls-lint:
+    name: ls-lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn lint:ls
+        working-directory: ${{ inputs.working-directory }}
+
+  typecheck:
+    name: typecheck
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn typecheck
+        working-directory: ${{ inputs.working-directory }}
+
+  test:
+    name: test
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn test:coverage
+        working-directory: ${{ inputs.working-directory }}
+      - uses: codecov/codecov-action@v7
+        with:
+          use_oidc: ${{ inputs.codecov_use_oidc }}
+          token: ${{ !inputs.codecov_use_oidc && secrets.CODECOV_TOKEN || '' }}
+          working-directory: ${{ inputs.working-directory }}
+
+  a11y:
+    name: a11y
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: yarn a11y
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/a11y-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: a11y-scan
+          path: ${{ inputs.working-directory }}/a11y-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh a11y a11y-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  design-system:
+    name: design-system
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: yarn design-system
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/design-system-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: design-system-scan
+          path: ${{ inputs.working-directory }}/design-system-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh design-system design-system-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  dead-code:
+    name: dead-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: yarn dead-code
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/dead-code-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: dead-code-scan
+          path: ${{ inputs.working-directory }}/dead-code-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  duplicate-code:
+    name: duplicate-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: yarn duplicate-code
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/report/jscpd-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: duplicate-code-scan
+          path: ${{ inputs.working-directory }}/report/jscpd-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh duplicate-code report/jscpd-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  security-scan:
+    name: security-scan
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  dependency-audit:
+    name: dependency-audit
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn npm audit
+        working-directory: ${{ inputs.working-directory }}
