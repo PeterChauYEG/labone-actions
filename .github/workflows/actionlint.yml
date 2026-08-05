@@ -43,14 +43,19 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          set -o pipefail
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) ${{ inputs.actionlint-version }}
-          ./actionlint -color
+          ./actionlint -color 2>&1 | tee actionlint-report.txt
       - name: File Linear ticket for failure
         # inputs.pr_number defaults to 0 - callers with no
         # scripts/file-linear-ticket.sh of their own omit pr_number/pr_url
         # entirely rather than wire up values for a script they can't run;
         # gate on that (not just scan.outcome) so this step cleanly skips
         # for them instead of erroring with "No such file or directory".
+        # Always pass a real report-path argument (not just the job name) -
+        # some callers' local file-linear-ticket.sh copies reference $2
+        # directly without a "${2:-}" default and fail under `set -u` if
+        # it's omitted entirely.
         if: steps.scan.outcome == 'failure' && inputs.pr_number != 0
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
@@ -58,6 +63,6 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
           PR_URL: ${{ inputs.pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash scripts/file-linear-ticket.sh actionlint
+        run: bash scripts/file-linear-ticket.sh actionlint actionlint-report.txt
       - if: steps.scan.outcome == 'failure'
         run: exit 1
