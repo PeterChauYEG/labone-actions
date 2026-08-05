@@ -12,6 +12,14 @@ name: Actionlint
 # Pinned to the same actionlint version this repo's own `ci.yml` uses, so
 # both stay in lockstep - bump both together if you bump this input's
 # default.
+#
+# actionlint has no built-in knowledge of this org's custom self-hosted
+# runner label ("catfood" - see every workflow's `runs-on: [self-hosted,
+# catfood]`) and flags it as an unknown-label error unless told about it via
+# a `.github/actionlint.yaml` config file (self-hosted-runner.labels).
+# Writes/overwrites that file with the canonical label list before scanning
+# - same "change lint config in one place" approach as setup-gdtoolkit's
+# canonical .gdlintrc/.gdformatrc - so no caller repo needs its own copy.
 
 on:
   workflow_call:
@@ -21,6 +29,14 @@ on:
         type: string
         required: false
         default: '1.7.12'
+      self_hosted_labels:
+        description: >
+          Comma-separated list of custom self-hosted runner labels this org
+          uses (beyond actionlint's built-in "self-hosted"), written into a
+          canonical .github/actionlint.yaml before scanning.
+        type: string
+        required: false
+        default: 'catfood'
       pr_number:
         type: number
         required: false
@@ -39,6 +55,18 @@ jobs:
     runs-on: [self-hosted, catfood]
     steps:
       - uses: actions/checkout@v7
+      - name: Write canonical actionlint config
+        shell: bash
+        run: |
+          mkdir -p .github
+          {
+            echo 'self-hosted-runner:'
+            echo '  labels:'
+            IFS=',' read -ra LABELS <<< "${{ inputs.self_hosted_labels }}"
+            for label in "${LABELS[@]}"; do
+              echo "    - ${label}"
+            done
+          } > .github/actionlint.yaml
       - id: scan
         continue-on-error: true
         shell: bash
