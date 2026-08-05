@@ -17,6 +17,7 @@ these workflows.
 | `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
+| `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
@@ -544,6 +545,58 @@ jobs:
   security:
     uses: PeterChauYEG/labone-actions/.github/workflows/security-scan.yml@main
     secrets: inherit
+```
+
+## `develop-python-ci.yml`
+
+Reusable PR-time CI for Python repos (data pipelines, MCP servers, ML/robotics
+scripts). Unlike `develop-node-ci.yml`, there's no shared `setup` +
+restore-deps artifact stage — Python dependency management isn't uniform
+across consumer repos (`pyproject.toml`, `requirements.txt`, or neither), and
+`pip install ruff` is cheap enough that every job just installs what it
+needs directly. `workflow_call` inputs:
+
+- `working-directory` (string, default `.`) — directory the Python project
+  lives in, for monorepo callers.
+- `is_dependabot` (boolean, default `false`) — caller must compute this from
+  `github.event.pull_request.user.login`. `lint` always runs; `test`,
+  `security-scan` and `dependency-audit` are skipped for dependabot PRs.
+- `lint_path` (string, default `.`) — path passed to `ruff check`.
+- `enable_test` (boolean, default `true`) / `test_command` (string, default
+  `python3 -m pytest`) — there's no standard Python equivalent of
+  package.json's `test` script name, so the command itself is an input.
+- `enable_security_scan` (boolean, default `true`) /
+  `security_scan_trivyignores` (string) — same contract as
+  `develop-node-ci.yml`'s equivalents.
+- `enable_dependency_audit` (boolean, default **`false`**) /
+  `requirements_file` (string, default `requirements.txt`) — runs
+  `pip-audit`. Off by default, unlike `develop-node-ci.yml`'s
+  `dependency-audit`: Node callers share one lockfile format (`yarn.lock`);
+  Python callers here don't share one dependency-declaration format, so
+  forcing this on would fail loudly for a repo with neither a
+  `requirements.txt` nor a `pyproject.toml`. Opt in explicitly per caller.
+
+Jobs: `lint`, `test`, `security-scan`, `dependency-audit` — every job is a
+plain pass/fail gate (no sticky PR comments, no Linear ticket filing), same
+philosophy as `develop-node-ci.yml`. Repo-specific checks (e.g. a
+project-specific smoke test, a domain validation script) stay as additional
+jobs in the caller's own workflow file alongside the `uses:` call — this
+workflow only covers the common shape every Python repo shares.
+
+Caller example:
+
+```yaml
+name: Develop CI
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-python-ci.yml@main
+    secrets: inherit
+    with:
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
 ```
 ## `dependabot-automerge.yml`
 

@@ -1,0 +1,141 @@
+name: Develop Python CI
+
+# Reusable PR-time CI for Python repos (data pipelines, MCP servers, ML/robotics
+# scripts). Callers are thin wrappers: `on: pull_request` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/develop-python-ci.yml@main`
+# with `secrets: inherit`.
+#
+# Unlike develop-node-ci.yml, there is no shared `setup` + restore-deps
+# artifact stage here: Python dependency management is not uniform across
+# consumer repos (pyproject.toml, requirements.txt, or neither), and `pip
+# install ruff` is fast enough that every job just installs what it needs
+# directly, matching what every consumer repo already did with bespoke CI
+# before this workflow existed.
+#
+# `lint` is a HARD gate: `ruff check <lint_path>`, always on.
+#
+# `test` runs a caller-supplied `test_command` (default `python3 -m
+# pytest`) as a HARD gate when enabled. There's no standard Python
+# equivalent of package.json's `test` script name, so the command itself is
+# an input rather than assumed.
+#
+# `security-scan` reimplements the same Trivy invocation security-scan.yml
+# already established (severity HIGH,CRITICAL, exit-code 1, no default
+# .trivyignore baseline) as inline steps, same as develop-node-ci.yml.
+#
+# `dependency-audit` (pip-audit) is OFF by default, unlike develop-node-ci's
+# dependency-audit. Node callers share one lockfile format (yarn.lock);
+# Python callers here don't share one dependency-declaration format, so
+# forcing this on would fail loudly for repos with neither a
+# requirements.txt nor a pyproject.toml. Callers opt in explicitly and may
+# set `requirements_file` if it's not the default `requirements.txt`.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Python project lives in.
+        type: string
+        required: false
+        default: '.'
+      is_dependabot:
+        description: >
+          Whether this PR was opened by dependabot[bot]. Caller must
+          compute this from github.event.pull_request.user.login, since
+          reusable workflows can't see that context directly. When true,
+          `test`, `security-scan` and `dependency-audit` are skipped
+          (`lint` stays on).
+        type: boolean
+        required: false
+        default: false
+      lint_path:
+        description: Path (relative to working-directory) passed to `ruff check`.
+        type: string
+        required: false
+        default: '.'
+      enable_test:
+        description: Run `test_command`.
+        type: boolean
+        default: true
+      test_command:
+        description: Command used to run the test suite.
+        type: string
+        required: false
+        default: 'python3 -m pytest'
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file, passed straight through to
+          trivy-action's `trivyignores` input. Empty by default - this
+          shared workflow ships no default ignore baseline.
+        type: string
+        required: false
+        default: ''
+      enable_dependency_audit:
+        description: >
+          Run `pip-audit` against `requirements_file`. Off by default - see
+          this file's header comment.
+        type: boolean
+        default: false
+      requirements_file:
+        description: Path (relative to working-directory) to a requirements.txt for pip-audit.
+        type: string
+        required: false
+        default: 'requirements.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v7
+      - run: pip install --quiet --break-system-packages ruff
+      - run: python3 -m ruff check ${{ inputs.lint_path }}
+        working-directory: ${{ inputs.working-directory }}
+
+  test:
+    name: test
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: ${{ inputs.test_command }}
+        working-directory: ${{ inputs.working-directory }}
+
+  security-scan:
+    name: security-scan
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      # Same severity/exit-code/no-default-ignore contract as
+      # security-scan.yml's own `trivy` job - reimplemented inline (rather
+      # than a nested `uses: security-scan.yml` call) for parity with
+      # develop-node-ci.yml.
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  dependency-audit:
+    name: dependency-audit
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: pip install --quiet --break-system-packages pip-audit
+      - run: python3 -m pip_audit -r ${{ inputs.requirements_file }}
+        working-directory: ${{ inputs.working-directory }}
