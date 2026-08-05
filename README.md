@@ -18,6 +18,8 @@ these workflows.
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
+| `.github/workflows/develop-rust-ci.yml` | `pull_request` | fmt/clippy/test as Linear-ticket-filing gates, optional build/dead-code (cargo-machete)/duplicate-code (cargo-dupes)/file-size/security-scan/dependency-audit (cargo-audit). For **Rust CLI/tool** repos. |
+| `.github/workflows/develop-mobile-ci.yml` | `pull_request` | lint/typecheck as plain pass/fail checks, optional ls-lint/test/a11y/design-system/dead-code (knip)/duplicate-code (jscpd)/security-scan/dependency-audit. For **Expo/React Native mobile** repos. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
@@ -598,6 +600,157 @@ jobs:
     with:
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
 ```
+## `develop-rust-ci.yml`
+
+Reusable PR-time CI for Rust CLI/tool repos (`gdscript-lsp`, `ai-harness-cli`).
+Unlike `develop-node-ci.yml`, there's no shared `setup` + restore-deps
+artifact stage — cargo's own registry/git/target caching (via
+`actions/cache`, keyed on `Cargo.lock`'s hash) already avoids redundant
+network fetches per job without needing a single upstream install step to
+fan out from. `workflow_call` inputs:
+
+- `working-directory` (string, default `.`) — directory the Cargo project
+  lives in, for monorepo callers.
+- `pr_number` (number, default `0`) / `pr_url` (string, default `''`) —
+  caller-supplied, since a reusable workflow can't always see
+  `github.event.pull_request` directly. Used for Linear ticket filing and
+  sticky PR comments.
+- `is_dependabot` (boolean, default `false`) — caller must compute this from
+  `github.event.pull_request.user.login`. `fmt`/`clippy` always run in
+  full; `test`, `build`, and every optional scan job are skipped for
+  dependabot PRs.
+- `pre_build_command` (string, default `''`) — arbitrary shell run once per
+  job (`fmt`/`clippy`/`test`/`build`), after checkout and toolchain setup
+  but before the job's actual cargo command. Exists because a caller may
+  need to install private-git SDK dependencies before `cargo` can even
+  resolve its dependency graph — there's no way to generalize "install my
+  private deps" into a fixed shape, so it's caller-supplied shell rather
+  than a boolean toggle.
+- `enable_build` (boolean, default `false`) — runs `cargo build --release`.
+- `enable_dead_code` (boolean, default `true`) / `dead_code_script` (string,
+  default `scripts/dead-code-scan.sh`) / `cargo_machete_version` (string,
+  default `0.9.2`) — a cargo-machete dead-dependency scan. Both known
+  callers run this today with the same pinned tool version, so it defaults
+  on.
+- `enable_duplicate_code` (boolean, default `false`) /
+  `duplicate_code_script` (string, default
+  `scripts/ci/duplicate-code-scan.sh`) / `cargo_dupes_version` (string,
+  default `0.2.1`) — a cargo-dupes duplicate-code scan. Off by default —
+  only one of the two known callers has this today.
+- `enable_file_size` (boolean, default `false`) / `file_size_script`
+  (string, default `scripts/ci/file-size-scan.sh`) — a report-only file-size
+  scan (never fails the job). Off by default, same reasoning.
+- `enable_security_scan` (boolean, default `true`) /
+  `security_scan_trivyignores` (string) — same contract as
+  `develop-node-ci.yml`'s equivalents.
+- `enable_dependency_audit` (boolean, default `false`) — runs `cargo audit`.
+  Off by default: neither known caller has this today, so there's no
+  established precedent to default on.
+
+Jobs: `fmt`, `clippy`, `test`, `build`, `dead-code`, `duplicate-code`,
+`file-size`, `security-scan`, `dependency-audit`. `fmt`/`clippy`/`test` and
+every optional scan job follow the same continue-on-error + sticky PR
+comment (scans only) + `file-linear-ticket.sh` + explicit `exit 1` pattern
+`godot-develop-ci.yml` established, since both known callers already file
+Linear tickets on these failures today — unlike `develop-node-ci.yml`/
+`develop-python-ci.yml`, which are plain pass/fail gates with no ticket
+filing. Repo-specific release/build/publish machinery (version bump,
+cross-compiled release binaries, Homebrew tap notifications, etc.) stays
+entirely in the caller's own `main.yml` — this workflow only covers the
+common PR-time quality-gate shape.
+
+Caller example:
+
+```yaml
+name: Develop CI
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-rust-ci.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+```
+
+## `develop-mobile-ci.yml`
+
+Reusable PR-time CI for Expo/React Native mobile repos
+(`mc-training-arc-sung-jinwoo-mobile`, `mangalab`, `shout-mobile`). Same
+`setup` + artifact-restore caching strategy as `develop-node-ci.yml` (both
+are Yarn Berry — reuses the same `setup-node-yarn`/`restore-deps` composite
+actions as-is), but a mobile-app-shaped job set: `lint`/`ls-lint`/
+`typecheck`/`test` plus the web-style `a11y`/`design-system`/`dead-code`/
+`duplicate-code` scans all three known callers already run (closer in
+spirit to `develop-ci.yml`'s Next.js job set than `develop-node-ci.yml`'s
+plain NestJS one). `workflow_call` inputs:
+
+- `working-directory` (string, default `.`) — directory the Expo app lives
+  in, for monorepo callers.
+- `pr_number` (number, default `0`) / `pr_url` (string, default `''`) —
+  same reasoning as `develop-rust-ci.yml`.
+- `is_dependabot` (boolean, default `false`) — caller must compute this from
+  `github.event.pull_request.user.login`, and per known callers' CalVer
+  version-bump PRs, should probably also cover `github-actions[bot]`. When
+  true, `ls-lint`, `test`, `a11y`, `design-system`, `dead-code`,
+  `duplicate-code`, `security-scan` and `dependency-audit` are skipped
+  (`lint`/`typecheck` stay on).
+- `enable_ls_lint` (boolean, default `true`) — runs `yarn lint:ls`.
+- `enable_test` (boolean, default `true`) — runs `yarn test:coverage` +
+  Codecov upload.
+- `codecov_use_oidc` (boolean, default `false`) — use Codecov's OIDC auth
+  instead of a token. Known callers use both modes, even inconsistently
+  within a single repo.
+- `codecov_token_secret_name` (string, default `CODECOV_TOKEN`) —
+  documentation only (a reusable workflow can't reference a
+  dynamically-named secret); the job always reads `secrets.CODECOV_TOKEN`.
+- `enable_a11y` / `enable_design_system` / `enable_dead_code` (boolean,
+  default `true`) — run `yarn a11y` / `yarn design-system` / `yarn
+  dead-code` (knip).
+- `enable_duplicate_code` (boolean, default `false`) — runs `yarn
+  duplicate-code` (jscpd). Off by default — not every known caller has this
+  job today.
+- `enable_security_scan` (boolean, default `true`) /
+  `security_scan_trivyignores` (string) — same contract as
+  `develop-node-ci.yml`'s equivalents.
+- `enable_dependency_audit` (boolean, default `false`) — runs `yarn npm
+  audit`. Off by default — genuinely new, no known caller has this in its
+  PR workflow today.
+- `extra_deps_paths` (string, default `''`) — same as
+  `develop-node-ci.yml`'s equivalent.
+
+Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `test`, `a11y`,
+`design-system`, `dead-code`, `duplicate-code`, `security-scan`,
+`dependency-audit`. `lint`/`typecheck` are plain, always-on pass/fail gates
+(no dependabot skip — a broken lint/type error is exactly what a dependency
+bump can cause); the scan jobs follow the same continue-on-error + sticky
+PR comment + `file-linear-ticket.sh` + explicit `exit 1` pattern all known
+callers already use. Repo-specific release/publish machinery (EAS build,
+OTA `publish-update.yml`, version bump) stays in the caller's own
+workflow files — this workflow only covers the common PR-time shape.
+
+Caller example:
+
+```yaml
+name: Develop CI
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-mobile-ci.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+```
+
 ## `dependabot-automerge.yml`
 
 Now a `workflow_call` reusable workflow (previously a standalone,

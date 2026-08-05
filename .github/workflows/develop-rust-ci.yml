@@ -1,0 +1,409 @@
+name: Develop Rust CI
+
+# Reusable PR-time CI for Rust CLI/tool repos (gdscript-lsp, ai-harness-cli).
+# Callers are thin wrappers: `on: pull_request` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/develop-rust-ci.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example.
+#
+# Unlike develop-node-ci.yml, there is no shared `setup` + artifact-restore
+# job here: cargo's own registry/git/target caching (via actions/cache,
+# keyed on Cargo.lock's hash) already avoids redundant network fetches per
+# job without needing a single upstream install step to fan out from.
+#
+# `fmt`/`clippy`/`test` are HARD gates, always on (test skips for
+# dependabot). `build`, `dead-code` (cargo-machete), `duplicate-code`
+# (cargo-dupes), `file-size` (plain wc -l scan) and `security-scan`/
+# `dependency-audit` are all optional - gdscript-lsp and ai-harness-cli
+# diverge on which of these they actually run today (see each input's
+# description), so nothing beyond fmt/clippy/test is forced on.
+#
+# `pre_build_command` exists because ai-harness-cli needs to install two
+# private-git SDK packages (via bespoke scripts + a deploy-key-style GH
+# token) before cargo can even resolve its dependency graph - gdscript-lsp
+# needs nothing here. This is caller-supplied arbitrary shell, not a
+# boolean toggle, since there's no way to generalize "install my private
+# deps" into a fixed shape. Left empty (no-op) by default.
+#
+# Every scan job (dead-code/duplicate-code/file-size) follows the same
+# continue-on-error + sticky-PR-comment + file-linear-ticket.sh + explicit
+# `exit 1` pattern godot-develop-ci.yml already established, since both
+# source repos already file Linear tickets on these failures today - unlike
+# develop-node-ci.yml/develop-python-ci.yml, which are plain pass/fail
+# gates with no ticket filing. `pr_number`/`pr_url` are caller-supplied for
+# the same reason godot-develop-ci.yml takes them: a reusable workflow
+# can't always see github.event.pull_request directly.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Cargo project lives in.
+        type: string
+        required: false
+        default: '.'
+      pr_number:
+        type: number
+        required: false
+        default: 0
+      pr_url:
+        type: string
+        required: false
+        default: ''
+      is_dependabot:
+        description: >
+          Whether this PR was opened by dependabot[bot]. Caller must
+          compute this from github.event.pull_request.user.login. fmt/
+          clippy always run in full; test, build, and every optional scan
+          job are skipped for dependabot PRs.
+        type: boolean
+        required: false
+        default: false
+      pre_build_command:
+        description: >
+          Arbitrary shell run once per job (fmt/clippy/test/build), after
+          checkout and toolchain setup but before the job's actual cargo
+          command - e.g. installing private-git SDK dependencies that
+          `cargo check`/`build` need to resolve. Empty (no-op) by default.
+        type: string
+        required: false
+        default: ''
+      enable_build:
+        description: Run `cargo build --release`.
+        type: boolean
+        default: false
+      enable_dead_code:
+        description: >
+          Run a cargo-machete dead-dependency scan via
+          `scripts/dead-code-scan.sh` (or scripts/ci/dead-code-scan.sh -
+          set dead_code_script accordingly). Both existing callers run
+          this today with the same pinned tool version, so default true.
+        type: boolean
+        default: true
+      dead_code_script:
+        description: Path (relative to working-directory) to the dead-code-scan script.
+        type: string
+        required: false
+        default: 'scripts/dead-code-scan.sh'
+      cargo_machete_version:
+        description: Pinned cargo-machete version.
+        type: string
+        required: false
+        default: '0.9.2'
+      enable_duplicate_code:
+        description: >
+          Run a cargo-dupes duplicate-code scan via
+          scripts/ci/duplicate-code-scan.sh. Off by default - only
+          ai-harness-cli has this today, gdscript-lsp has no equivalent.
+        type: boolean
+        default: false
+      duplicate_code_script:
+        description: Path (relative to working-directory) to the duplicate-code-scan script.
+        type: string
+        required: false
+        default: 'scripts/ci/duplicate-code-scan.sh'
+      cargo_dupes_version:
+        description: Pinned cargo-dupes version.
+        type: string
+        required: false
+        default: '0.2.1'
+      enable_file_size:
+        description: >
+          Run a file-size scan via scripts/ci/file-size-scan.sh. Report-only
+          by design (never fails the job) - off by default since only
+          ai-harness-cli has this today.
+        type: boolean
+        default: false
+      file_size_script:
+        description: Path (relative to working-directory) to the file-size-scan script.
+        type: string
+        required: false
+        default: 'scripts/ci/file-size-scan.sh'
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file, passed straight through to
+          trivy-action's `trivyignores` input. Empty by default.
+        type: string
+        required: false
+        default: ''
+      enable_dependency_audit:
+        description: >
+          Run `cargo audit`. Off by default - neither gdscript-lsp nor
+          ai-harness-cli has this today, so there's no established
+          precedent to default on (unlike develop-node-ci.yml's
+          dependency-audit, which mirrors an existing yarn-repo norm).
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: cargo fmt -- --check
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh fmt
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  clippy:
+    name: clippy
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ inputs.working-directory }}/target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-clippy-
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: cargo clippy -- -D warnings
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh clippy
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  test:
+    name: test
+    runs-on: [self-hosted, catfood]
+    if: ${{ !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ inputs.working-directory }}/target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: cargo test
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh test
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  build:
+    name: build
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ inputs.working-directory }}/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo build --release
+
+  dead-code:
+    name: dead-code
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        id: machete-cache
+        with:
+          path: ~/.cargo/bin/cargo-machete
+          key: cargo-machete-${{ inputs.cargo_machete_version }}
+      - if: steps.machete-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-machete --version ${{ inputs.cargo_machete_version }} --locked
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: bash ${{ inputs.dead_code_script }}
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/dead-code-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: dead-code-scan
+          path: ${{ inputs.working-directory }}/dead-code-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  duplicate-code:
+    name: duplicate-code
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        id: dupes-cache
+        with:
+          path: ~/.cargo/bin/cargo-dupes
+          key: cargo-dupes-${{ inputs.cargo_dupes_version }}
+      - if: steps.dupes-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-dupes --version ${{ inputs.cargo_dupes_version }} --locked
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: bash ${{ inputs.duplicate_code_script }}
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/duplicate-code-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: duplicate-code-scan
+          path: ${{ inputs.working-directory }}/duplicate-code-report.md
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh duplicate-code duplicate-code-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  file-size:
+    name: file-size
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_file_size && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        # Report-only by design - never fails the job, matching
+        # ai-harness-cli's existing file-size-scan.sh behavior.
+        run: bash ${{ inputs.file_size_script }}
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && hashFiles(format('{0}/file-size-report.md', inputs.working-directory)) != ''
+        with:
+          number: ${{ inputs.pr_number }}
+          header: file-size-scan
+          path: ${{ inputs.working-directory }}/file-size-report.md
+
+  security-scan:
+    name: security-scan
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  dependency-audit:
+    name: dependency-audit
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo audit
