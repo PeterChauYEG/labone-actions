@@ -237,8 +237,17 @@ jobs:
     # only actual failures/cancellations should - hence checking
     # needs.*.result instead of relying on the default all-must-succeed job
     # dependency semantics, which treats "skipped" the same as "failed" for
-    # a needs chain.
+    # a needs chain. That intent only actually works with always() here:
+    # without it, GitHub's own default scheduling skips this job outright
+    # whenever ANY needs entry is skipped (e.g. dependency-audit, which
+    # Yarn-Classic callers like business-ops-service turn off via
+    # enable_dependency_audit: false) before this custom expression is ever
+    # evaluated - confirmed live, deploy silently no-op'd on every run of a
+    # caller with dependency-audit disabled. always() forces evaluation of
+    # the expression below instead of GitHub's implicit success()-only
+    # default.
     if: >-
+      always() &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled') &&
       !inputs.is_dependabot && inputs.enable_deploy
