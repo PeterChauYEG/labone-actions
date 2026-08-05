@@ -137,6 +137,12 @@ jobs:
           # string for every other repo, which setup-node-yarn treats as
           # "skip ssh-agent setup".
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # Optional per-repo secret — only set for repos whose postinstall
+          # script needs `gh` CLI access to a sibling private repo (e.g.
+          # gamecraft fetching a generated SDK release from
+          # gamecraft-api). Empty string for every other repo, which
+          # setup-node-yarn treats as "no GH_TOKEN for the install step".
+          gh-token: ${{ secrets.GH_PAT }}
 
   lint:
     name: lint

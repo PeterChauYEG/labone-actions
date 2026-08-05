@@ -42,6 +42,18 @@ inputs:
       repos with no private git dependencies.
     required: false
     default: ''
+  gh-token:
+    description: >
+      GitHub token (e.g. secrets.GH_PAT) exposed as GH_TOKEN to the yarn
+      install step only — for repos whose `postinstall` script shells out
+      to the `gh` CLI against a *different* private repo (e.g. gamecraft's
+      scripts/install-gamecraft-api-sdk.mjs running
+      `gh release download --repo PeterChauYEG/gamecraft-api ...`). The
+      ephemeral default GITHUB_TOKEN is scoped only to the calling repo, so
+      `gh` can't see releases on a sibling private repo without this. Leave
+      empty (default) for repos with no such cross-repo `gh` calls.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -97,6 +109,11 @@ runs:
     - name: Install dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        # Scoped to this step only (not job-wide) so a `postinstall` script's
+        # `gh` CLI calls against a sibling private repo can authenticate,
+        # without widening the token's blast radius to any other step.
+        GH_TOKEN: ${{ inputs.gh-token }}
       run: yarn install --frozen-lockfile
 
     - name: Archive deps into a single tarball
