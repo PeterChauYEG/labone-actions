@@ -25,6 +25,39 @@ these workflows.
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
+### `templates/` — canonical caller files, one per repo type
+
+Every reusable workflow above has a matching canonical caller file under `templates/` in this
+repo (`templates/node-pr.yml`, `templates/godot-pr.yml`, `templates/mobile-pr.yml`, etc.) — the
+exact `.github/workflows/<name>.yml` content a consumer repo of that type should have, not just
+a code block in this README. **Copy the template file verbatim** into the consumer repo (as
+`develop.yml`/`pr.yml`, matching whatever the repo already calls its PR-CI file) rather than
+hand-authoring a new wrapper from scratch — hand-authored wrappers drift (different job names
+across repos of the same type, different file names, missing the `actionlint` sibling job,
+etc.), which is exactly what this whole repo exists to prevent.
+
+| Template | Type | Job name it uses |
+|---|---|---|
+| `templates/node-pr.yml` / `templates/node-main.yml` | Node/NestJS backend service | `ci` |
+| `templates/web-pr.yml` / `templates/web-main.yml` | Next.js/React web | `ci` |
+| `templates/python-pr.yml` | Python | `ci` |
+| `templates/godot-pr.yml` | Godot 4/GDScript | `godot-ci` |
+| `templates/rust-pr.yml` | Rust CLI/tool | `rust-ci` |
+| `templates/mobile-pr.yml` | Expo/React Native mobile | `ci` |
+| `templates/security.yml` | any (stack-agnostic) | `trivy` |
+
+Each `*-pr.yml` template already includes the `actionlint` sibling job — a fresh repo (or a
+repo migrating for the first time) gets workflow-YAML linting for free, no separate follow-up
+needed. Uncomment/adjust the `enable_*`/other inputs shown as comments in the template to match
+what the specific repo actually has (test suite, dependency-audit compatibility, a
+`postinstall` codegen step that needs `extra_deps_paths`, etc.) — read the relevant reusable
+workflow's own section further down this README for the full input reference before changing
+defaults blindly.
+
+Repo-specific bespoke jobs (`ls-lint`, `dead-code`, `duplicate-code`, a project-specific smoke
+test, etc.) have no shared-workflow equivalent and are NOT part of any template — add them as
+additional sibling jobs in the same file, same as every already-migrated repo does today.
+
 ### Caller pattern
 
 Callers are thin wrappers: a workflow file in the consumer repo that

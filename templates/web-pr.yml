@@ -1,0 +1,29 @@
+name: Develop CI
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-ci.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+      # Turn off any job your repo doesn't have a yarn script for, e.g.:
+      # enable_e2e: false
+      # enable_react_tech_debt: false
+      # enable_max_lines: false
+      #
+      # If a postinstall codegen step (e.g. an OpenAPI-generated SDK) writes
+      # outside node_modules, carry it through the deps artifact:
+      # extra_deps_paths: 'src/generated'
+
+  actionlint:
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}

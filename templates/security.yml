@@ -1,0 +1,21 @@
+name: Security Scan
+run-name: Dependency & secret scan
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  trivy:
+    uses: PeterChauYEG/labone-actions/.github/workflows/security-scan.yml@main
+    secrets: inherit
+    # If this repo has a .trivyignore.yaml (the structured, path-scoped
+    # ignore format), you MUST pass trivyignores explicitly - trivy-action
+    # only auto-discovers a plain .trivyignore in the scan root on its own:
+    # with:
+    #   trivyignores: '.trivyignore.yaml'
