@@ -1,0 +1,58 @@
+name: Actionlint
+
+# Reusable workflow: lints every workflow file in the calling repo's own
+# `.github/workflows/` with actionlint (catches invalid expressions, unknown
+# inputs on `uses:` reusable-workflow calls, shellcheck issues inside `run:`
+# blocks, etc.). Callers are thin wrappers - see README.md for the full
+# caller example. Extracted from this repo's own `ci.yml` (which has run
+# actionlint against its own workflows since before this reusable workflow
+# existed) so every other repo in the org gets the same check instead of
+# each hand-rolling the same `curl | bash` install step.
+#
+# Pinned to the same actionlint version this repo's own `ci.yml` uses, so
+# both stay in lockstep - bump both together if you bump this input's
+# default.
+
+on:
+  workflow_call:
+    inputs:
+      actionlint-version:
+        description: Pinned actionlint version.
+        type: string
+        required: false
+        default: '1.7.12'
+      pr_number:
+        type: number
+        required: false
+        default: 0
+      pr_url:
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v7
+      - id: scan
+        continue-on-error: true
+        shell: bash
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) ${{ inputs.actionlint-version }}
+          ./actionlint -color
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/file-linear-ticket.sh actionlint
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
