@@ -46,7 +46,12 @@ jobs:
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) ${{ inputs.actionlint-version }}
           ./actionlint -color
       - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
+        # inputs.pr_number defaults to 0 - callers with no
+        # scripts/file-linear-ticket.sh of their own omit pr_number/pr_url
+        # entirely rather than wire up values for a script they can't run;
+        # gate on that (not just scan.outcome) so this step cleanly skips
+        # for them instead of erroring with "No such file or directory".
+        if: steps.scan.outcome == 'failure' && inputs.pr_number != 0
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
