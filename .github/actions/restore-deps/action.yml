@@ -1,23 +1,27 @@
 name: Restore deps artifact
 description: >
   Checkout and download the node_modules (+ .next/cache) artifact published
-  by the sibling `setup-node-yarn` action's `setup` job, so this job can
-  skip its own `yarn install`. Also enables Corepack + sets up Node.js from
-  package.json, since most jobs need the `yarn` binary itself even though
-  the dependency tree is restored, not reinstalled.
+  by the sibling `setup-node-yarn`/`setup-node-pnpm` action's `setup` job
+  (LAB-1268: this action is package-manager agnostic - it never shells out
+  to yarn or pnpm itself, just downloads/untars the tarball those actions
+  publish - so the same action serves both), so this job can skip its own
+  install. Also enables Corepack + sets up Node.js from package.json, since
+  most jobs need the yarn/pnpm binary itself even though the dependency tree
+  is restored, not reinstalled.
 
 inputs:
   artifact-name:
     description: >
       Name of the deps artifact to download. Must match the `artifact-name`
-      given to the `setup-node-yarn` action in this workflow's `setup` job.
+      given to the `setup-node-yarn`/`setup-node-pnpm` action in this
+      workflow's `setup` job.
     required: true
   working-directory:
     description: >
-      Directory (relative to the repo root) the Next.js/yarn app lives in.
-      Defaults to `.` (repo root), matching every existing caller. Must
-      match the `working-directory` given to `setup-node-yarn` in this
-      workflow's `setup` job.
+      Directory (relative to the repo root) the Node app lives in. Defaults
+      to `.` (repo root), matching every existing caller. Must match the
+      `working-directory` given to `setup-node-yarn`/`setup-node-pnpm` in
+      this workflow's `setup` job.
     required: false
     default: '.'
 

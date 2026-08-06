@@ -19,7 +19,10 @@ jobs:
     secrets: inherit
     with:
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
-      # Turn off any job your repo doesn't have a yarn script for, e.g.:
+      # Uncomment if this repo uses pnpm instead of yarn (LAB-1268) - e.g.
+      # a packageManager: pnpm@... + pnpm-lock.yaml repo:
+      # package_manager: pnpm
+      # Turn off any job your repo doesn't have a matching script for, e.g.:
       # enable_build: false
       # enable_test: false
       # enable_dependency_audit: false   # mandatory false if this repo is Yarn Classic, not Berry
