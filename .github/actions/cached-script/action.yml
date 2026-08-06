@@ -1,0 +1,102 @@
+name: Restore deps + run a cached package-manager script
+description: >
+  Restores the setup job's deps artifact (via the sibling `restore-deps`
+  action), optionally wraps a script-specific incremental cache
+  (.eslintcache/tsconfig.tsbuildinfo/.jestcache/etc.) around it in either
+  read-only or read+write mode, then runs `<package-manager> <script>
+  <script-args>`. This is the shape every lint/typecheck/build/test job
+  across develop-ci.yml/main-ci.yml, develop-node-ci.yml/main-node-ci.yml
+  and develop-mobile-ci.yml shares - previously hand-copied between each
+  PR-time workflow and its push-to-main sibling with only the cache
+  read-vs-write behavior differing (mirroring the split setup-node-yarn's
+  own `cache-write` input already established for the node_modules cache).
+
+inputs:
+  artifact-name:
+    description: Deps artifact name - must match the setup job's setup-node-yarn/setup-node-pnpm artifact-name.
+    required: true
+  working-directory:
+    required: false
+    default: '.'
+  package-manager:
+    description: yarn or pnpm - selects the `<package-manager> <script>` invocation.
+    required: false
+    default: 'yarn'
+  script:
+    description: package.json script name to run (e.g. lint, typecheck, build, test:coverage).
+    required: true
+  script-args:
+    description: >
+      Extra CLI args forwarded to the script (yarn/pnpm both forward extra
+      args to the underlying command) - e.g. `--cache --cache-location
+      .eslintcache`. Empty (default) for scripts with nothing to forward
+      (e.g. build).
+    required: false
+    default: ''
+  cache-path:
+    description: >
+      Path (relative to working-directory) to cache across runs, e.g.
+      .eslintcache / tsconfig.tsbuildinfo / .jestcache. Empty (default)
+      skips caching entirely - e.g. build has no incremental cache to
+      restore.
+    required: false
+    default: ''
+  cache-key-prefix:
+    description: >
+      Short name distinguishing this cache from others (e.g. eslintcache,
+      tsbuildinfo, jestcache). Required whenever cache-path is set.
+    required: false
+    default: ''
+  cache-key-extra-glob-1:
+    description: >
+      Extra glob pattern (relative to working-directory) folded into the
+      cache key's hashFiles alongside yarn.lock/pnpm-lock.yaml - e.g. eslint
+      config files for the lint cache, tsconfig*.json for typecheck,
+      jest.config.* for test. A caller needing two extra patterns (e.g. both
+      legacy .eslintrc* and flat eslint.config.*) also has
+      cache-key-extra-glob-2.
+    required: false
+    default: ''
+  cache-key-extra-glob-2:
+    required: false
+    default: ''
+  cache-write:
+    description: >
+      'true' to read+write the cache (push-to-main workflows), 'false'
+      (default) to only read it (PR workflows) - mirrors setup-node-yarn's
+      identical input and the same rationale: only the push-to-main run
+      needs to write a fresh entry, PR branches just read whatever main
+      last wrote.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      with:
+        artifact-name: ${{ inputs.artifact-name }}
+        working-directory: ${{ inputs.working-directory }}
+
+    - name: Restore ${{ inputs.cache-key-prefix }} cache (read-only)
+      if: inputs.cache-path != '' && inputs.cache-write != 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
+        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.cache-key-prefix }}-
+
+    - name: Cache ${{ inputs.cache-key-prefix }} (read+write)
+      if: inputs.cache-path != '' && inputs.cache-write == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
+        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.cache-key-prefix }}-
+
+    - name: Run ${{ inputs.package-manager }} ${{ inputs.script }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ inputs.package-manager }} ${{ inputs.script }} ${{ inputs.script-args }}
