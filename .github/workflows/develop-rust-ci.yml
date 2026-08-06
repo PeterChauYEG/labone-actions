@@ -159,6 +159,17 @@ jobs:
           components: rustfmt
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
+        # pre_build_command is caller-supplied shell that may need
+        # cross-repo GH tokens (e.g. to `gh release download` a private
+        # SDK). secrets aren't available in the caller's `with:` block, so
+        # forward the known token names here instead of making the caller
+        # embed `${{ secrets.* }}` in its `with:` string (which GitHub
+        # rejects: `with:` values are evaluated in the caller's job
+        # context, and `secrets` isn't a valid context there).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_SERVICE_GH_TOKEN: ${{ secrets.AUTH_SERVICE_GH_TOKEN }}
+          AI_HARNESS_API_GH_TOKEN: ${{ secrets.AI_HARNESS_API_GH_TOKEN }}
         run: ${{ inputs.pre_build_command }}
       - id: scan
         continue-on-error: true
@@ -199,6 +210,17 @@ jobs:
             ${{ runner.os }}-cargo-clippy-
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
+        # pre_build_command is caller-supplied shell that may need
+        # cross-repo GH tokens (e.g. to `gh release download` a private
+        # SDK). secrets aren't available in the caller's `with:` block, so
+        # forward the known token names here instead of making the caller
+        # embed `${{ secrets.* }}` in its `with:` string (which GitHub
+        # rejects: `with:` values are evaluated in the caller's job
+        # context, and `secrets` isn't a valid context there).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_SERVICE_GH_TOKEN: ${{ secrets.AUTH_SERVICE_GH_TOKEN }}
+          AI_HARNESS_API_GH_TOKEN: ${{ secrets.AI_HARNESS_API_GH_TOKEN }}
         run: ${{ inputs.pre_build_command }}
       - id: scan
         continue-on-error: true
@@ -238,6 +260,17 @@ jobs:
             ${{ runner.os }}-cargo-test-
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
+        # pre_build_command is caller-supplied shell that may need
+        # cross-repo GH tokens (e.g. to `gh release download` a private
+        # SDK). secrets aren't available in the caller's `with:` block, so
+        # forward the known token names here instead of making the caller
+        # embed `${{ secrets.* }}` in its `with:` string (which GitHub
+        # rejects: `with:` values are evaluated in the caller's job
+        # context, and `secrets` isn't a valid context there).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_SERVICE_GH_TOKEN: ${{ secrets.AUTH_SERVICE_GH_TOKEN }}
+          AI_HARNESS_API_GH_TOKEN: ${{ secrets.AI_HARNESS_API_GH_TOKEN }}
         run: ${{ inputs.pre_build_command }}
       - id: scan
         continue-on-error: true
@@ -274,6 +307,17 @@ jobs:
             ${{ runner.os }}-cargo-build-
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
+        # pre_build_command is caller-supplied shell that may need
+        # cross-repo GH tokens (e.g. to `gh release download` a private
+        # SDK). secrets aren't available in the caller's `with:` block, so
+        # forward the known token names here instead of making the caller
+        # embed `${{ secrets.* }}` in its `with:` string (which GitHub
+        # rejects: `with:` values are evaluated in the caller's job
+        # context, and `secrets` isn't a valid context there).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_SERVICE_GH_TOKEN: ${{ secrets.AUTH_SERVICE_GH_TOKEN }}
+          AI_HARNESS_API_GH_TOKEN: ${{ secrets.AI_HARNESS_API_GH_TOKEN }}
         run: ${{ inputs.pre_build_command }}
       - working-directory: ${{ inputs.working-directory }}
         run: cargo build --release
