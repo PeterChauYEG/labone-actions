@@ -18,6 +18,18 @@ on:
           silently ignored. Empty by default (no ignore file).
         type: string
         default: ''
+      cache-write:
+        description: >
+          Whether the Trivy DB cache below should be allowed to write a new
+          cache entry (true) or only read an existing one (false,
+          read-only). The DB updates roughly daily, so only the
+          push-to-main trigger needs to write - PR runs read whatever main
+          last wrote via restore-keys, instead of every PR branch pulling
+          and re-caching its own multi-hundred-MB copy of the DB. Default
+          false (read-only); security.yml (this repo's own caller) passes
+          true only when github.event_name == 'push'.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,6 +43,29 @@ jobs:
     runs-on: [self-hosted, catfood]
     steps:
       - uses: actions/checkout@v7
+      - name: Compute Trivy DB cache date
+        # The DB updates roughly daily - a date-based key (with restore-keys
+        # falling back to the nearest older entry) keeps the cache fresh
+        # without writing a brand new entry on every single run.
+        id: trivy-date
+        shell: bash
+        run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Cache Trivy DB
+        if: inputs.cache-write
+        uses: actions/cache@v6
+        with:
+          path: .cache/trivy
+          key: trivy-db-${{ steps.trivy-date.outputs.date }}
+          restore-keys: |
+            trivy-db-
+      - name: Restore Trivy DB (read-only)
+        if: ${{ !inputs.cache-write }}
+        uses: actions/cache/restore@v6
+        with:
+          path: .cache/trivy
+          key: trivy-db-${{ steps.trivy-date.outputs.date }}
+          restore-keys: |
+            trivy-db-
       - name: Run Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -41,3 +76,12 @@ jobs:
           exit-code: '1'
           format: table
           trivyignores: ${{ inputs.trivyignores }}
+          # trivy-action ships its own built-in DB caching (via
+          # actions/cache internally), but always both restores AND saves
+          # every run with no read-only mode - exactly the per-PR-branch
+          # write churn this cache-write split exists to avoid. Disabled
+          # here in favor of the explicit restore/cache steps above, which
+          # point at the same default cache-dir so Trivy still finds the
+          # restored DB.
+          cache: false
+          cache-dir: .cache/trivy

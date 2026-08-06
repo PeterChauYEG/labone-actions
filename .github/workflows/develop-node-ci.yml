@@ -132,6 +132,10 @@ jobs:
           # labone-eslint-plugin package for backend services, consumed the
           # same way, so this needs to be wired up here too.
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # PR runs only read the node_modules cache written by
+          # main-node-ci.yml. See setup-node-yarn's cache-write input
+          # description and README.md "Caching strategy".
+          cache-write: 'false'
 
   lint:
     name: lint
@@ -142,11 +146,20 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+      # Read-only: only main-node-ci.yml writes a new .eslintcache entry -
+      # see develop-ci.yml's identical pattern and cache-write's rationale.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/.eslintcache
+          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-eslintcache-
       # Zero-tolerance gate: this just runs `yarn lint` and fails on any
       # non-zero exit. Whether that actually means "zero warnings" depends
       # on the caller's own lint script passing --max-warnings=0 to eslint
-      # - see this file's header comment and README.md.
-      - run: yarn lint
+      # - see this file's header comment and README.md. --cache/
+      # --cache-location are forwarded through to that script the same way.
+      - run: yarn lint --cache --cache-location .eslintcache
         working-directory: ${{ inputs.working-directory }}
 
   typecheck:
@@ -158,7 +171,15 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn typecheck
+      # Read-only: only main-node-ci.yml writes a new tsconfig.tsbuildinfo
+      # entry - see develop-ci.yml's identical pattern.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/tsconfig.tsbuildinfo
+          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-tsbuildinfo-
+      - run: yarn typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
         working-directory: ${{ inputs.working-directory }}
 
   build:

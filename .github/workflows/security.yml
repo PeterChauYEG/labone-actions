@@ -20,3 +20,8 @@ concurrency:
 jobs:
   trivy:
     uses: ./.github/workflows/security-scan.yml
+    with:
+      # Only the push-to-main run writes a fresh Trivy DB cache entry - PR
+      # and weekly-schedule runs only read it. See security-scan.yml's
+      # cache-write input description.
+      cache-write: ${{ github.event_name == 'push' }}

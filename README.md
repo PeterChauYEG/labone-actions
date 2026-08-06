@@ -368,12 +368,14 @@ This repo's workflows fix that with a **shared `setup` job + artifact**,
 not just a cache-key fix:
 
 1. `setup` runs once: checkout, enable Corepack, `actions/setup-node`,
-   restore the Yarn cache (standardized on the Yarn Berry paths), run
-   `yarn install --frozen-lockfile`, then upload `node_modules` (+
-   `.next/cache` if present) as a build artifact named
-   `deps-${{ github.run_id }}` — see `.github/actions/setup-node-yarn/action.yml`.
-   All of the paths involved (Node version detection, the Yarn cache dirs,
-   the `yarn.lock` hash key, and the `node_modules`/`.next/cache` archive
+   restore the Yarn cache (standardized on the Yarn Berry paths), restore
+   a **`node_modules` cache** keyed on `yarn.lock`'s hash (skipping `yarn
+   install --frozen-lockfile` entirely on a hit — see "`node_modules`
+   cache" below), then upload `node_modules` (+ `.next/cache` if present)
+   as a build artifact named `deps-${{ github.run_id }}` — see
+   `.github/actions/setup-node-yarn/action.yml`. All of the paths involved
+   (Node version detection, the Yarn/node_modules cache dirs, the
+   `yarn.lock` hash key, and the `node_modules`/`.next/cache` archive
    paths) are qualified with the `working-directory` input, defaulting to
    `.` so this is a no-op for every existing root-level caller.
 2. Every other job `needs: setup` and downloads that artifact instead of
@@ -396,6 +398,106 @@ If a repo ever needs a job that's genuinely independent of `setup` (rare —
 none of the current jobs are), it's fine for that job to opt out of
 `needs: setup` and install directly; the composite actions don't assume
 they're the only way to get dependencies in place.
+
+**`restore-deps`'s own per-job artifact download is intentionally left
+alone.** It's intra-run fan-out (every job in *one* run downloading the
+same tarball), orthogonal to the cross-run caching described here, and it
+exists specifically to avoid `actions/upload-artifact` mangling
+`node_modules/.bin/*` symlinks and exec bits — see the comment in
+`.github/actions/restore-deps/action.yml`. Eliminating the redundant
+per-job download would require knowing whether the `catfood` self-hosted
+runners are ephemeral or persistent, which is unconfirmed — out of scope
+here.
+
+### `node_modules` cache
+
+`setup-node-yarn` also caches `node_modules` itself (path qualified with
+`working-directory`), keyed on `${{ runner.os }}-node-modules-${{
+hashFiles('yarn.lock') }}` with `restore-keys` falling back to the nearest
+older entry for that OS. This is the highest-value cache in this repo:
+even with a warm Yarn package cache, `yarn install --frozen-lockfile`
+previously still paid the full resolve/link cost on *every single run*,
+regardless of whether `yarn.lock` had changed. On a cache hit, the install
+step is skipped entirely — except when `extra_deps_paths`/`extra-paths` is
+set, since those are `postinstall`-generated outputs (e.g. SDK codegen)
+the `node_modules` cache doesn't cover, so install always reruns to
+regenerate them in that case.
+
+### ESLint (`.eslintcache`) and TypeScript (`tsconfig.tsbuildinfo`) caches
+
+`develop-ci.yml`/`main-ci.yml`, `develop-node-ci.yml`/`main-node-ci.yml`,
+and `develop-mobile-ci.yml` each cache their `lint` job's `.eslintcache`
+and `typecheck` job's `tsconfig.tsbuildinfo`, keyed on `yarn.lock` (plus
+any `.eslintrc*`/`eslint.config.*` file for the ESLint cache, or any
+`tsconfig*.json` for the TS one — so a config edit alone still busts the
+cache even with an unchanged lockfile). `--cache --cache-location
+.eslintcache` and `--incremental --tsBuildInfoFile tsconfig.tsbuildinfo`
+are passed straight through to the caller's own `lint`/`typecheck` scripts
+(Yarn forwards extra CLI args to the underlying command) — this assumes
+those scripts ultimately invoke `eslint`/`tsc`, true for every existing
+caller.
+
+### Trivy DB cache
+
+`security-scan.yml`'s `trivy` job caches Trivy's vulnerability DB
+(`.cache/trivy`, trivy-action's default `cache-dir`) keyed on the current
+UTC date (`trivy-db-YYYY-MM-DD`, `restore-keys: trivy-db-` falling back to
+the nearest older day) since the DB updates roughly daily. trivy-action
+ships its own built-in DB caching, but it always restores *and* saves on
+every run with no read-only mode — exactly the churn the `cache-write`
+split below exists to avoid — so it's disabled here (`cache: false`) in
+favor of explicit `actions/cache`/`actions/cache/restore` steps pointed at
+the same cache dir.
+
+### Cargo cache convergence (`develop-rust-ci.yml`)
+
+`develop-rust-ci.yml` has no shared `setup` job or `main-*-ci.yml`
+counterpart (see that workflow's own README section), so its `clippy`,
+`test`, and `build` jobs' `actions/cache` blocks (`~/.cargo/registry` +
+`~/.cargo/git` + `target`) now all share one key, `${{ runner.os }}-cargo-
+${{ hashFiles('Cargo.lock') }}`, instead of three separate `cargo-clippy-`/
+`cargo-test-`/`cargo-build-` namespaces. Those three jobs still run in
+parallel and can't share a cache *within* the same run (GitHub only saves
+a cache at job end, and only the first job to finish actually wins the
+save — the rest no-op), but every subsequent run for an unchanged
+`Cargo.lock` now hits one warm, shared cache instead of rebuilding
+`target` from scratch in up to three separate jobs.
+
+### Cache-to-main: read/write split
+
+Software caches (the ones above, plus the pre-existing Yarn package cache)
+change infrequently — there's no need for every PR run to write its own
+copy. `setup-node-yarn`, `security-scan.yml`, and the `lint`/`typecheck`
+cache steps in `develop-ci.yml`/`develop-node-ci.yml` all take a
+`cache-write` input (`'false'`/`false` by default — read-only): when true,
+the normal `actions/cache` action runs (restores *and* saves); when false,
+only `actions/cache/restore` runs (restores, never writes a new entry).
+GitHub Actions cache scoping already lets a PR branch read its base/
+default branch's cache via an exact key match or `restore-keys`, so this
+works naturally — a PR run just reads whatever `main` last wrote.
+
+Only the push-to-main workflows write:
+
+- `main-ci.yml`/`main-node-ci.yml` pass `cache-write: 'true'` to
+  `setup-node-yarn` and use the full `actions/cache` action for their own
+  `.eslintcache`/`tsconfig.tsbuildinfo` steps. `develop-ci.yml`/
+  `develop-node-ci.yml` pass `'false'`/use `actions/cache/restore`.
+- `security.yml` (this repo's own `security-scan.yml` caller) passes
+  `cache-write: ${{ github.event_name == 'push' }}` — true only for its
+  push-to-main trigger, false for its `pull_request`/`schedule` triggers.
+- `develop-mobile-ci.yml` has **no** `main-*-ci.yml` counterpart in this
+  repo, so it's exempt from the split entirely — every cache there
+  (including its `node_modules` cache, via `cache-write: 'true'` to
+  `setup-node-yarn`) stays a plain restore+save `actions/cache`, same as
+  before this change.
+- `develop-rust-ci.yml`'s converged cargo caches (above) are also exempt —
+  no `main-*-ci.yml` exists for Rust in this repo at all, so there's no
+  push-to-main run to designate as the writer.
+
+Rationale: avoids cache-storage churn/eviction from every PR branch
+writing its own short-lived copy of a cache that's about to be discarded
+when the branch merges or closes, while still giving PR runs a warm cache
+(populated only by `main`) instead of a cold one.
 
 ## Concurrency
 
@@ -487,9 +589,13 @@ composite-izing further.
 
 ## `security-scan.yml`
 
-Reusable, `workflow_call` inputs `scan-ref` (string, default `.`) and
-`trivyignores` (string, default `''`), single `trivy` job. Call it directly
-with `secrets: inherit`.
+Reusable, `workflow_call` inputs `scan-ref` (string, default `.`),
+`trivyignores` (string, default `''`), and `cache-write` (boolean, default
+`false`), single `trivy` job. Call it directly with `secrets: inherit`.
+`cache-write` controls the Trivy DB cache's read-only-vs-write split — see
+"Caching strategy" → "Trivy DB cache" / "Cache-to-main: read/write split"
+above. This repo's own caller, `security.yml`, passes
+`cache-write: ${{ github.event_name == 'push' }}`.
 
 If your repo has a `.trivyignore.yaml` (the structured, path-scoped ignore
 format), you MUST pass `trivyignores: '.trivyignore.yaml'` explicitly —
@@ -677,7 +783,9 @@ Unlike `develop-node-ci.yml`, there's no shared `setup` + restore-deps
 artifact stage — cargo's own registry/git/target caching (via
 `actions/cache`, keyed on `Cargo.lock`'s hash) already avoids redundant
 network fetches per job without needing a single upstream install step to
-fan out from. `workflow_call` inputs:
+fan out from. The `clippy`/`test`/`build` jobs' cache blocks share one
+converged key rather than three separate namespaces — see "Caching
+strategy" → "Cargo cache convergence" above. `workflow_call` inputs:
 
 - `working-directory` (string, default `.`) — directory the Cargo project
   lives in, for monorepo callers.

@@ -1,12 +1,13 @@
 name: Setup Node.js + Yarn (install + publish deps artifact)
 description: >
   Checkout, enable Corepack, setup Node.js from package.json, restore the
-  Yarn cache, run `yarn install --frozen-lockfile`, and publish the
-  resulting node_modules (+ .next/cache, if present) as a build artifact so
-  downstream jobs can restore it with the sibling `restore-deps` action
-  instead of each running their own install. Intended to be used exactly
-  once, by a workflow's `setup` job — see `restore-deps/action.yml` for the
-  consumer side of this contract.
+  Yarn cache, restore a node_modules cache keyed on yarn.lock (skipping
+  `yarn install --frozen-lockfile` entirely on a hit — see `cache-write`
+  input), and publish the resulting node_modules (+ .next/cache, if
+  present) as a build artifact so downstream jobs can restore it with the
+  sibling `restore-deps` action instead of each running their own install.
+  Intended to be used exactly once, by a workflow's `setup` job — see
+  `restore-deps/action.yml` for the consumer side of this contract.
 
 inputs:
   artifact-name:
@@ -54,6 +55,19 @@ inputs:
       empty (default) for repos with no such cross-repo `gh` calls.
     required: false
     default: ''
+  cache-write:
+    description: >
+      Whether the node_modules cache below should be allowed to write a new
+      cache entry ('true') or only read an existing one ('false',
+      read-only). Caches change infrequently, so only the push-to-main
+      workflow (main-ci.yml / main-node-ci.yml) needs to write — PR runs
+      (develop-ci.yml / develop-node-ci.yml) can read main's cache via
+      restore-keys without also paying to write their own short-lived copy
+      on every run, which just churns/evicts the shared cache. 'false'
+      (read-only) by default. String, not boolean — composite action inputs
+      are always strings.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -77,6 +91,35 @@ runs:
         key: ${{ runner.os }}-yarn-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-yarn-
+
+    - name: Cache node_modules
+      # Highest-value cache here: without this, yarn install --frozen-lockfile
+      # reinstalls/relinks the full tree every single run regardless of the
+      # Yarn package cache above (that cache only avoids re-fetching over the
+      # network, not the resolve/link cost). Keyed on yarn.lock's hash, same
+      # as the Yarn cache. cache-write true (main-ci.yml/main-node-ci.yml)
+      # uses the normal restore+save action; cache-write false (every PR
+      # run) uses the read-only restore variant below instead, so PR
+      # branches never write their own short-lived copy — see cache-write's
+      # input description.
+      id: node-modules-cache
+      if: inputs.cache-write == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.working-directory }}/node_modules
+        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-node-modules-
+
+    - name: Restore node_modules (read-only)
+      id: node-modules-restore
+      if: inputs.cache-write != 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ inputs.working-directory }}/node_modules
+        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-node-modules-
 
     - name: Load SSH deploy key for private git dependencies
       if: inputs.ssh-deploy-key != ''
@@ -107,6 +150,15 @@ runs:
       run: git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
 
     - name: Install dependencies
+      # Skipped entirely on a node_modules cache hit — the restored tree
+      # already matches this exact yarn.lock. Still runs when extra-paths is
+      # set, though: those are postinstall-generated (e.g. SDK codegen)
+      # outputs the node_modules cache doesn't cover, so a cache hit there
+      # can't be trusted to have already produced them.
+      if: |
+        (steps.node-modules-cache.outputs.cache-hit != 'true' &&
+         steps.node-modules-restore.outputs.cache-hit != 'true') ||
+        inputs.extra-paths != ''
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:

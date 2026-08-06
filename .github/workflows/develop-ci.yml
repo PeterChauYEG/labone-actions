@@ -142,6 +142,11 @@ jobs:
           # gamecraft-api). Empty string for every other repo, which
           # setup-node-yarn treats as "no GH_TOKEN for the install step".
           gh-token: ${{ secrets.GH_PAT }}
+          # PR runs only read the node_modules cache written by main-ci.yml
+          # (via restore-keys/exact-key match against main's cache) — see
+          # setup-node-yarn's cache-write input description and README.md
+          # "Caching strategy".
+          cache-write: 'false'
 
   lint:
     name: lint
@@ -152,7 +157,21 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn lint
+      # Read-only: only main-ci.yml writes a new .eslintcache entry, same
+      # cache-to-main rationale as the node_modules cache above. Keyed on
+      # yarn.lock (dependency changes can shift lint output) plus any
+      # eslint config file, so a config edit also busts the cache.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/.eslintcache
+          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-eslintcache-
+      # --cache/--cache-location are passed through to the caller's `lint`
+      # script (yarn forwards extra CLI args to the underlying command) —
+      # assumes that script ultimately invokes eslint, true for every
+      # existing caller. A miss is a no-op flag for a non-eslint script.
+      - run: yarn lint --cache --cache-location .eslintcache
         working-directory: ${{ inputs.working-directory }}
 
   ls-lint:
@@ -177,7 +196,20 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn typecheck
+      # Read-only: only main-ci.yml writes a new tsconfig.tsbuildinfo entry,
+      # same cache-to-main rationale as the node_modules/.eslintcache caches
+      # above. Keyed on yarn.lock (dependency type defs) plus any
+      # tsconfig*.json, so a tsconfig edit also busts the cache.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/tsconfig.tsbuildinfo
+          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-tsbuildinfo-
+      # --incremental/--tsBuildInfoFile are passed through to the caller's
+      # `typecheck` script (yarn forwards extra CLI args) — assumes that
+      # script ultimately invokes tsc, true for every existing caller.
+      - run: yarn typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
         working-directory: ${{ inputs.working-directory }}
 
   build:

@@ -143,6 +143,10 @@ jobs:
           # gamecraft-api). Empty string for every other repo, which
           # setup-node-yarn treats as "no GH_TOKEN for the install step".
           gh-token: ${{ secrets.GH_PAT }}
+          # Only push-to-main writes a fresh node_modules cache entry — PR
+          # runs (develop-ci.yml) only read it. See setup-node-yarn's
+          # cache-write input description and README.md "Caching strategy".
+          cache-write: 'true'
 
   lint:
     name: lint
@@ -153,7 +157,15 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn lint
+      # Only main-ci.yml writes a new .eslintcache entry — see
+      # develop-ci.yml's read-only equivalent and cache-write's rationale.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ inputs.working-directory }}/.eslintcache
+          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-eslintcache-
+      - run: yarn lint --cache --cache-location .eslintcache
         working-directory: ${{ inputs.working-directory }}
 
   ls-lint:
@@ -178,7 +190,15 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn typecheck
+      # Only main-ci.yml writes a new tsconfig.tsbuildinfo entry — see
+      # develop-ci.yml's read-only equivalent and cache-write's rationale.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ inputs.working-directory }}/tsconfig.tsbuildinfo
+          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-tsbuildinfo-
+      - run: yarn typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
         working-directory: ${{ inputs.working-directory }}
 
   build:
