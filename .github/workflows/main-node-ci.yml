@@ -202,10 +202,18 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+      # Only main-node-ci.yml writes a new .jestcache entry (LAB-1333) -
+      # see develop-node-ci.yml's read-only equivalent.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ inputs.working-directory }}/.jestcache
+          key: ${{ runner.os }}-jestcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/jest.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-jestcache-
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
       # (recommended default: 90% lines/branches). See README.md.
-      - run: yarn test:coverage
+      - run: yarn test:coverage --cache --cacheDirectory .jestcache
         working-directory: ${{ inputs.working-directory }}
 
   security-scan:
