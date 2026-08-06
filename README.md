@@ -14,7 +14,7 @@ these workflows.
 |---|---|---|
 | `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. For yarn/Next.js-ish **web** repos. |
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
-| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn/Node/NestJS **backend service** repos. |
+| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
@@ -287,8 +287,21 @@ Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
 `workflow_call` inputs, `enable_*` default `true`):
 
 - `working-directory` (string, default `.`) — same role as in
-  `develop-ci.yml`, threaded through to `setup-node-yarn`/`restore-deps`
-  and every `yarn <script>` step.
+  `develop-ci.yml`, threaded through to `setup-node-yarn`/`setup-node-pnpm`
+  + `restore-deps` and every `<package manager> <script>` step.
+- `package_manager` (string, default `'yarn'`) — `'yarn'` or `'pnpm'`
+  (LAB-1268). Selects `setup-node-yarn` vs. `setup-node-pnpm` in the
+  `setup` job (`restore-deps` itself needs no branching — it never shells
+  out to either CLI, just downloads/untars the deps artifact those two
+  actions publish), and is substituted directly as the CLI command in
+  every `lint`/`typecheck`/`build`/`test` step (e.g. `${{
+  inputs.package_manager }} lint`) since both CLIs accept the same
+  script-invocation syntax. `dependency-audit` is the one exception —
+  yarn's vuln-audit subcommand is `yarn npm audit` (not `yarn audit`, per
+  the Yarn Berry note below), so that job branches on two separate `if:`
+  steps instead. A pnpm caller's `package.json` needs `pnpm-lock.yaml`
+  present (used as the cache/tsbuildinfo/eslintcache key input) the same
+  way a yarn caller needs `yarn.lock`.
 - `is_dependabot` (boolean) — caller-computed from
   `github.event.pull_request.user.login`. Skips `test`, `security-scan`
   and `dependency-audit` (`lint`/`typecheck`/`build` stay on).
@@ -329,9 +342,23 @@ enforce them on its own:
 `security-scan` restores deps, then runs the same Trivy invocation as
 `security-scan.yml`'s own `trivy` job (`severity: HIGH,CRITICAL`,
 `exit-code: '1'`), against the working directory. `dependency-audit` runs
-`yarn npm audit` (this repo and its Node/NestJS callers are on Yarn Berry)
-as a hard gate with no severity floor — any known vulnerability fails the
-job.
+`yarn npm audit` (`package_manager: yarn` callers — this repo and its
+yarn-based Node/NestJS callers are on Yarn Berry) or `pnpm audit`
+(`package_manager: pnpm` callers) as a hard gate with no severity floor —
+any known vulnerability fails the job.
+
+For a pnpm-based backend service (e.g. a repo with `packageManager:
+pnpm@...`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`), just add
+`package_manager: pnpm` to the caller snippet above:
+
+```yaml
+  ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main
+    secrets: inherit
+    with:
+      package_manager: pnpm
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+```
 
 ### `main-node-ci.yml` — inputs and jobs
 
@@ -356,6 +383,13 @@ real failure or cancellation does) and is skipped entirely for
 `is_dependabot`.
 
 ## Caching strategy
+
+This section describes `setup-node-yarn`; `setup-node-pnpm` (LAB-1268,
+`develop-node-ci.yml`'s `package_manager: pnpm` variant) mirrors the same
+shared-`setup`-job-plus-artifact strategy one-for-one — a repo-local pnpm
+store cache (`.pnpm-store`, in place of `.yarn/cache`) plus a `node_modules`
+cache keyed on `pnpm-lock.yaml`'s hash instead of `yarn.lock`'s, feeding the
+same `restore-deps` action every downstream job already uses.
 
 Every job used to do its own checkout + `setup-node` + cache-restore +
 full `yarn install --frozen-lockfile` — up to ~12 redundant installs per PR

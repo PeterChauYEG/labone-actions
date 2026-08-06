@@ -1,7 +1,8 @@
 name: Develop Node CI
 
-# Reusable PR-time CI for yarn/Node/NestJS backend service repos (LAB-1247).
-# Callers are thin wrappers: `on: pull_request` -> `uses:
+# Reusable PR-time CI for yarn- or pnpm-based Node/NestJS backend service
+# repos (LAB-1247, pnpm support LAB-1268). Callers are thin wrappers: `on:
+# pull_request` -> `uses:
 # PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
@@ -14,24 +15,24 @@ name: Develop Node CI
 # ticket filing - every job here is a plain pass/fail gate, matching how
 # main-ci.yml's jobs already behave.
 #
-# `lint` is a HARD, ZERO-TOLERANCE gate: this workflow only runs `yarn
-# lint` and fails the job on any non-zero exit. It CANNOT itself enforce
-# "zero warnings" - that depends entirely on the caller's own `lint` script
-# in package.json invoking eslint with `--max-warnings=0` (e.g. `eslint .
-# --max-warnings=0`). A caller whose `lint` script omits that flag will
-# have warnings silently pass through as a green check. See README.md.
+# `lint` is a HARD, ZERO-TOLERANCE gate: this workflow only runs `<package
+# manager> lint` and fails the job on any non-zero exit. It CANNOT itself
+# enforce "zero warnings" - that depends entirely on the caller's own `lint`
+# script in package.json invoking eslint with `--max-warnings=0` (e.g.
+# `eslint . --max-warnings=0`). A caller whose `lint` script omits that flag
+# will have warnings silently pass through as a green check. See README.md.
 #
 # `typecheck` expects the caller to run `tsc --noEmit` (or equivalent)
 # against a `tsconfig.json` that extends the shared `strict: true`
 # `tsconfig.base.json` in labone-eslint-plugin.
 #
-# `test` runs `yarn test:coverage` as a HARD gate, but this workflow has no
-# visibility into per-service coverage thresholds - it relies entirely on
-# the test runner's own exit code. Coverage-threshold enforcement (jest
-# `coverageThreshold` / vitest `coverage.thresholds`) is each consumer's
-# responsibility; a recommended default is 90% lines/branches. A caller
-# with no coverage threshold configured gets a green check on any coverage
-# number, including 0%. See README.md.
+# `test` runs `<package manager> test:coverage` as a HARD gate, but this
+# workflow has no visibility into per-service coverage thresholds - it
+# relies entirely on the test runner's own exit code. Coverage-threshold
+# enforcement (jest `coverageThreshold` / vitest `coverage.thresholds`) is
+# each consumer's responsibility; a recommended default is 90%
+# lines/branches. A caller with no coverage threshold configured gets a
+# green check on any coverage number, including 0%. See README.md.
 #
 # `security-scan` restores deps then runs the same Trivy invocation
 # security-scan.yml already established (severity HIGH,CRITICAL,
@@ -42,11 +43,19 @@ name: Develop Node CI
 # security-scan.yml` call) so it can restore the deps artifact like every
 # other job below and scan the installed tree, not just the lockfile.
 #
-# `dependency-audit` runs `yarn npm audit` (this repo, and the NestJS
-# services it targets, are on Yarn Berry - see setup-node-yarn's `.yarn/
-# cache` paths - so this is the Berry command; Yarn Classic repos would use
-# `yarn audit` instead) as a HARD gate with no severity floor: any known
-# vulnerability fails the job.
+# `dependency-audit` runs `yarn npm audit` for `package_manager: yarn`
+# callers (this repo, and the yarn-based NestJS services it targets, are on
+# Yarn Berry - see setup-node-yarn's `.yarn/cache` paths - so this is the
+# Berry command; Yarn Classic repos would use `yarn audit` instead) or
+# `pnpm audit` for `package_manager: pnpm` callers, as a HARD gate with no
+# severity floor: any known vulnerability fails the job.
+#
+# `package_manager` (LAB-1268) selects between the two - see the input's own
+# description below for the full contract. Every `<package manager>
+# <script>` step in this file is written as `${{ inputs.package_manager }}
+# <script>` so switching the input is the only change a caller needs to
+# make; both CLIs accept the same "run this package.json script, forward
+# extra args" invocation syntax.
 
 on:
   workflow_call:
@@ -60,6 +69,22 @@ on:
         type: string
         required: false
         default: '.'
+      package_manager:
+        description: >
+          Package manager the caller repo uses - 'yarn' or 'pnpm'
+          (LAB-1268). Selects setup-node-yarn/restore-deps vs.
+          setup-node-pnpm/restore-deps in the `setup` job and every
+          downstream job (restore-deps itself is package-manager agnostic -
+          see its own description), and is substituted directly as the CLI
+          command in every "<package manager> <script>" step below (e.g.
+          "pnpm lint") - both CLIs accept the same "run this package.json
+          script" invocation syntax. Also selects which lockfile
+          (yarn.lock vs pnpm-lock.yaml) the dependency-audit job's
+          install-vuln-check command targets. Defaults to 'yarn' so every
+          existing caller keeps working with zero changes.
+        type: string
+        required: false
+        default: 'yarn'
       is_dependabot:
         description: >
           Whether this PR was opened by dependabot[bot]. Caller must
@@ -121,7 +146,8 @@ jobs:
     name: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - if: inputs.package_manager == 'yarn'
+        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
@@ -136,6 +162,17 @@ jobs:
           # main-node-ci.yml. See setup-node-yarn's cache-write input
           # description and README.md "Caching strategy".
           cache-write: 'false'
+      - if: inputs.package_manager == 'pnpm'
+        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # PR runs only read the node_modules cache written by
+          # main-node-ci.yml. See setup-node-pnpm's cache-write input
+          # description and README.md "Caching strategy".
+          cache-write: 'false'
 
   lint:
     name: lint
@@ -148,18 +185,22 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
       # Read-only: only main-node-ci.yml writes a new .eslintcache entry -
       # see develop-ci.yml's identical pattern and cache-write's rationale.
+      # hashFiles takes both lockfile names - only the one the caller
+      # actually has present matches, so this key works unchanged for
+      # either package_manager (LAB-1268).
       - uses: actions/cache/restore@v6
         with:
           path: ${{ inputs.working-directory }}/.eslintcache
-          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
+          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
           restore-keys: |
             ${{ runner.os }}-eslintcache-
-      # Zero-tolerance gate: this just runs `yarn lint` and fails on any
-      # non-zero exit. Whether that actually means "zero warnings" depends
-      # on the caller's own lint script passing --max-warnings=0 to eslint
-      # - see this file's header comment and README.md. --cache/
-      # --cache-location are forwarded through to that script the same way.
-      - run: yarn lint --cache --cache-location .eslintcache
+      # Zero-tolerance gate: this just runs `<package manager> lint` and
+      # fails on any non-zero exit. Whether that actually means "zero
+      # warnings" depends on the caller's own lint script passing
+      # --max-warnings=0 to eslint - see this file's header comment and
+      # README.md. --cache/--cache-location are forwarded through to that
+      # script the same way for both yarn and pnpm.
+      - run: ${{ inputs.package_manager }} lint --cache --cache-location .eslintcache
         working-directory: ${{ inputs.working-directory }}
 
   typecheck:
@@ -172,14 +213,15 @@ jobs:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
       # Read-only: only main-node-ci.yml writes a new tsconfig.tsbuildinfo
-      # entry - see develop-ci.yml's identical pattern.
+      # entry - see develop-ci.yml's identical pattern. hashFiles takes both
+      # lockfile names - see the lint job's identical rationale (LAB-1268).
       - uses: actions/cache/restore@v6
         with:
           path: ${{ inputs.working-directory }}/tsconfig.tsbuildinfo
-          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
+          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
           restore-keys: |
             ${{ runner.os }}-tsbuildinfo-
-      - run: yarn typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
+      - run: ${{ inputs.package_manager }} typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
         working-directory: ${{ inputs.working-directory }}
 
   build:
@@ -192,7 +234,7 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn build
+      - run: ${{ inputs.package_manager }} build
         working-directory: ${{ inputs.working-directory }}
 
   test:
@@ -208,7 +250,7 @@ jobs:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
       # (recommended default: 90% lines/branches). See README.md.
-      - run: yarn test:coverage
+      - run: ${{ inputs.package_manager }} test:coverage
         working-directory: ${{ inputs.working-directory }}
 
   security-scan:
@@ -247,8 +289,16 @@ jobs:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
       # Hard gate, no severity floor - any known vulnerability fails the
-      # job. Yarn Berry command (this repo and its Node/NestJS callers use
-      # Berry, per setup-node-yarn's .yarn/cache paths); a Yarn Classic
-      # repo would need `yarn audit` instead.
-      - run: yarn npm audit
+      # job. `yarn npm audit` is the Yarn Berry command (this repo and its
+      # yarn-based Node/NestJS callers use Berry, per setup-node-yarn's
+      # .yarn/cache paths; a Yarn Classic repo would need `yarn audit`
+      # instead) vs. `pnpm audit` for `package_manager: pnpm` callers
+      # (LAB-1268) - unlike every other job's `<script>` step, this can't be
+      # a single `${{ inputs.package_manager }} audit` since yarn's
+      # subcommand is `npm audit`, not `audit`.
+      - if: inputs.package_manager == 'yarn'
+        run: yarn npm audit
+        working-directory: ${{ inputs.working-directory }}
+      - if: inputs.package_manager == 'pnpm'
+        run: pnpm audit
         working-directory: ${{ inputs.working-directory }}
