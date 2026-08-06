@@ -1,1 +1,445 @@
-PLACEHOLDER
+name: Develop CI
+
+# Reusable PR-time CI for yarn/Next.js-ish web repos. Callers are thin
+# wrappers: `on: pull_request` -> `uses: PeterChauYEG/labone-actions/.github/workflows/develop-ci.yml@main`
+# with `secrets: inherit`. See README.md for the full caller example and a
+# stability note on the input/job names below (a phase-2 migration of
+# laboratory-one-web depends on them being exact).
+#
+# Job coverage mirrors the a11y/design-system/dead-code/duplicate-code/
+# run-e2e-tests/react-tech-debt/max-lines jobs that today are hand-copied
+# into laboratory-one-web's and ai-harness-web's develop.yml. Every job past
+# lint/typecheck is optional via an `enable_*` boolean input (default true),
+# following the pre-existing `enable_ls_lint` precedent, so a repo without
+# (say) an `a11y` yarn script can turn that job off instead of being forced
+# to run it.
+#
+# Caching: a single `setup` job runs `yarn install --frozen-lockfile` once
+# and publishes node_modules (+ .next/cache) as a build artifact; every
+# other job downloads it via the `restore-deps` composite action instead of
+# reinstalling. See README.md "Caching strategy" for why this beats N
+# independent installs on the self-hosted runner fleet.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Next.js/yarn app lives
+          in. Defaults to `.` (repo root) so every existing caller keeps
+          working with zero changes. Set this for a monorepo caller, e.g.
+          `prototype`.
+        type: string
+        required: false
+        default: '.'
+      pr_number:
+        description: >
+          github.event.pull_request.number from the caller (required for
+          correct concurrency grouping and for the Linear ticket / sticky
+          comment steps below).
+        type: number
+        required: false
+        default: 0
+      pr_url:
+        description: >
+          github.event.pull_request.html_url from the caller (used by the
+          Linear ticket-filing steps; reusable workflows can't see
+          github.event.pull_request directly).
+        type: string
+        required: false
+        default: ''
+      is_dependabot:
+        description: >
+          Whether this PR was opened by dependabot[bot]. Caller must compute
+          this from github.event.pull_request.user.login, since reusable
+          workflows can't see that context directly. When true, every
+          optional scan/test job below is skipped except `lint`, `typecheck`
+          and `build` (a broken build is exactly what a dependency bump can
+          cause, so it stays on even for dependabot).
+        type: boolean
+        required: false
+        default: false
+      enable_ls_lint:
+        description: Run the ls-lint file naming check.
+        type: boolean
+        default: true
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_a11y:
+        description: Run `yarn a11y` (accessibility scan), with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_design_system:
+        description: Run `yarn design-system`, with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_dead_code:
+        description: Run `yarn dead-code`, with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_duplicate_code:
+        description: Run `yarn duplicate-code`, with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_e2e:
+        description: Run `yarn run-e2e-scan` (Playwright e2e), with PR sticky comment + Linear ticket filing on failure.
+        type: boolean
+        default: true
+      enable_react_tech_debt:
+        description: Run `yarn react-tech-debt`, with PR sticky comment on failure (no ticket).
+        type: boolean
+        default: true
+      enable_max_lines:
+        description: Run `yarn max-lines`, with PR sticky comment on failure (no ticket).
+        type: boolean
+        default: true
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules and .next/cache — e.g. a
+          gitignored src/generated/ directory populated by a `postinstall`
+          codegen script. Passed straight through to setup-node-yarn's
+          extra-paths input.
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# Scoped per repo+PR so callers don't cancel each other.
+# pr_number must be passed explicitly because github.event.pull_request
+# is not populated in the called workflow context.
+env:
+  DEPS_ARTIFACT: deps-${{ github.run_id }}
+
+jobs:
+  setup:
+    name: setup
+    runs-on: [self-hosted, catfood]
+    # Deliberately narrower than (and independent of) the caller's own
+    # workflow-level `concurrency:` group (grouped per PR number, see
+    # templates/*-pr.yml and README.md "Concurrency" point 1) — this one is
+    # scoped to just this job, per repo, with no PR number, so it queues
+    # (never cancels) `yarn install --frozen-lockfile` runs from *different*
+    # PRs of the same repo instead of letting them execute simultaneously on
+    # the shared catfood runner pool. LAB-1301: budget PRs #170/#171/
+    # #173-#176 landed on the runner host within seconds of each other and
+    # were all OOM-killed ~28s into this step; PR #169 passed cleanly at a
+    # quieter moment. Every other job in this workflow (lint/typecheck/
+    # build/etc.) only restores the already-built deps artifact — cheap
+    # enough to still run fully in parallel — so only this job needs
+    # serializing. This is a job-level group, not the workflow-level one
+    # main-ci.yml/main-node-ci.yml own, so it can't hit the parent/child
+    # deadlock described in README.md "Concurrency" point 1.
+    concurrency:
+      group: catfood-yarn-install-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          # Optional per-repo secret — only set for repos with a private
+          # git-dependency package.json entry (e.g.
+          # "eslint-plugin-lab-react-standards": "github:...#main"). Empty
+          # string for every other repo, which setup-node-yarn treats as
+          # "skip ssh-agent setup".
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # Optional per-repo secret — only set for repos whose postinstall
+          # script needs `gh` CLI access to a sibling private repo (e.g.
+          # gamecraft fetching a generated SDK release from
+          # gamecraft-api). Empty string for every other repo, which
+          # setup-node-yarn treats as "no GH_TOKEN for the install step".
+          gh-token: ${{ secrets.GH_PAT }}
+          # PR runs only read the node_modules cache written by main-ci.yml
+          # (via restore-keys/exact-key match against main's cache) — see
+          # setup-node-yarn's cache-write input description and README.md
+          # "Caching strategy".
+          cache-write: 'false'
+
+  lint:
+    name: lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Read-only: only main-ci.yml writes a new .eslintcache entry, same
+      # cache-to-main rationale as the node_modules cache above. Keyed on
+      # yarn.lock (dependency changes can shift lint output) plus any
+      # eslint config file, so a config edit also busts the cache.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/.eslintcache
+          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-eslintcache-
+      # --cache/--cache-location are passed through to the caller's `lint`
+      # script (yarn forwards extra CLI args to the underlying command) —
+      # assumes that script ultimately invokes eslint, true for every
+      # existing caller. A miss is a no-op flag for a non-eslint script.
+      - run: yarn lint --cache --cache-location .eslintcache
+        working-directory: ${{ inputs.working-directory }}
+
+  ls-lint:
+    name: ls-lint
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn lint:ls
+        working-directory: ${{ inputs.working-directory }}
+
+  typecheck:
+    name: typecheck
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Read-only: only main-ci.yml writes a new tsconfig.tsbuildinfo entry,
+      # same cache-to-main rationale as the node_modules/.eslintcache caches
+      # above. Keyed on yarn.lock (dependency type defs) plus any
+      # tsconfig*.json, so a tsconfig edit also busts the cache.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/tsconfig.tsbuildinfo
+          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-tsbuildinfo-
+      # --incremental/--tsBuildInfoFile are passed through to the caller's
+      # `typecheck` script (yarn forwards extra CLI args) — assumes that
+      # script ultimately invokes tsc, true for every existing caller.
+      - run: yarn typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
+        working-directory: ${{ inputs.working-directory }}
+
+  build:
+    name: build
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - run: yarn build
+        working-directory: ${{ inputs.working-directory }}
+
+  test:
+    name: test
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Read-only: only main-ci.yml writes a new .jestcache entry (LAB-1333)
+      # — same cache-to-main rationale as the .eslintcache/tsconfig.tsbuildinfo
+      # caches above. Keyed on yarn.lock (dependency changes can shift
+      # transform output) plus any jest config file, so a jest config edit
+      # also busts the cache.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/.jestcache
+          key: ${{ runner.os }}-jestcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/jest.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-jestcache-
+      # --cache/--cacheDirectory are passed through to the caller's
+      # `test:coverage` script (yarn forwards extra CLI args) — assumes
+      # that script ultimately invokes jest, true for every existing
+      # caller (LAB-1333).
+      - run: yarn test:coverage --cache --cacheDirectory .jestcache
+        working-directory: ${{ inputs.working-directory }}
+
+  a11y:
+    name: a11y
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: a11y
+          report-file: ${{ inputs.working-directory }}/a11y-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: a11y-scan
+          job-name: a11y
+          playwright: 'true'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+
+  design-system:
+    name: design-system
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: design-system
+          report-file: ${{ inputs.working-directory }}/design-system-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: design-system-scan
+          job-name: design-system
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+
+  dead-code:
+    name: dead-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: dead-code
+          report-file: ${{ inputs.working-directory }}/dead-code-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: dead-code-scan
+          job-name: dead-code
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+
+  duplicate-code:
+    name: duplicate-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      # Standardized to file a ticket like the other scans do (one of the
+      # two source repos this was consolidated from skipped this step,
+      # which was an inconsistency, not a deliberate choice - see README.md).
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: duplicate-code
+          report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: duplicate-code-scan
+          job-name: duplicate-code
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+
+  run-e2e-tests:
+    name: run-e2e-tests
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_e2e && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: run-e2e-scan
+          report-file: ${{ inputs.working-directory }}/e2e-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: e2e-scan
+          job-name: e2e
+          playwright: 'true'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+
+  react-tech-debt:
+    name: react-tech-debt
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: react-tech-debt
+          report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: react-tech-debt-scan
+          job-name: react-tech-debt
+          file-ticket: 'false'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+
+  max-lines:
+    name: max-lines
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_max_lines && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: max-lines
+          report-file: ${{ inputs.working-directory }}/max-lines-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: max-lines-scan
+          job-name: max-lines
+          file-ticket: 'false'
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
