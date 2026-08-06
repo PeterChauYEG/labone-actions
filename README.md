@@ -898,12 +898,16 @@ strategy" → "Cargo cache convergence" above. `workflow_call` inputs:
   default `scripts/dead-code-scan.sh`) / `cargo_machete_version` (string,
   default `0.9.2`) — a cargo-machete dead-dependency scan. Both known
   callers run this today with the same pinned tool version, so it defaults
-  on.
+  on. `cargo_machete_version` is informational only — cargo-machete is
+  baked into the `rust` self-hosted runner image at build time, not
+  installed per-run, so keep this value in sync with the image's pin.
 - `enable_duplicate_code` (boolean, default `false`) /
   `duplicate_code_script` (string, default
   `scripts/ci/duplicate-code-scan.sh`) / `cargo_dupes_version` (string,
   default `0.2.1`) — a cargo-dupes duplicate-code scan. Off by default —
-  only one of the two known callers has this today.
+  only one of the two known callers has this today. Unlike cargo-machete,
+  cargo-dupes is not baked into the runner image, so it's still installed
+  and cached per-run.
 - `enable_file_size` (boolean, default `false`) / `file_size_script`
   (string, default `scripts/ci/file-size-scan.sh`) — a report-only file-size
   scan (never fails the job). Off by default, same reasoning.

@@ -85,7 +85,11 @@ on:
         required: false
         default: 'scripts/dead-code-scan.sh'
       cargo_machete_version:
-        description: Pinned cargo-machete version.
+        description: >
+          Informational only - cargo-machete is baked into the `rust`
+          self-hosted runner image at build time (gha-runner-docker/images/
+          rust/Dockerfile), not installed per-run. Keep this in sync with
+          the image's pinned version if it ever changes.
         type: string
         required: false
         default: '0.9.2'
@@ -302,13 +306,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v4
-        id: machete-cache
-        with:
-          path: ~/.cargo/bin/cargo-machete
-          key: cargo-machete-${{ inputs.cargo_machete_version }}
-      - if: steps.machete-cache.outputs.cache-hit != 'true'
-        run: cargo install cargo-machete --version ${{ inputs.cargo_machete_version }} --locked
+      # cargo-machete (pinned version: cargo_machete_version input) is baked
+      # into the `rust` self-hosted runner image at build time (see
+      # gha-runner-docker/images/rust/Dockerfile), so no per-run cache/
+      # install step is needed here - unlike cargo-dupes below, which isn't
+      # baked in.
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
@@ -342,6 +344,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # Unlike cargo-machete (baked into the `rust` runner image), cargo-dupes
+      # is NOT baked in - confirmed against gha-runner-docker/images/rust/
+      # Dockerfile, which has no cargo-dupes install step. Keep this
+      # cache/install step until the image bakes it in too.
       - uses: actions/cache@v4
         id: dupes-cache
         with:
