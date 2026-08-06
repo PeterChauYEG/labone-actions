@@ -247,10 +247,23 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+      # Read-only: only main-node-ci.yml writes a new .jestcache entry
+      # (LAB-1333) - see the lint/typecheck jobs' identical pattern.
+      # hashFiles takes both lockfile names - see the lint job's identical
+      # rationale (LAB-1268).
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ inputs.working-directory }}/.jestcache
+          key: ${{ runner.os }}-jestcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/jest.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-jestcache-
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
       # (recommended default: 90% lines/branches). See README.md.
-      - run: ${{ inputs.package_manager }} test:coverage
+      # --cache/--cacheDirectory are forwarded through to that script the
+      # same way as lint/typecheck's flags for both yarn and pnpm
+      # (LAB-1333).
+      - run: ${{ inputs.package_manager }} test:coverage --cache --cacheDirectory .jestcache
         working-directory: ${{ inputs.working-directory }}
 
   security-scan:
