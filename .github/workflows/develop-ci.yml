@@ -124,6 +124,24 @@ jobs:
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
+    # Deliberately narrower than (and independent of) the caller's own
+    # workflow-level `concurrency:` group (grouped per PR number, see
+    # templates/*-pr.yml and README.md "Concurrency" point 1) — this one is
+    # scoped to just this job, per repo, with no PR number, so it queues
+    # (never cancels) `yarn install --frozen-lockfile` runs from *different*
+    # PRs of the same repo instead of letting them execute simultaneously on
+    # the shared catfood runner pool. LAB-1301: budget PRs #170/#171/
+    # #173-#176 landed on the runner host within seconds of each other and
+    # were all OOM-killed ~28s into this step; PR #169 passed cleanly at a
+    # quieter moment. Every other job in this workflow (lint/typecheck/
+    # build/etc.) only restores the already-built deps artifact — cheap
+    # enough to still run fully in parallel — so only this job needs
+    # serializing. This is a job-level group, not the workflow-level one
+    # main-ci.yml/main-node-ci.yml own, so it can't hit the parent/child
+    # deadlock described in README.md "Concurrency" point 1.
+    concurrency:
+      group: catfood-yarn-install-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:

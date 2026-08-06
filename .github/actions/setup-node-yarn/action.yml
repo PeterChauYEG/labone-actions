@@ -166,6 +166,19 @@ runs:
         # `gh` CLI calls against a sibling private repo can authenticate,
         # without widening the token's blast radius to any other step.
         GH_TOKEN: ${{ inputs.gh-token }}
+        # Yarn Berry's default networkConcurrency (8) opens that many
+        # parallel fetch/extract workers, each holding its own decompression
+        # buffers in memory at once — the single biggest install-time memory
+        # driver on a cache miss (LAB-1301: budget PRs #170/#171/#173-#176
+        # were OOM-killed ~28s into this exact step on the shared catfood
+        # runner pool when several PRs' installs landed on the same host at
+        # once). Capping it trades a few extra seconds of wall-clock for a
+        # meaningfully lower peak RSS per concurrent install, so the same
+        # runner host can absorb more overlapping PR pushes without any one
+        # of them getting OOM-killed. Only takes effect on an actual
+        # install (see the `if:` above) — a cache hit skips this step
+        # entirely and pays no penalty.
+        YARN_NETWORK_CONCURRENCY: '4'
       run: yarn install --frozen-lockfile
 
     - name: Archive deps into a single tarball

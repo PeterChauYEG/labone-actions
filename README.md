@@ -423,6 +423,19 @@ set, since those are `postinstall`-generated outputs (e.g. SDK codegen)
 the `node_modules` cache doesn't cover, so install always reruns to
 regenerate them in that case.
 
+### Install-time memory pressure (`YARN_NETWORK_CONCURRENCY`)
+
+The `node_modules` cache above only helps when it hits — a `yarn.lock`
+change (common on an active PR) still forces a real `yarn install
+--frozen-lockfile`. Yarn Berry's default `networkConcurrency` (8) opens
+that many parallel fetch/extract workers at once, each holding its own
+decompression buffers in memory — the single biggest driver of that
+install's peak RSS. `setup-node-yarn`'s install step caps this to 4 via
+`YARN_NETWORK_CONCURRENCY`, trading a bit of wall-clock for lower peak
+memory per install (LAB-1301: this is what was OOM-killing budget's `setup`
+job under concurrent PR load — see "Concurrency" point 3 below for the
+complementary queueing fix).
+
 ### ESLint (`.eslintcache`) and TypeScript (`tsconfig.tsbuildinfo`) caches
 
 `develop-ci.yml`/`main-ci.yml`, `develop-node-ci.yml`/`main-node-ci.yml`,
@@ -539,6 +552,32 @@ here — don't confuse them:
    "fix" that queueing by adding more `concurrency:` groups here; it's a
    different, correctly-functioning layer, and stacking a YAML-level group
    on top of it is exactly the mistake described in point 1.
+   **Unverified as of LAB-1301** — investigating that OOM ticket couldn't
+   locate `ci-semaphore-acquire.sh`/`ci-semaphore-release.sh` or those env
+   vars anywhere in the current `gha-runners` ops skill, which instead
+   documents an ephemeral Docker-dispatch model (`webhook-server.py` +
+   `dispatch-one.sh`, per-repo `max-concurrent` in `repos.json` on the
+   runner host). If this section is stale, point 3 below is not a
+   redundant stack on top of a working per-repo job cap — it may be the
+   only thing actually limiting simultaneous `setup` jobs for one repo.
+   Flagging for whoever owns the runner host to confirm/update this
+   section rather than silently leaving it wrong.
+3. **`develop-ci.yml`'s `setup` job concurrency group**
+   (`catfood-yarn-install-${{ github.repository }}`, `cancel-in-progress:
+   false`) — added for LAB-1301 after budget PRs #170/#171/#173-#176 all
+   got OOM-killed ~28s into `yarn install --frozen-lockfile` when their
+   runs landed on the runner pool within seconds of each other (PR #169
+   passed cleanly at a quieter moment). This is a **job-level** group
+   (`jobs.setup.concurrency`), not a workflow-level one, so it can't
+   deadlock against the caller's own per-PR-number group the way two
+   workflow-level groups sharing a name would (point 1) — it only ever
+   queues *this job*, letting a same-repo PR's `setup` wait for another
+   same-repo PR's `setup` to finish rather than run alongside it, while
+   every downstream job (`lint`/`typecheck`/`build`/etc., which only
+   restore the deps artifact and don't pay the install's memory cost) stays
+   fully parallel. Paired with the `YARN_NETWORK_CONCURRENCY` cap in
+   "Caching strategy" above — fewer simultaneous installs, and each one
+   cheaper in peak memory.
 
 ## Scan job dedup — `.github/actions/scan-with-report`
 
