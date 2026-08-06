@@ -484,6 +484,22 @@ are passed straight through to the caller's own `lint`/`typecheck` scripts
 those scripts ultimately invoke `eslint`/`tsc`, true for every existing
 caller.
 
+### Jest (`.jestcache`) cache (LAB-1333)
+
+Same pattern as the ESLint/TypeScript caches above: `develop-ci.yml`/
+`main-ci.yml`, `develop-node-ci.yml`/`main-node-ci.yml`, and
+`develop-mobile-ci.yml` each cache their `test` job's Jest transform cache
+at `.jestcache`, keyed on `yarn.lock`/`pnpm-lock.yaml` plus any
+`jest.config.*` file. `--cache --cacheDirectory .jestcache` is passed
+straight through to the caller's own `test:coverage` script the same way
+as the lint/typecheck flags — this assumes that script ultimately invokes
+`jest` (directly or via `react-scripts`/`next test`-style wrappers that
+forward unknown flags to Jest), true for every existing caller. Before this,
+`test:coverage` ran with Jest's default cache directory (an ephemeral OS
+temp dir, per-runner and never persisted via `actions/cache`), so every run
+paid a cold-cache transform cost that `lint`/`typecheck` had already been
+spared.
+
 ### Trivy DB cache
 
 `security-scan.yml`'s `trivy` job caches Trivy's vulnerability DB
