@@ -189,14 +189,24 @@ jobs:
         with:
           components: clippy
       - uses: actions/cache@v4
+        # Shares one cargo-${Cargo.lock hash} key with the test/build jobs'
+        # identical cache blocks below, instead of each job maintaining its
+        # own cargo-clippy-/cargo-test-/cargo-build- namespace - previously
+        # `target` got compiled from scratch up to 3x per PR (once per job)
+        # even though all three build the exact same dependency graph.
+        # Concurrent jobs still can't share a live cache mid-run (GitHub
+        # only saves a cache at job end, and only the first job to finish
+        # wins the save - the others no-op), but every subsequent run for
+        # the same Cargo.lock now hits one shared, warm cache instead of
+        # three separate cold ones.
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ${{ inputs.working-directory }}/target
-          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
           restore-keys: |
-            ${{ runner.os }}-cargo-clippy-
+            ${{ runner.os }}-cargo-
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.pre_build_command }}
@@ -228,14 +238,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
+        # Same converged cargo-${Cargo.lock hash} key as clippy/build - see
+        # clippy's cache step comment above.
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ${{ inputs.working-directory }}/target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
           restore-keys: |
-            ${{ runner.os }}-cargo-test-
+            ${{ runner.os }}-cargo-
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.pre_build_command }}
@@ -264,14 +276,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
+        # Same converged cargo-${Cargo.lock hash} key as clippy/test - see
+        # clippy's cache step comment above.
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ${{ inputs.working-directory }}/target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
           restore-keys: |
-            ${{ runner.os }}-cargo-build-
+            ${{ runner.os }}-cargo-
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.pre_build_command }}

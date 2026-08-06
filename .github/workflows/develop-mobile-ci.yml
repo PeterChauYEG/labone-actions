@@ -160,6 +160,11 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # No main-*-ci.yml counterpart exists for mobile repos in this
+          # repo, so the node_modules cache stays a plain restore+save
+          # cache here too - no read/write split, matching every other
+          # cache in this workflow. See README.md "Caching strategy".
+          cache-write: 'true'
 
   lint:
     name: lint
@@ -170,7 +175,16 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn lint
+      # No main-*-ci.yml counterpart exists for mobile repos in this repo,
+      # so this stays a plain restore+save cache (no cache-write split) -
+      # see README.md "Caching strategy".
+      - uses: actions/cache@v6
+        with:
+          path: ${{ inputs.working-directory }}/.eslintcache
+          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-eslintcache-
+      - run: yarn lint --cache --cache-location .eslintcache
         working-directory: ${{ inputs.working-directory }}
 
   ls-lint:
@@ -195,7 +209,15 @@ jobs:
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn typecheck
+      # No main-*-ci.yml counterpart exists for mobile repos, so this stays
+      # a plain restore+save cache (no cache-write split).
+      - uses: actions/cache@v6
+        with:
+          path: ${{ inputs.working-directory }}/tsconfig.tsbuildinfo
+          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
+          restore-keys: |
+            ${{ runner.os }}-tsbuildinfo-
+      - run: yarn typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
         working-directory: ${{ inputs.working-directory }}
 
   test:
