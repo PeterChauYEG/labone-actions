@@ -222,14 +222,14 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
-        with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
-          working-directory: ${{ inputs.working-directory }}
+      # Trivy's fs scanner resolves vulnerable packages straight from
+      # yarn.lock - it doesn't need an installed node_modules tree, so this
+      # job checks out source only instead of paying to download/untar the
+      # setup job's full deps artifact like every other job here.
+      - uses: actions/checkout@v7
       # Same severity/exit-code/no-default-ignore contract as
       # security-scan.yml's own `trivy` job - reimplemented inline (rather
-      # than a nested `uses: security-scan.yml` call) so it runs against
-      # the restored, installed tree like every other job here.
+      # than a nested `uses: security-scan.yml` call).
       - name: Run Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -247,10 +247,16 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      # `yarn npm audit` resolves entirely from yarn.lock against the
+      # registry - no installed node_modules tree needed, just the yarn
+      # binary itself. So this job checks out + enables Corepack + sets up
+      # Node directly instead of restoring the setup job's full deps
+      # artifact like every other job here.
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
-          working-directory: ${{ inputs.working-directory }}
+          node-version-file: ${{ inputs.working-directory }}/package.json
       # Hard gate, no severity floor - any known vulnerability fails the
       # job. Yarn Berry command (this repo and its Node/NestJS callers use
       # Berry, per setup-node-yarn's .yarn/cache paths); a Yarn Classic
