@@ -171,26 +171,23 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
-        with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
-          working-directory: ${{ inputs.working-directory }}
-      # Read-only: only main-ci.yml writes a new .eslintcache entry, same
-      # cache-to-main rationale as the node_modules cache above. Keyed on
-      # yarn.lock (dependency changes can shift lint output) plus any
-      # eslint config file, so a config edit also busts the cache.
-      - uses: actions/cache/restore@v6
-        with:
-          path: ${{ inputs.working-directory }}/.eslintcache
-          key: ${{ runner.os }}-eslintcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/.eslintrc*', inputs.working-directory), format('{0}/eslint.config.*', inputs.working-directory)) }}
-          restore-keys: |
-            ${{ runner.os }}-eslintcache-
       # --cache/--cache-location are passed through to the caller's `lint`
       # script (yarn forwards extra CLI args to the underlying command) —
       # assumes that script ultimately invokes eslint, true for every
       # existing caller. A miss is a no-op flag for a non-eslint script.
-      - run: yarn lint --cache --cache-location .eslintcache
-        working-directory: ${{ inputs.working-directory }}
+      # cache-write false: only main-ci.yml writes a new .eslintcache entry
+      # - see cached-script's cache-write description.
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          script: lint
+          script-args: --cache --cache-location .eslintcache
+          cache-path: .eslintcache
+          cache-key-prefix: eslintcache
+          cache-key-extra-glob-1: .eslintrc*
+          cache-key-extra-glob-2: eslint.config.*
+          cache-write: 'false'
 
   ls-lint:
     name: ls-lint
@@ -210,25 +207,21 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
-        with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
-          working-directory: ${{ inputs.working-directory }}
-      # Read-only: only main-ci.yml writes a new tsconfig.tsbuildinfo entry,
-      # same cache-to-main rationale as the node_modules/.eslintcache caches
-      # above. Keyed on yarn.lock (dependency type defs) plus any
-      # tsconfig*.json, so a tsconfig edit also busts the cache.
-      - uses: actions/cache/restore@v6
-        with:
-          path: ${{ inputs.working-directory }}/tsconfig.tsbuildinfo
-          key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/tsconfig*.json', inputs.working-directory)) }}
-          restore-keys: |
-            ${{ runner.os }}-tsbuildinfo-
       # --incremental/--tsBuildInfoFile are passed through to the caller's
       # `typecheck` script (yarn forwards extra CLI args) — assumes that
       # script ultimately invokes tsc, true for every existing caller.
-      - run: yarn typecheck --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
-        working-directory: ${{ inputs.working-directory }}
+      # cache-write false: only main-ci.yml writes a new tsconfig.tsbuildinfo
+      # entry - see cached-script's cache-write description.
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          script: typecheck
+          script-args: --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
+          cache-path: tsconfig.tsbuildinfo
+          cache-key-prefix: tsbuildinfo
+          cache-key-extra-glob-1: tsconfig*.json
+          cache-write: 'false'
 
   build:
     name: build
@@ -236,12 +229,11 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
-      - run: yarn build
-        working-directory: ${{ inputs.working-directory }}
+          script: build
 
   test:
     name: test
@@ -249,27 +241,21 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
-        with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
-          working-directory: ${{ inputs.working-directory }}
-      # Read-only: only main-ci.yml writes a new .jestcache entry (LAB-1333)
-      # — same cache-to-main rationale as the .eslintcache/tsconfig.tsbuildinfo
-      # caches above. Keyed on yarn.lock (dependency changes can shift
-      # transform output) plus any jest config file, so a jest config edit
-      # also busts the cache.
-      - uses: actions/cache/restore@v6
-        with:
-          path: ${{ inputs.working-directory }}/.jestcache
-          key: ${{ runner.os }}-jestcache-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/jest.config.*', inputs.working-directory)) }}
-          restore-keys: |
-            ${{ runner.os }}-jestcache-
       # --cache/--cacheDirectory are passed through to the caller's
       # `test:coverage` script (yarn forwards extra CLI args) — assumes
       # that script ultimately invokes jest, true for every existing
-      # caller (LAB-1333).
-      - run: yarn test:coverage --cache --cacheDirectory .jestcache
-        working-directory: ${{ inputs.working-directory }}
+      # caller (LAB-1333). cache-write false: only main-ci.yml writes a new
+      # .jestcache entry - see cached-script's cache-write description.
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+        with:
+          artifact-name: ${{ env.DEPS_ARTIFACT }}
+          working-directory: ${{ inputs.working-directory }}
+          script: test:coverage
+          script-args: --cache --cacheDirectory .jestcache
+          cache-path: .jestcache
+          cache-key-prefix: jestcache
+          cache-key-extra-glob-1: jest.config.*
+          cache-write: 'false'
 
   a11y:
     name: a11y

@@ -1,0 +1,54 @@
+name: Checkout + Rust toolchain + cargo cache
+description: >
+  Checkout, install the stable Rust toolchain (with the given components),
+  and optionally restore/cache ~/.cargo/registry, ~/.cargo/git and
+  target/ under one shared cargo-${Cargo.lock hash} key. Previously
+  hand-copied (checkout + dtolnay/rust-toolchain + an identical
+  actions/cache block) across fmt/clippy/test/build in
+  develop-rust-ci.yml - every job building the same dependency graph shared
+  one key already, just not one action.
+
+inputs:
+  working-directory:
+    description: Directory (relative to the repo root) the Cargo project lives in.
+    required: false
+    default: '.'
+  components:
+    description: >
+      Comma-separated rustup component list forwarded to
+      dtolnay/rust-toolchain (e.g. 'clippy', 'rustfmt'). Empty (default)
+      installs no extra components - the plain stable toolchain.
+    required: false
+    default: ''
+  cache:
+    description: >
+      Whether to restore/save the cargo registry+git+target cache.
+      'true' (default) for any job that actually compiles (clippy/test/
+      build); set 'false' for jobs that don't build against the full
+      dependency graph (fmt only formats source, dead-code's
+      cargo-machete is baked into the runner image, dependency-audit's
+      cargo-audit is a standalone tool) - caching there would just pay
+      the cache-save cost for no reuse benefit.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.components }}
+
+    - name: Cache cargo registry/git/target
+      if: inputs.cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ${{ inputs.working-directory }}/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
