@@ -21,8 +21,8 @@ inputs:
       Defaults to `.` (repo root), matching every existing caller. Applied
       to the `yarn <script>` and Playwright install steps below; scan
       scripts write their report relative to their own cwd, so callers
-      must pass a `report-file` that already accounts for this (e.g.
-      `${{ inputs.working-directory }}/a11y-report.md`).
+      must pass a `report-file` that already accounts for this (e.g. the
+      working-directory value joined with `a11y-report.md`).
     required: false
     default: '.'
   report-file:
