@@ -6,9 +6,9 @@ name: Develop Mobile CI
 # PeterChauYEG/labone-actions/.github/workflows/develop-mobile-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
-# Same `setup` + artifact-restore caching strategy as develop-node-ci.yml
-# (both are Yarn Berry - reuses the same setup-node-yarn/restore-deps
-# composite actions as-is), but a mobile-app-shaped job set: lint/ls-lint/
+# Same cache-restore-per-job caching strategy as develop-node-ci.yml (LAB-1371,
+# both are Yarn Berry - reuses the same setup-node-yarn action as-is), but a
+# mobile-app-shaped job set: lint/ls-lint/
 # typecheck/test plus the web-style a11y/design-system/dead-code/
 # duplicate-code scans (all three source repos already run these, unlike
 # develop-node-ci.yml's backend-service callers, which have none of them -
@@ -146,8 +146,6 @@ on:
 permissions:
   contents: read
 
-env:
-  DEPS_ARTIFACT: deps-${{ github.run_id }}
 
 jobs:
   setup:
@@ -156,7 +154,6 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -177,8 +174,10 @@ jobs:
       # description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: lint
           script-args: --cache --cache-location .eslintcache
           cache-path: .eslintcache
@@ -193,10 +192,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn lint:ls
         working-directory: ${{ inputs.working-directory }}
 
@@ -209,8 +211,10 @@ jobs:
       # a plain restore+save cache (cache-write: 'true').
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: typecheck
           script-args: --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
           cache-path: tsconfig.tsbuildinfo
@@ -229,8 +233,10 @@ jobs:
       # lint/typecheck above (LAB-1333).
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: test:coverage
           script-args: --cache --cacheDirectory .jestcache
           cache-path: .jestcache
@@ -252,10 +258,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
@@ -288,10 +297,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
@@ -324,10 +336,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
@@ -360,10 +375,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}

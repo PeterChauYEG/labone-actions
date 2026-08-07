@@ -72,10 +72,10 @@ on:
       package_manager:
         description: >
           Package manager the caller repo uses - 'yarn' or 'pnpm'
-          (LAB-1268). Selects setup-node-yarn/restore-deps vs.
-          setup-node-pnpm/restore-deps in the `setup` job and every
-          downstream job (restore-deps itself is package-manager agnostic -
-          see its own description), and is substituted directly as the CLI
+          (LAB-1268). Selects setup-node-yarn vs. setup-node-pnpm in the
+          `setup` job and every downstream job (each job restores deps
+          itself via cached-script - see cached-script/setup-node-yarn's
+          own descriptions), and is substituted directly as the CLI
           command in every "<package manager> <script>" step below (e.g.
           "pnpm lint") - both CLIs accept the same "run this package.json
           script" invocation syntax. Also selects which lockfile
@@ -138,8 +138,6 @@ on:
 permissions:
   contents: read
 
-env:
-  DEPS_ARTIFACT: deps-${{ github.run_id }}
 
 jobs:
   setup:
@@ -149,7 +147,6 @@ jobs:
       - if: inputs.package_manager == 'yarn'
         uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           # Same secret already used by web callers for the private
@@ -165,7 +162,6 @@ jobs:
       - if: inputs.package_manager == 'pnpm'
         uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -187,8 +183,10 @@ jobs:
       # .eslintcache entry - see cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           package-manager: ${{ inputs.package_manager }}
           script: lint
           script-args: --cache --cache-location .eslintcache
@@ -205,8 +203,10 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           package-manager: ${{ inputs.package_manager }}
           script: typecheck
           script-args: --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
@@ -223,8 +223,10 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           package-manager: ${{ inputs.package_manager }}
           script: build
 
@@ -239,8 +241,10 @@ jobs:
       # (recommended default: 90% lines/branches). See README.md.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           package-manager: ${{ inputs.package_manager }}
           script: test:coverage
           script-args: --cache --cacheDirectory .jestcache

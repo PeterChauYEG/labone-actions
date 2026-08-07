@@ -5,8 +5,8 @@ name: Develop Python CI
 # PeterChauYEG/labone-actions/.github/workflows/develop-python-ci.yml@main`
 # with `secrets: inherit`.
 #
-# Unlike develop-node-ci.yml, there is no shared `setup` + restore-deps
-# artifact stage here: Python dependency management is not uniform across
+# Unlike develop-node-ci.yml, there is no shared `setup` + cache-restore
+# stage here: Python dependency management is not uniform across
 # consumer repos (pyproject.toml, requirements.txt, or neither), and `pip
 # install ruff` is fast enough that every job just installs what it needs
 # directly, matching what every consumer repo already did with bespoke CI

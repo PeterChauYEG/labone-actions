@@ -214,8 +214,8 @@ Inputs (all `workflow_call` inputs, `enable_*` default `true`):
   repo root) the Next.js/yarn app lives in. Defaults to the repo root so
   every existing caller keeps working with zero changes; set it for a
   monorepo caller, e.g. `working-directory: prototype`. Threaded through to
-  `setup-node-yarn`/`restore-deps` (install, Node version detection, yarn
-  cache path, lockfile hash key, `node_modules` archive location), every
+  `setup-node-yarn` (install, Node version detection, yarn cache path,
+  lockfile hash key, `node_modules` cache location), every
   `yarn <script>` step (via the step's `working-directory:` property), and
   `scan-with-report` (script working directory + report-file path prefix).
 - `pr_number` (number) — for concurrency grouping + Linear ticket linking.
@@ -227,13 +227,13 @@ Inputs (all `workflow_call` inputs, `enable_*` default `true`):
   `enable_e2e`, `enable_react_tech_debt`, `enable_max_lines` (boolean) —
   turn a job off if your repo has no matching yarn script.
 - `extra_deps_paths` (string, default `''`) — space-separated list of
-  additional paths (relative to `working-directory`) to carry from `setup`
-  into every downstream job, beyond `node_modules`/`.next/cache`. Needed if
-  your repo has a `postinstall` script that writes gitignored generated
-  code outside `node_modules` (e.g. an SDK codegen step writing to
-  `src/generated/`) — without this, only the `setup` job sees that
-  directory and every job restoring from the deps artifact fails with
-  "Cannot find module". E.g. `extra_deps_paths: 'src/generated'`.
+  additional paths (relative to `working-directory`) folded into the
+  `node_modules` cache entry every job restores, beyond
+  `node_modules`/`.next/cache`. Needed if your repo has a `postinstall`
+  script that writes gitignored generated code outside `node_modules` (e.g.
+  an SDK codegen step writing to `src/generated/`) — without this, that
+  directory isn't part of what gets cached/restored and every job fails
+  with "Cannot find module". E.g. `extra_deps_paths: 'src/generated'`.
 
 No `secrets:` are declared on these `workflow_call` inputs — every caller
 uses `secrets: inherit`, so the reusable workflow reads whatever secrets
@@ -254,7 +254,7 @@ every run and file/comment-on a Linear ticket (via
 `scripts/file-linear-ticket.sh`) when they fail; `react-tech-debt` and
 `max-lines` only post the sticky comment (no ticket), matching prior
 per-repo behavior. Internally, each of these 7 jobs is just a
-`restore-deps` call followed by one call to the
+`setup-node-yarn` call followed by one call to the
 `.github/actions/scan-with-report` composite action — see "Scan job
 dedup" below.
 
@@ -288,13 +288,12 @@ Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
 
 - `working-directory` (string, default `.`) — same role as in
   `develop-ci.yml`, threaded through to `setup-node-yarn`/`setup-node-pnpm`
-  + `restore-deps` and every `<package manager> <script>` step.
+  and every `<package manager> <script>` step.
 - `package_manager` (string, default `'yarn'`) — `'yarn'` or `'pnpm'`
   (LAB-1268). Selects `setup-node-yarn` vs. `setup-node-pnpm` in the
-  `setup` job (`restore-deps` itself needs no branching — it never shells
-  out to either CLI, just downloads/untars the deps artifact those two
-  actions publish), and is substituted directly as the CLI command in
-  every `lint`/`typecheck`/`build`/`test` step (e.g. `${{
+  `setup` job and every downstream job (via `cached-script`'s own
+  `package-manager` input), and is substituted directly as the CLI command
+  in every `lint`/`typecheck`/`build`/`test` step (e.g. `${{
   inputs.package_manager }} lint`) since both CLIs accept the same
   script-invocation syntax. `dependency-audit` is the one exception —
   yarn's vuln-audit subcommand is `yarn npm audit` (not `yarn audit`, per
@@ -386,76 +385,90 @@ real failure or cancellation does) and is skipped entirely for
 
 This section describes `setup-node-yarn`; `setup-node-pnpm` (LAB-1268,
 `develop-node-ci.yml`'s `package_manager: pnpm` variant) mirrors the same
-shared-`setup`-job-plus-artifact strategy one-for-one — a repo-local pnpm
-store cache (`.pnpm-store`, in place of `.yarn/cache`) plus a `node_modules`
-cache keyed on `pnpm-lock.yaml`'s hash instead of `yarn.lock`'s, feeding the
-same `restore-deps` action every downstream job already uses.
+strategy one-for-one — a repo-local pnpm store cache (`.pnpm-store`, in
+place of `.yarn/cache`) plus a `node_modules` cache keyed on
+`pnpm-lock.yaml`'s hash instead of `yarn.lock`'s.
 
 Every job used to do its own checkout + `setup-node` + cache-restore +
 full `yarn install --frozen-lockfile` — up to ~12 redundant installs per PR
 across the full job set, on top of two repos using incompatible cache key
 conventions (flat `.yarn-cache` vs. Yarn Berry's `.yarn/cache` +
 `.yarn/install-state.gz`, meaning the cache wasn't even shared across those
-two repos' historical CI).
+two repos' historical CI). This repo's workflows fixed that in two
+generations:
 
-This repo's workflows fix that with a **shared `setup` job + artifact**,
-not just a cache-key fix:
+**Generation 1 (superseded): shared `setup` job + artifact.** A single
+`setup` job installed once and uploaded `node_modules` (+ `.next/cache`) as
+a `deps-${{ github.run_id }}` build artifact; every other job downloaded it
+via a `restore-deps` composite action instead of installing itself. This
+avoided N redundant "resolve + link" costs per run, but every single run
+*and* every job in it created its own fresh artifact upload/download
+regardless of whether `yarn.lock` had actually changed — since artifacts
+(unlike `actions/cache` entries) aren't deduped or LRU-evicted, this is what
+was repeatedly blowing the account-wide Actions artifact storage quota
+(LAB-1371) across every Node/web/mobile repo on this account, faster than
+the 1-day artifact retention plus GitHub's 6–12h usage-recalculation delay
+could drain it.
 
-1. `setup` runs once: checkout, enable Corepack, `actions/setup-node`,
+**Generation 2 (current): cache-only, keyed on the lockfile, not the run.**
+`setup-node-yarn` (called directly by every job that needs deps — no
+artifact fan-out) restores `node_modules` from an `actions/cache` entry
+keyed on `${{ runner.os }}-node-modules-${{ hashFiles('yarn.lock') }}` and
+only runs `yarn install --frozen-lockfile` itself on a miss:
+
+1. `setup` runs first: checkout, enable Corepack, `actions/setup-node`,
    restore the Yarn cache (standardized on the Yarn Berry paths), restore
-   a **`node_modules` cache** keyed on `yarn.lock`'s hash (skipping `yarn
-   install --frozen-lockfile` entirely on a hit — see "`node_modules`
-   cache" below), then upload `node_modules` (+ `.next/cache` if present)
-   as a build artifact named `deps-${{ github.run_id }}` — see
-   `.github/actions/setup-node-yarn/action.yml`. All of the paths involved
-   (Node version detection, the Yarn/node_modules cache dirs, the
-   `yarn.lock` hash key, and the `node_modules`/`.next/cache` archive
-   paths) are qualified with the `working-directory` input, defaulting to
-   `.` so this is a no-op for every existing root-level caller.
-2. Every other job `needs: setup` and downloads that artifact instead of
-   installing — see `.github/actions/restore-deps/action.yml`.
+   or (on push-to-main only) write the `node_modules` cache — see
+   "`node_modules` cache" below. All of the paths involved (Node version
+   detection, the Yarn/node_modules cache dirs, the `yarn.lock` hash key)
+   are qualified with the `working-directory` input, defaulting to `.` so
+   this is a no-op for every existing root-level caller.
+2. Every other job `needs: setup` (so the cache is already warm by the
+   time they read it) and calls `setup-node-yarn` itself — directly for
+   plain jobs (`ls-lint`, `a11y`, `design-system`, ...), or via
+   `cached-script` for jobs that also wrap a script-specific incremental
+   cache (`lint`, `typecheck`, `test`) — always with `cache-write: 'false'`,
+   since only `setup`'s write should ever create a fresh entry.
 
-Why artifact-over-fixing-just-the-cache-key: `actions/cache` restore still
-pays per-job tar-extraction + Yarn's link/resolve step for every job that
-restores it (Yarn's own local package cache avoids re-fetching over the
-network, but not that per-job unpack/link cost) — on a run with ~12 jobs
-that's still ~12x the extraction/link work even with a correct, shared
-cache key. Uploading the fully-installed `node_modules` once and
-downloading the ready-to-use tree in every other job replaces that
-per-job "resolve + link" cost with a single artifact transfer over the
-self-hosted fleet's local network, which is fast and doesn't grow with the
-job count. The Yarn cache (`actions/cache`) is *also* kept in `setup`, so
-even a `setup` cache-miss (new lockfile) only pays the network-fetch cost
-once, not per job.
+Cache-write is deliberately split the same way it already was for the
+script-specific caches: only the push-to-main workflow's `setup` job passes
+`cache-write: 'true'`; every PR job, and every non-`setup` job even on
+main, only ever reads. This means the *cache* is written once per actual
+`yarn.lock` change (main only), not once per run — the fix the user asked
+for directly.
+
+**Known tradeoff, and it's intentional:** on a genuine cache miss (a
+`yarn.lock` this account has never cached before — e.g. the very first run
+after a dependency bump on a brand-new PR, before it's landed on main),
+every job that needs deps runs its own full `yarn install
+--frozen-lockfile` independently, since none of them persist what they
+install. That's more redundant work than generation 1 paid on a miss, but
+it's rare (most PRs don't touch the lockfile) and self-hosted runners don't
+meter per-minute cost the way GitHub-hosted ones do — a better trade than
+an artifact quota outage blocking every repo's CI account-wide.
 
 If a repo ever needs a job that's genuinely independent of `setup` (rare —
 none of the current jobs are), it's fine for that job to opt out of
 `needs: setup` and install directly; the composite actions don't assume
 they're the only way to get dependencies in place.
 
-**`restore-deps`'s own per-job artifact download is intentionally left
-alone.** It's intra-run fan-out (every job in *one* run downloading the
-same tarball), orthogonal to the cross-run caching described here, and it
-exists specifically to avoid `actions/upload-artifact` mangling
-`node_modules/.bin/*` symlinks and exec bits — see the comment in
-`.github/actions/restore-deps/action.yml`. Eliminating the redundant
-per-job download would require knowing whether the `catfood` self-hosted
-runners are ephemeral or persistent, which is unconfirmed — out of scope
-here.
-
 ### `node_modules` cache
 
-`setup-node-yarn` also caches `node_modules` itself (path qualified with
-`working-directory`), keyed on `${{ runner.os }}-node-modules-${{
-hashFiles('yarn.lock') }}` with `restore-keys` falling back to the nearest
-older entry for that OS. This is the highest-value cache in this repo:
-even with a warm Yarn package cache, `yarn install --frozen-lockfile`
-previously still paid the full resolve/link cost on *every single run*,
-regardless of whether `yarn.lock` had changed. On a cache hit, the install
-step is skipped entirely — except when `extra_deps_paths`/`extra-paths` is
-set, since those are `postinstall`-generated outputs (e.g. SDK codegen)
-the `node_modules` cache doesn't cover, so install always reruns to
-regenerate them in that case.
+`setup-node-yarn` caches `node_modules` (+ `.next/cache` if present, + any
+`extra-paths`; path list qualified with `working-directory`), keyed on
+`${{ runner.os }}-node-modules-${{ hashFiles('yarn.lock') }}` with
+`restore-keys` falling back to the nearest older entry for that OS. This is
+the highest-value cache in this repo: even with a warm Yarn package cache,
+`yarn install --frozen-lockfile` previously still paid the full
+resolve/link cost on *every single run*, regardless of whether `yarn.lock`
+had changed. On a cache hit, the install step is skipped entirely — except
+when `extra_deps_paths`/`extra-paths` is set, in which case install always
+reruns regardless of hit/miss: those are `postinstall`-generated outputs
+(e.g. SDK codegen) that only exist after a real install ever regenerates
+them, and their content can drift from causes the `yarn.lock` hash alone
+wouldn't catch (e.g. a codegen script itself changing), so this repo
+chooses to always regenerate them fresh rather than risk serving a stale
+copy indefinitely off the lockfile-keyed cache.
 
 ### Install-time memory pressure (`YARN_NETWORK_CONCURRENCY`)
 
@@ -623,9 +636,9 @@ here — don't confuse them:
    workflow-level groups sharing a name would (point 1) — it only ever
    queues *this job*, letting a same-repo PR's `setup` wait for another
    same-repo PR's `setup` to finish rather than run alongside it, while
-   every downstream job (`lint`/`typecheck`/`build`/etc., which only
-   restore the deps artifact and don't pay the install's memory cost) stays
-   fully parallel. Paired with the `YARN_NETWORK_CONCURRENCY` cap in
+   every downstream job (`lint`/`typecheck`/`build`/etc., which read the
+   now-warm `node_modules` cache `setup` primed and so normally skip their
+   own install) stays fully parallel. Paired with the `YARN_NETWORK_CONCURRENCY` cap in
    "Caching strategy" above — fewer simultaneous installs, and each one
    cheaper in peak memory.
 
@@ -656,8 +669,8 @@ inputs:
   `secrets.LINEAR_API_KEY` in explicitly.
 
 Each of the 7 scan jobs in `develop-ci.yml` now shrinks to its
-`needs`/`runs-on`/`if`/`permissions` header, a `restore-deps` call, and one
-`scan-with-report` call. `scripts/file-linear-ticket.sh` is invoked with a
+`needs`/`runs-on`/`if`/`permissions` header, a `setup-node-yarn` call, and
+one `scan-with-report` call. `scripts/file-linear-ticket.sh` is invoked with a
 bare relative path (`bash scripts/file-linear-ticket.sh ...`), same as
 before the extraction — this still resolves correctly because every caller
 repo keeps its own copy of that script at `scripts/file-linear-ticket.sh`
@@ -818,7 +831,7 @@ jobs:
 
 Reusable PR-time CI for Python repos (data pipelines, MCP servers, ML/robotics
 scripts). Unlike `develop-node-ci.yml`, there's no shared `setup` +
-restore-deps artifact stage — Python dependency management isn't uniform
+cache-restore stage — Python dependency management isn't uniform
 across consumer repos (`pyproject.toml`, `requirements.txt`, or neither), and
 `pip install ruff` is cheap enough that every job just installs what it
 needs directly. `workflow_call` inputs:
@@ -868,8 +881,8 @@ jobs:
 ## `develop-rust-ci.yml`
 
 Reusable PR-time CI for Rust CLI/tool repos (`gdscript-lsp`, `ai-harness-cli`).
-Unlike `develop-node-ci.yml`, there's no shared `setup` + restore-deps
-artifact stage — cargo's own registry/git/target caching (via
+Unlike `develop-node-ci.yml`, there's no shared `setup` + cache-restore
+stage — cargo's own registry/git/target caching (via
 `actions/cache`, keyed on `Cargo.lock`'s hash) already avoids redundant
 network fetches per job without needing a single upstream install step to
 fan out from. The `clippy`/`test`/`build` jobs' cache blocks share one
@@ -952,9 +965,9 @@ jobs:
 
 Reusable PR-time CI for Expo/React Native mobile repos
 (`mc-training-arc-sung-jinwoo-mobile`, `mangalab`, `shout-mobile`). Same
-`setup` + artifact-restore caching strategy as `develop-node-ci.yml` (both
-are Yarn Berry — reuses the same `setup-node-yarn`/`restore-deps` composite
-actions as-is), but a mobile-app-shaped job set: `lint`/`ls-lint`/
+cache-restore-per-job caching strategy as `develop-node-ci.yml` (both
+are Yarn Berry — reuses the same `setup-node-yarn` action as-is), but a
+mobile-app-shaped job set: `lint`/`ls-lint`/
 `typecheck`/`test` plus the web-style `a11y`/`design-system`/`dead-code`/
 `duplicate-code` scans all three known callers already run (closer in
 spirit to `develop-ci.yml`'s Next.js job set than `develop-node-ci.yml`'s

@@ -1,25 +1,17 @@
-name: Setup Node.js + pnpm (install + publish deps artifact)
+name: Setup Node.js + pnpm
 description: >
-  pnpm sibling of `setup-node-yarn` (LAB-1268) - same contract, same
-  consumer side (`restore-deps`, which is already package-manager agnostic:
-  it just downloads and untars the deps artifact, with no yarn/pnpm-specific
-  step). Checkout, enable Corepack, setup Node.js from package.json,
+  pnpm sibling of `setup-node-yarn` (LAB-1268, cache-only LAB-1371) — same
+  contract: checkout, enable Corepack, setup Node.js from package.json,
   configure a repo-local pnpm store directory and restore its cache, restore
   a node_modules cache keyed on pnpm-lock.yaml (skipping `pnpm install
-  --frozen-lockfile` entirely on a hit - see `cache-write` input), and
-  publish the resulting node_modules (+ .next/cache, if present) as a build
-  artifact so downstream jobs can restore it with `restore-deps` instead of
-  each running their own install. Intended to be used exactly once, by a
-  workflow's `setup` job.
+  --frozen-lockfile` entirely on a hit — see `cache-write` input), running
+  the install locally in every job that needs deps rather than installing
+  once and fanning the result out via a GitHub Actions artifact. See
+  `setup-node-yarn`'s description for why the artifact approach was dropped
+  (it was the direct cause of repeatedly blowing the account-wide Actions
+  artifact storage quota).
 
 inputs:
-  artifact-name:
-    description: >
-      Name for the uploaded deps artifact. Callers should pass something
-      unique per-run (e.g. "deps-" followed by the run id) so concurrent
-      runs never collide. Must match the `artifact-name` given to
-      `restore-deps`.
-    required: true
   working-directory:
     description: >
       Directory (relative to the repo root) the pnpm app lives in. Defaults
@@ -30,11 +22,9 @@ inputs:
   extra-paths:
     description: >
       Newline- or space-separated list of additional paths (relative to the
-      repo root) to include in the deps tarball, beyond node_modules and
-      .next/cache - e.g. a gitignored src/generated/ directory populated by
-      a `postinstall` codegen script (pnpm install runs postinstall in this
-      job, but only node_modules/.next/cache normally make it into the
-      artifact downstream jobs restore from).
+      repo root) to fold into the node_modules cache entry, beyond
+      node_modules and .next/cache — e.g. a gitignored src/generated/
+      directory populated by a `postinstall` codegen script.
     required: false
     default: ''
   ssh-deploy-key:
@@ -61,11 +51,12 @@ inputs:
       Whether the node_modules cache below should be allowed to write a new
       cache entry ('true') or only read an existing one ('false',
       read-only). Caches change infrequently, so only the push-to-main
-      workflow needs to write - PR runs can read main's cache via
-      restore-keys without also paying to write their own short-lived copy
-      on every run, which just churns/evicts the shared cache. 'false'
-      (read-only) by default. String, not boolean - composite action inputs
-      are always strings. Same convention as `setup-node-yarn`.
+      workflow's `setup` job needs to write - every other job, on both PR
+      and main runs, reads that same entry read-only via restore-keys
+      instead of also paying to write a duplicate copy, which just
+      churns/evicts the shared cache. 'false' (read-only) by default.
+      String, not boolean - composite action inputs are always strings.
+      Same convention as `setup-node-yarn`.
     required: false
     default: 'false'
 
@@ -100,19 +91,36 @@ runs:
         restore-keys: |
           ${{ runner.os }}-pnpm-
 
+    - name: Compute node_modules cache paths
+      # Same rationale as setup-node-yarn's identical step: extra-paths is a
+      # dynamic, space-separated list that can't be looped over in a `path:`
+      # input directly, so build the full multiline path list once here.
+      id: cache-paths
+      shell: bash
+      run: |
+        {
+          echo "paths<<CACHE_PATHS_EOF"
+          echo "${{ inputs.working-directory }}/node_modules"
+          echo "${{ inputs.working-directory }}/.next/cache"
+          for p in ${{ inputs.extra-paths }}; do
+            echo "${{ inputs.working-directory }}/$p"
+          done
+          echo "CACHE_PATHS_EOF"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Cache node_modules
       # Same rationale as setup-node-yarn's node_modules cache: the pnpm
       # store cache above only avoids re-fetching over the network, not the
       # resolve/link cost of a full `pnpm install --frozen-lockfile`.
-      # cache-write true (a push-to-main workflow) uses the normal
-      # restore+save action; cache-write false (every PR run) uses the
-      # read-only restore variant below instead - see cache-write's input
-      # description.
+      # cache-write true (main-node-ci.yml's `setup` job only) uses the
+      # normal restore+save action; cache-write false (every other job)
+      # uses the read-only restore variant below instead - see cache-write's
+      # input description.
       id: node-modules-cache
       if: inputs.cache-write == 'true'
       uses: actions/cache@v6
       with:
-        path: ${{ inputs.working-directory }}/node_modules
+        path: ${{ steps.cache-paths.outputs.paths }}
         key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-node-modules-
@@ -122,7 +130,7 @@ runs:
       if: inputs.cache-write != 'true'
       uses: actions/cache/restore@v6
       with:
-        path: ${{ inputs.working-directory }}/node_modules
+        path: ${{ steps.cache-paths.outputs.paths }}
         key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-node-modules-
@@ -159,8 +167,10 @@ runs:
       # Skipped entirely on a node_modules cache hit - the restored tree
       # already matches this exact pnpm-lock.yaml. Still runs when
       # extra-paths is set, though: those are postinstall-generated (e.g.
-      # SDK codegen) outputs the node_modules cache doesn't cover, so a
-      # cache hit there can't be trusted to have already produced them.
+      # SDK codegen) outputs that only exist after a real install, so a
+      # cache hit there can't be trusted to have already produced them
+      # unless they were also captured into this same cache entry on a
+      # prior run.
       if: |
         (steps.node-modules-cache.outputs.cache-hit != 'true' &&
          steps.node-modules-restore.outputs.cache-hit != 'true') ||
@@ -170,25 +180,3 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
       run: pnpm install --frozen-lockfile
-
-    - name: Archive deps into a single tarball
-      shell: bash
-      # Same rationale as setup-node-yarn: actions/upload-artifact does not
-      # reliably round-trip symlinks or exec permissions, so archive
-      # node_modules (+ .next/cache, if present) ourselves and upload the
-      # single tarball instead of raw files.
-      run: |
-        NM_DIR="${{ inputs.working-directory }}/node_modules"
-        NEXT_CACHE_DIR="${{ inputs.working-directory }}/.next/cache"
-        EXTRA_PATHS=()
-        for p in ${{ inputs.extra-paths }}; do
-          EXTRA_PATHS+=("${{ inputs.working-directory }}/$p")
-        done
-        tar -czf deps.tar.gz "$NM_DIR" $( [ -d "$NEXT_CACHE_DIR" ] && echo "$NEXT_CACHE_DIR" ) "${EXTRA_PATHS[@]}"
-
-    - name: Publish deps artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ inputs.artifact-name }}
-        path: deps.tar.gz
-        retention-days: 1
