@@ -220,12 +220,20 @@ Inputs (all `workflow_call` inputs, `enable_*` default `true`):
   `scan-with-report` (script working directory + report-file path prefix).
 - `pr_number` (number) — for concurrency grouping + Linear ticket linking.
 - `pr_url` (string) — for Linear ticket linking.
+- `pr_base_sha` (string, default `''`) — `github.event.pull_request.base.sha`.
+  Only used by `tech-debt` (when `enable_tech_debt` is true) to compute a
+  delta vs. the PR's base branch; harmless to leave unset otherwise.
 - `is_dependabot` (boolean) — caller-computed; skips every job below
   `lint`/`typecheck`/`build`.
 - `enable_ls_lint`, `enable_build`, `enable_test`, `enable_a11y`,
   `enable_design_system`, `enable_dead_code`, `enable_duplicate_code`,
-  `enable_e2e`, `enable_react_tech_debt`, `enable_max_lines` (boolean) —
-  turn a job off if your repo has no matching yarn script.
+  `enable_e2e`, `enable_react_tech_debt`, `enable_max_lines` (boolean,
+  default `true`) — turn a job off if your repo has no matching yarn
+  script.
+- `enable_tech_debt` (boolean, default **`false`**) — run the grep-based
+  tech-debt metrics report and post it as a sticky PR comment. Opt-in,
+  unlike every other `enable_*` above — see "Tech debt metrics report"
+  below.
 - `extra_deps_paths` (string, default `''`) — space-separated list of
   additional paths (relative to `working-directory`) folded into the
   `node_modules` cache entry every job restores, beyond
@@ -248,7 +256,8 @@ dependencies.
 
 Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`, `a11y`,
 `design-system`, `dead-code`, `duplicate-code`, `run-e2e-tests`,
-`react-tech-debt`, `max-lines`. Scan jobs (`a11y`, `design-system`,
+`react-tech-debt`, `max-lines`, `tech-debt` (opt-in, see "Tech debt metrics
+report" below). Scan jobs (`a11y`, `design-system`,
 `dead-code`, `duplicate-code`, `run-e2e-tests`) post a sticky PR comment on
 every run and file/comment-on a Linear ticket (via
 `scripts/file-linear-ticket.sh`) when they fail; `react-tech-debt` and
@@ -689,6 +698,62 @@ inline. Verified with `actionlint`.
 already minimal 2-step bodies and were left as-is — not worth
 composite-izing further.
 
+## Tech debt metrics report — `.github/actions/tech-debt-report`
+
+`develop-ci.yml` and `develop-mobile-ci.yml` both have an opt-in `tech-debt`
+job (`enable_tech_debt`, default **false** — see each workflow's own
+section above) that greps the caller's tracked `.ts`/`.tsx` tree for seven
+tech-debt signals and posts the totals as a sticky PR comment, updated in
+place on every push rather than posted fresh each time (same
+`marocchino/sticky-pull-request-comment@v3` action `scan-with-report`
+already uses). Unlike every scan job above, it never fails the job — it's a
+metrics report, not a gate — and it never runs a yarn script or needs
+`node_modules`, so the job just does a plain `actions/checkout@v7` before
+calling the action (no `setup-node-yarn` step).
+
+Metrics (repo-wide totals, not diff-only counts):
+
+- `useEffect` call sites (`useEffect(`)
+- React Native's built-in `Animated.*` usage (not third-party animation
+  libraries — a known, accepted imprecision of a plain `Animated\.` grep,
+  see the action's `count-metrics.sh`)
+- `eslint-disable`/`eslint-disable-next-line` suppressions
+- `@ts-ignore`/`@ts-expect-error` suppressions
+- `any` usage (`: any`, `as any`, `@ts-nocheck` files, summed)
+- `TODO`/`FIXME`/`HACK` comments
+- `console.log` calls
+
+Every file under `node_modules`, `.next`, `dist`, `build`, `coverage`,
+`.expo`, and `.git` is excluded from the count.
+
+`.github/actions/tech-debt-report/action.yml` inputs:
+
+- `working-directory` (string, default `.`) — same convention as every
+  other action in this repo.
+- `pr-number` (required) — forwarded from the caller workflow's
+  `pr_number` input, for the sticky comment.
+- `base-sha` (string, default `''`) — forwarded from the caller workflow's
+  `pr_base_sha` input (`github.event.pull_request.base.sha`). When set,
+  the action fetches that SHA and checks it out into a throwaway `git
+  worktree` (not a second full checkout) to compute the same metrics
+  there, adding a "Δ vs. base" column to the report. A fetch/worktree
+  failure (e.g. an unreachable SHA) degrades to current-totals-only
+  instead of failing the job — this is a nice-to-have, not something worth
+  blocking a PR over.
+- `sticky-header` (string, default `tech-debt-report`) — unique
+  sticky-pull-request-comment header, same convention as
+  `scan-with-report`'s `sticky-header` input.
+
+The actual counting logic lives in one place,
+`.github/actions/tech-debt-report/count-metrics.sh <dir>`, invoked by both
+the "current tree" and "base branch worktree" steps so it isn't duplicated
+across two `run:` blocks.
+
+To opt a repo in, set `enable_tech_debt: true` on the `develop-ci.yml`/
+`develop-mobile-ci.yml` call (see `templates/web-pr.yml`/
+`templates/mobile-pr.yml`) and, for the delta column, also pass
+`pr_base_sha: ${{ github.event.pull_request.base.sha }}`.
+
 ## `security-scan.yml`
 
 Reusable, `workflow_call` inputs `scan-ref` (string, default `.`),
@@ -977,6 +1042,9 @@ plain NestJS one). `workflow_call` inputs:
   in, for monorepo callers.
 - `pr_number` (number, default `0`) / `pr_url` (string, default `''`) —
   same reasoning as `develop-rust-ci.yml`.
+- `pr_base_sha` (string, default `''`) — `github.event.pull_request.base.sha`,
+  only used by `tech-debt` (when `enable_tech_debt` is true) for the
+  delta-vs-base-branch column.
 - `is_dependabot` (boolean, default `false`) — caller must compute this from
   `github.event.pull_request.user.login`, and per known callers' CalVer
   version-bump PRs, should probably also cover `github-actions[bot]`. When
@@ -1006,10 +1074,13 @@ plain NestJS one). `workflow_call` inputs:
   PR workflow today.
 - `extra_deps_paths` (string, default `''`) — same as
   `develop-node-ci.yml`'s equivalent.
+- `enable_tech_debt` (boolean, default `false`) — run the grep-based
+  tech-debt metrics report and post it as a sticky PR comment. Opt-in — see
+  "Tech debt metrics report" below.
 
 Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `test`, `a11y`,
 `design-system`, `dead-code`, `duplicate-code`, `security-scan`,
-`dependency-audit`. `lint`/`typecheck` are plain, always-on pass/fail gates
+`dependency-audit`, `tech-debt` (opt-in). `lint`/`typecheck` are plain, always-on pass/fail gates
 (no dependabot skip — a broken lint/type error is exactly what a dependency
 bump can cause); the scan jobs follow the same continue-on-error + sticky
 PR comment + `file-linear-ticket.sh` + explicit `exit 1` pattern all known

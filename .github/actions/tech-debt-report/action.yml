@@ -1,0 +1,141 @@
+name: Tech debt metrics report
+description: >
+  Grep-based tech-debt metrics for TypeScript/React (web + React Native/
+  Expo) consumer repos: counts `useEffect` call sites, React Native
+  `Animated.*` usage, `eslint-disable`(-next-line) suppressions,
+  `@ts-ignore`/`@ts-expect-error` suppressions, `any` usage (": any" /
+  "as any" / "@ts-nocheck"), TODO/FIXME/HACK comments, and `console.log`
+  calls across every tracked `.ts`/`.tsx` file (excluding node_modules/
+  .next/dist/build/coverage/.expo/.git). Posts/updates a single sticky PR
+  comment (`marocchino/sticky-pull-request-comment`, same action
+  scan-with-report already uses) with a markdown table of the current
+  totals, and — when `base-sha` is supplied — the delta against the PR's
+  base branch, computed via a throwaway `git worktree` checkout of that SHA
+  instead of a second full checkout. Repo-wide totals, not a diff-only
+  count — see README.md. Unlike scan-with-report, this never runs a yarn
+  script and doesn't need node_modules, so callers don't need
+  setup-node-yarn first — just `actions/checkout@v7`. Never fails the job;
+  this is a metrics report, not a pass/fail gate.
+
+inputs:
+  working-directory:
+    description: >
+      Directory (relative to the repo root) the TypeScript/React app lives
+      in. Defaults to `.` (repo root), matching every other action in this
+      repo.
+    required: false
+    default: '.'
+  pr-number:
+    description: github.event.pull_request.number from the top-level caller.
+    required: true
+  base-sha:
+    description: >
+      github.event.pull_request.base.sha from the top-level caller. When
+      set, this action also fetches and checks out that SHA into a
+      throwaway `git worktree` and computes the same metrics there, so the
+      report can show a delta vs. the PR's base branch. Leave empty (or
+      unresolvable, e.g. a base SHA outside a shallow clone's fetchable
+      history) to skip the delta — the report falls back to current-totals
+      only rather than failing the job.
+    required: false
+    default: ''
+  sticky-header:
+    description: Unique header for the sticky-pull-request-comment.
+    required: false
+    default: tech-debt-report
+
+runs:
+  using: composite
+  steps:
+    - name: Compute current tech debt metrics
+      id: current
+      shell: bash
+      run: |
+        set -uo pipefail
+        read -r use_effect animated eslint_disable ts_ignore any_usage todo console_log <<< \
+          "$(bash "${{ github.action_path }}/count-metrics.sh" "${{ inputs.working-directory }}")"
+        {
+          echo "use_effect=$use_effect"
+          echo "animated=$animated"
+          echo "eslint_disable=$eslint_disable"
+          echo "ts_ignore=$ts_ignore"
+          echo "any_usage=$any_usage"
+          echo "todo=$todo"
+          echo "console_log=$console_log"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Compute base branch tech debt metrics
+      id: base
+      if: inputs.base-sha != ''
+      shell: bash
+      # Deliberately not `set -e` at the top level — a fetch/worktree
+      # failure here (e.g. a shallow clone that can't reach base-sha, or a
+      # rewritten base branch) should degrade to "no delta", not fail the
+      # whole job just for a nice-to-have metrics comment.
+      run: |
+        set -uo pipefail
+        {
+          set -e
+          git fetch --depth=1 origin "${{ inputs.base-sha }}"
+          worktree_dir="$(mktemp -d)"
+          git worktree add --detach "$worktree_dir" "${{ inputs.base-sha }}" >/dev/null
+          read -r use_effect animated eslint_disable ts_ignore any_usage todo console_log <<< \
+            "$(bash "${{ github.action_path }}/count-metrics.sh" "$worktree_dir/${{ inputs.working-directory }}")"
+          git worktree remove --force "$worktree_dir"
+          {
+            echo "use_effect=$use_effect"
+            echo "animated=$animated"
+            echo "eslint_disable=$eslint_disable"
+            echo "ts_ignore=$ts_ignore"
+            echo "any_usage=$any_usage"
+            echo "todo=$todo"
+            echo "console_log=$console_log"
+          } >> "$GITHUB_OUTPUT"
+        } || echo "::warning::tech-debt-report: couldn't compute base-branch metrics for ${{ inputs.base-sha }}, showing totals only"
+
+    - name: Build tech debt report
+      id: report
+      shell: bash
+      run: |
+        set -euo pipefail
+        report_file="$(mktemp)"
+        has_base="${{ steps.base.outputs.use_effect != '' }}"
+
+        fmt_row() {
+          local label="$1" current="$2" base="$3"
+          if [ -n "$base" ]; then
+            local delta=$((current - base))
+            local sign=''
+            if [ "$delta" -gt 0 ]; then sign='+'; fi
+            echo "| $label | $current | ${sign}${delta} |"
+          else
+            echo "| $label | $current |"
+          fi
+        }
+
+        {
+          echo '### Tech debt metrics'
+          echo
+          if [ "$has_base" = 'true' ]; then
+            echo '| Metric | Count | Δ vs. base |'
+            echo '|---|---|---|'
+          else
+            echo '| Metric | Count |'
+            echo '|---|---|'
+          fi
+          fmt_row '`useEffect` call sites' "${{ steps.current.outputs.use_effect }}" "${{ steps.base.outputs.use_effect }}"
+          fmt_row 'RN `Animated.*` usage' "${{ steps.current.outputs.animated }}" "${{ steps.base.outputs.animated }}"
+          fmt_row '`eslint-disable`(-next-line)' "${{ steps.current.outputs.eslint_disable }}" "${{ steps.base.outputs.eslint_disable }}"
+          fmt_row '`@ts-ignore`/`@ts-expect-error`' "${{ steps.current.outputs.ts_ignore }}" "${{ steps.base.outputs.ts_ignore }}"
+          fmt_row '`any` usage' "${{ steps.current.outputs.any_usage }}" "${{ steps.base.outputs.any_usage }}"
+          fmt_row 'TODO/FIXME/HACK comments' "${{ steps.current.outputs.todo }}" "${{ steps.base.outputs.todo }}"
+          fmt_row '`console.log` calls' "${{ steps.current.outputs.console_log }}" "${{ steps.base.outputs.console_log }}"
+        } >> "$report_file"
+
+        echo "path=$report_file" >> "$GITHUB_OUTPUT"
+
+    - uses: marocchino/sticky-pull-request-comment@v3
+      with:
+        number: ${{ inputs.pr-number }}
+        header: ${{ inputs.sticky-header }}
+        path: ${{ steps.report.outputs.path }}
