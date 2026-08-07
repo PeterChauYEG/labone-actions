@@ -118,8 +118,6 @@ concurrency:
   group: main-ci-${{ github.repository }}
   cancel-in-progress: false
 
-env:
-  DEPS_ARTIFACT: deps-${{ github.run_id }}
 
 jobs:
   setup:
@@ -128,7 +126,6 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           # Optional per-repo secret — only set for repos with a private
@@ -158,8 +155,10 @@ jobs:
       # cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: lint
           script-args: --cache --cache-location .eslintcache
           cache-path: .eslintcache
@@ -174,10 +173,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn lint:ls
         working-directory: ${{ inputs.working-directory }}
 
@@ -191,8 +193,10 @@ jobs:
       # cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: typecheck
           script-args: --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
           cache-path: tsconfig.tsbuildinfo
@@ -208,8 +212,10 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: build
 
   test:
@@ -223,8 +229,10 @@ jobs:
       # cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: test:coverage
           script-args: --cache --cacheDirectory .jestcache
           cache-path: .jestcache
@@ -238,10 +246,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
       - run: yarn a11y
@@ -253,10 +264,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn design-system
         working-directory: ${{ inputs.working-directory }}
 
@@ -266,10 +280,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn dead-code
         working-directory: ${{ inputs.working-directory }}
 
@@ -279,10 +296,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn duplicate-code
         working-directory: ${{ inputs.working-directory }}
 
@@ -292,10 +312,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_e2e && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
       - run: yarn run-e2e-scan
@@ -307,10 +330,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn react-tech-debt
         working-directory: ${{ inputs.working-directory }}
 
@@ -320,10 +346,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn max-lines
         working-directory: ${{ inputs.working-directory }}
 

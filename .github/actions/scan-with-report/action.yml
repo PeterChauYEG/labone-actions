@@ -5,9 +5,10 @@ description: >
   script that writes a markdown report, post/update a sticky PR comment with
   that report regardless of outcome, optionally file/comment-on a Linear
   ticket when the script fails, then fail the containing job if the script
-  failed. Callers must run the sibling `restore-deps` action first — this
-  action does not restore deps itself, since every caller in develop-ci.yml
-  already does that as its own step (some jobs also need e.g. `permissions:
+  failed. Callers must run `setup-node-yarn` (or the pnpm sibling) first —
+  this action does not restore deps itself, since every caller in
+  develop-ci.yml already does that as its own step (some jobs also need e.g.
+  `permissions:
   pull-requests: write` set on the job, which a composite action can't set
   for its caller).
 

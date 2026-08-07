@@ -1,22 +1,22 @@
-name: Setup Node.js + Yarn (install + publish deps artifact)
+name: Setup Node.js + Yarn
 description: >
   Checkout, enable Corepack, setup Node.js from package.json, restore the
   Yarn cache, restore a node_modules cache keyed on yarn.lock (skipping
   `yarn install --frozen-lockfile` entirely on a hit — see `cache-write`
-  input), and publish the resulting node_modules (+ .next/cache, if
-  present) as a build artifact so downstream jobs can restore it with the
-  sibling `restore-deps` action instead of each running their own install.
-  Intended to be used exactly once, by a workflow's `setup` job — see
-  `restore-deps/action.yml` for the consumer side of this contract.
+  input), running the install locally in every job that needs deps rather
+  than installing once and fanning the result out via a GitHub Actions
+  artifact. LAB-1371: the artifact approach (one unique upload per run,
+  downloaded by every downstream job) is what was blowing the account-wide
+  Actions artifact storage quota — every single run/job pair created its own
+  copy regardless of whether the lockfile had actually changed. A cache
+  entry keyed on yarn.lock's hash (not the run id) is naturally deduped
+  across runs and jobs instead, and only churns when the lockfile itself
+  changes. The tradeoff: on a genuine cache miss (new/changed lockfile),
+  every job that calls this action re-runs its own full install rather than
+  one job installing once for everyone — acceptable on self-hosted runners,
+  and rare since most runs hit an already-warm cache entry.
 
 inputs:
-  artifact-name:
-    description: >
-      Name for the uploaded deps artifact. Callers should pass something
-      unique per-run (e.g. "deps-" followed by the run id) so concurrent
-      runs never collide. Must match the `artifact-name` given to
-      `restore-deps`.
-    required: true
   working-directory:
     description: >
       Directory (relative to the repo root) the Next.js/yarn app lives in.
@@ -27,11 +27,9 @@ inputs:
   extra-paths:
     description: >
       Newline- or space-separated list of additional paths (relative to the
-      repo root) to include in the deps tarball, beyond node_modules and
-      .next/cache — e.g. a gitignored src/generated/ directory populated by
-      a `postinstall` codegen script (yarn install runs postinstall in this
-      job, but only node_modules/.next/cache normally make it into the
-      artifact downstream jobs restore from).
+      repo root) to fold into the node_modules cache entry, beyond
+      node_modules and .next/cache — e.g. a gitignored src/generated/
+      directory populated by a `postinstall` codegen script.
     required: false
     default: ''
   ssh-deploy-key:
@@ -60,10 +58,10 @@ inputs:
       Whether the node_modules cache below should be allowed to write a new
       cache entry ('true') or only read an existing one ('false',
       read-only). Caches change infrequently, so only the push-to-main
-      workflow (main-ci.yml / main-node-ci.yml) needs to write — PR runs
-      (develop-ci.yml / develop-node-ci.yml) can read main's cache via
-      restore-keys without also paying to write their own short-lived copy
-      on every run, which just churns/evicts the shared cache. 'false'
+      workflow's `setup` job (main-ci.yml / main-node-ci.yml) needs to
+      write — every other job, on both PR and main runs, reads that same
+      entry read-only via restore-keys instead of also paying to write a
+      duplicate copy, which just churns/evicts the shared cache. 'false'
       (read-only) by default. String, not boolean — composite action inputs
       are always strings.
     required: false
@@ -92,21 +90,39 @@ runs:
         restore-keys: |
           ${{ runner.os }}-yarn-
 
+    - name: Compute node_modules cache paths
+      # extra-paths is a dynamic, space-separated list - actions/cache's
+      # `path:` input can't loop over one in YAML directly, so build the
+      # full multiline path list (node_modules + .next/cache, if present,
+      # + each extra path) once here and reference it from both cache steps
+      # below via this step's output.
+      id: cache-paths
+      shell: bash
+      run: |
+        {
+          echo "paths<<CACHE_PATHS_EOF"
+          echo "${{ inputs.working-directory }}/node_modules"
+          echo "${{ inputs.working-directory }}/.next/cache"
+          for p in ${{ inputs.extra-paths }}; do
+            echo "${{ inputs.working-directory }}/$p"
+          done
+          echo "CACHE_PATHS_EOF"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Cache node_modules
       # Highest-value cache here: without this, yarn install --frozen-lockfile
       # reinstalls/relinks the full tree every single run regardless of the
       # Yarn package cache above (that cache only avoids re-fetching over the
       # network, not the resolve/link cost). Keyed on yarn.lock's hash, same
-      # as the Yarn cache. cache-write true (main-ci.yml/main-node-ci.yml)
-      # uses the normal restore+save action; cache-write false (every PR
-      # run) uses the read-only restore variant below instead, so PR
-      # branches never write their own short-lived copy — see cache-write's
-      # input description.
+      # as the Yarn cache. cache-write true (main-ci.yml/main-node-ci.yml's
+      # `setup` job only) uses the normal restore+save action; cache-write
+      # false (every other job) uses the read-only restore variant below
+      # instead — see cache-write's input description.
       id: node-modules-cache
       if: inputs.cache-write == 'true'
       uses: actions/cache@v6
       with:
-        path: ${{ inputs.working-directory }}/node_modules
+        path: ${{ steps.cache-paths.outputs.paths }}
         key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-node-modules-
@@ -116,7 +132,7 @@ runs:
       if: inputs.cache-write != 'true'
       uses: actions/cache/restore@v6
       with:
-        path: ${{ inputs.working-directory }}/node_modules
+        path: ${{ steps.cache-paths.outputs.paths }}
         key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-node-modules-
@@ -153,8 +169,9 @@ runs:
       # Skipped entirely on a node_modules cache hit — the restored tree
       # already matches this exact yarn.lock. Still runs when extra-paths is
       # set, though: those are postinstall-generated (e.g. SDK codegen)
-      # outputs the node_modules cache doesn't cover, so a cache hit there
-      # can't be trusted to have already produced them.
+      # outputs that only exist after a real install, so a cache hit there
+      # can't be trusted to have already produced them unless they were also
+      # captured into this same cache entry on a prior run.
       if: |
         (steps.node-modules-cache.outputs.cache-hit != 'true' &&
          steps.node-modules-restore.outputs.cache-hit != 'true') ||
@@ -180,32 +197,3 @@ runs:
         # entirely and pays no penalty.
         YARN_NETWORK_CONCURRENCY: '4'
       run: yarn install --frozen-lockfile
-
-    - name: Archive deps into a single tarball
-      shell: bash
-      # actions/upload-artifact does not reliably round-trip symlinks or
-      # exec permissions (see restore-deps/action.yml for the fallout: it
-      # was silently dereferencing node_modules/.bin/* symlinks into plain
-      # file copies at the wrong path, breaking every tool invoked via
-      # `npx <bin>` or a `.bin/<bin>` shell-out with e.g.
-      # "Cannot find module './lib/program'"). tar preserves both natively,
-      # so archive node_modules (+ .next/cache, if present) ourselves and
-      # upload the single tarball instead of raw files. Paths are qualified
-      # with `working-directory` (a no-op `./node_modules` when it's the
-      # default `.`) so the tarball still extracts to the right place in
-      # restore-deps regardless of where the app lives in the caller repo.
-      run: |
-        NM_DIR="${{ inputs.working-directory }}/node_modules"
-        NEXT_CACHE_DIR="${{ inputs.working-directory }}/.next/cache"
-        EXTRA_PATHS=()
-        for p in ${{ inputs.extra-paths }}; do
-          EXTRA_PATHS+=("${{ inputs.working-directory }}/$p")
-        done
-        tar -czf deps.tar.gz "$NM_DIR" $( [ -d "$NEXT_CACHE_DIR" ] && echo "$NEXT_CACHE_DIR" ) "${EXTRA_PATHS[@]}"
-
-    - name: Publish deps artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ inputs.artifact-name }}
-        path: deps.tar.gz
-        retention-days: 1

@@ -14,11 +14,15 @@ name: Develop CI
 # (say) an `a11y` yarn script can turn that job off instead of being forced
 # to run it.
 #
-# Caching: a single `setup` job runs `yarn install --frozen-lockfile` once
-# and publishes node_modules (+ .next/cache) as a build artifact; every
-# other job downloads it via the `restore-deps` composite action instead of
-# reinstalling. See README.md "Caching strategy" for why this beats N
-# independent installs on the self-hosted runner fleet.
+# Caching (LAB-1371): every job (not just `setup`) calls `setup-node-yarn`
+# directly, which restores node_modules from a cache keyed on yarn.lock's
+# hash (not the run id) and only runs `yarn install --frozen-lockfile`
+# itself on a miss. Previously `setup` alone installed once and fanned the
+# result out to every other job via a GitHub Actions artifact upload/
+# download - that made every single run/job pair create its own artifact
+# copy regardless of whether the lockfile had changed, which is what kept
+# blowing the account-wide Actions artifact storage quota. See README.md
+# "Caching strategy".
 
 on:
   workflow_call:
@@ -117,8 +121,6 @@ permissions:
 # Scoped per repo+PR so callers don't cancel each other.
 # pr_number must be passed explicitly because github.event.pull_request
 # is not populated in the called workflow context.
-env:
-  DEPS_ARTIFACT: deps-${{ github.run_id }}
 
 jobs:
   setup:
@@ -145,7 +147,6 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           # Optional per-repo secret — only set for repos with a private
@@ -179,8 +180,10 @@ jobs:
       # - see cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: lint
           script-args: --cache --cache-location .eslintcache
           cache-path: .eslintcache
@@ -195,10 +198,13 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - run: yarn lint:ls
         working-directory: ${{ inputs.working-directory }}
 
@@ -214,8 +220,10 @@ jobs:
       # entry - see cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: typecheck
           script-args: --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
           cache-path: tsconfig.tsbuildinfo
@@ -231,8 +239,10 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: build
 
   test:
@@ -248,8 +258,10 @@ jobs:
       # .jestcache entry - see cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           script: test:coverage
           script-args: --cache --cacheDirectory .jestcache
           cache-path: .jestcache
@@ -266,10 +278,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: a11y
@@ -291,10 +306,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: design-system
@@ -315,10 +333,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: dead-code
@@ -339,10 +360,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       # Standardized to file a ticket like the other scans do (one of the
       # two source repos this was consolidated from skipped this step,
       # which was an inconsistency, not a deliberate choice - see README.md).
@@ -366,10 +390,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: run-e2e-scan
@@ -391,10 +418,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: react-tech-debt
@@ -415,10 +445,13 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
-          artifact-name: ${{ env.DEPS_ARTIFACT }}
           working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: max-lines

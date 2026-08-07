@@ -1,20 +1,19 @@
 name: Restore deps + run a cached package-manager script
 description: >
-  Restores the setup job's deps artifact (via the sibling `restore-deps`
-  action), optionally wraps a script-specific incremental cache
-  (.eslintcache/tsconfig.tsbuildinfo/.jestcache/etc.) around it in either
-  read-only or read+write mode, then runs `<package-manager> <script>
-  <script-args>`. This is the shape every lint/typecheck/build/test job
-  across develop-ci.yml/main-ci.yml, develop-node-ci.yml/main-node-ci.yml
-  and develop-mobile-ci.yml shares - previously hand-copied between each
-  PR-time workflow and its push-to-main sibling with only the cache
-  read-vs-write behavior differing (mirroring the split setup-node-yarn's
-  own `cache-write` input already established for the node_modules cache).
+  Restores deps by calling the sibling `setup-node-yarn`/`setup-node-pnpm`
+  action directly (LAB-1371: no longer a GitHub Actions artifact download -
+  see that action's own description for why), optionally wraps a
+  script-specific incremental cache (.eslintcache/tsconfig.tsbuildinfo/
+  .jestcache/etc.) around it in either read-only or read+write mode, then
+  runs `<package-manager> <script> <script-args>`. This is the shape every
+  lint/typecheck/build/test job across develop-ci.yml/main-ci.yml,
+  develop-node-ci.yml/main-node-ci.yml and develop-mobile-ci.yml shares -
+  previously hand-copied between each PR-time workflow and its push-to-main
+  sibling with only the cache read-vs-write behavior differing (mirroring
+  setup-node-yarn's own `cache-write` input, reused here for the same
+  read-vs-write split on the node_modules cache).
 
 inputs:
-  artifact-name:
-    description: Deps artifact name - must match the setup job's setup-node-yarn/setup-node-pnpm artifact-name.
-    required: true
   working-directory:
     required: false
     default: '.'
@@ -22,6 +21,18 @@ inputs:
     description: yarn or pnpm - selects the `<package-manager> <script>` invocation.
     required: false
     default: 'yarn'
+  extra-paths:
+    description: Passed straight through to setup-node-yarn/setup-node-pnpm's extra-paths input.
+    required: false
+    default: ''
+  ssh-deploy-key:
+    description: Passed straight through to setup-node-yarn/setup-node-pnpm's ssh-deploy-key input.
+    required: false
+    default: ''
+  gh-token:
+    description: Passed straight through to setup-node-yarn/setup-node-pnpm's gh-token input.
+    required: false
+    default: ''
   script:
     description: package.json script name to run (e.g. lint, typecheck, build, test:coverage).
     required: true
@@ -73,10 +84,23 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: PeterChauYEG/labone-actions/.github/actions/restore-deps@main
+    - if: inputs.package-manager == 'yarn'
+      uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
       with:
-        artifact-name: ${{ inputs.artifact-name }}
         working-directory: ${{ inputs.working-directory }}
+        extra-paths: ${{ inputs.extra-paths }}
+        ssh-deploy-key: ${{ inputs.ssh-deploy-key }}
+        gh-token: ${{ inputs.gh-token }}
+        cache-write: ${{ inputs.cache-write }}
+
+    - if: inputs.package-manager == 'pnpm'
+      uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
+      with:
+        working-directory: ${{ inputs.working-directory }}
+        extra-paths: ${{ inputs.extra-paths }}
+        ssh-deploy-key: ${{ inputs.ssh-deploy-key }}
+        gh-token: ${{ inputs.gh-token }}
+        cache-write: ${{ inputs.cache-write }}
 
     - name: Restore ${{ inputs.cache-key-prefix }} cache (read-only)
       if: inputs.cache-path != '' && inputs.cache-write != 'true'
