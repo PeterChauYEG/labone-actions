@@ -107,7 +107,19 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
-        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) }}
+        # cache-key-extra-glob-1/-2 are optional (default ''); naively
+        # formatting an unset one as `{working-directory}/` (e.g. './')
+        # hands hashFiles a bare directory reference instead of a glob, and
+        # on at least one repo (a working-directory whose tree contains
+        # dangling symlinks - unrelated to this action, but hashFiles scans
+        # the whole match set) that made the WHOLE hashFiles() call error
+        # out ("Fail to hash files under directory ..."), not just skip the
+        # empty pattern - which aborted the entire step (and every step
+        # after it in the job, since a failed template expression here
+        # fails the step outright). Guard each optional glob to only be
+        # included in hashFiles() when actually set, same as an omitted
+        # arg.
+        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '') }}
         restore-keys: |
           ${{ runner.os }}-${{ inputs.cache-key-prefix }}-
 
@@ -116,7 +128,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
-        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1), format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) }}
+        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '') }}
         restore-keys: |
           ${{ runner.os }}-${{ inputs.cache-key-prefix }}-
 
