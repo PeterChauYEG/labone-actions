@@ -14,6 +14,18 @@ name: Develop CI
 # (say) an `a11y` yarn script can turn that job off instead of being forced
 # to run it.
 #
+# `tech-debt` is the one exception to that "default true"
+# precedent: it's a brand-new grep-based metrics report (useEffect count,
+# RN Animated usage, eslint-disable/@ts-ignore/`any` suppressions, TODO/
+# FIXME/HACK comments, console.log), not a job any consumer repo already
+# runs today, so `enable_tech_debt` defaults **false** - opt in per repo
+# rather than suddenly appearing on every caller's next PR. Unlike the
+# other scan jobs it never fails the job (it's a metrics report, not a
+# gate) and doesn't need node_modules/yarn, so it's a plain
+# `.github/actions/tech-debt-report` call with no `setup-node-yarn` step
+# first. See that action's own header comment for the full metric list and
+# the `pr_base_sha` input for the optional delta-vs-base-branch column.
+#
 # Caching (LAB-1371): every job (not just `setup`) calls `setup-node-yarn`
 # directly, which restores node_modules from a cache keyed on yarn.lock's
 # hash (not the run id) and only runs `yarn install --frozen-lockfile`
@@ -49,6 +61,18 @@ on:
           github.event.pull_request.html_url from the caller (used by the
           Linear ticket-filing steps; reusable workflows can't see
           github.event.pull_request directly).
+        type: string
+        required: false
+        default: ''
+      pr_base_sha:
+        description: >
+          github.event.pull_request.base.sha from the caller. Only used by
+          the `tech-debt` job (when `enable_tech_debt` is true) to compute
+          a delta vs. the PR's base branch - see
+          `.github/actions/tech-debt-report`'s `base-sha` input. Leave
+          empty (default) to skip the delta and get current-totals only;
+          harmless to leave unset for every caller that doesn't enable
+          `tech-debt`.
         type: string
         required: false
         default: ''
@@ -103,6 +127,15 @@ on:
         description: Run `yarn max-lines`, with PR sticky comment on failure (no ticket).
         type: boolean
         default: true
+      enable_tech_debt:
+        description: >
+          Run the grep-based tech-debt metrics report (useEffect/Animated/
+          eslint-disable/@ts-ignore/any/TODO-FIXME-HACK/console.log counts)
+          and post it as a sticky PR comment. Opt-in, unlike every other
+          `enable_*` above - defaults false since no consumer repo has this
+          today. See this file's header comment.
+        type: boolean
+        default: false
       extra_deps_paths:
         description: >
           Space-separated list of additional paths (relative to
@@ -462,3 +495,22 @@ jobs:
           file-ticket: 'false'
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
+
+  tech-debt:
+    name: tech-debt
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # No setup-node-yarn call: this is a plain grep over the tracked
+      # .ts/.tsx tree, no installed node_modules needed - just check out
+      # the repo, same as security-scan above.
+      - uses: actions/checkout@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          pr-number: ${{ inputs.pr_number }}
+          base-sha: ${{ inputs.pr_base_sha }}

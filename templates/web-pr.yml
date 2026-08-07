@@ -17,6 +17,13 @@ jobs:
       # enable_react_tech_debt: false
       # enable_max_lines: false
       #
+      # Opt in to the grep-based tech-debt metrics report (useEffect/RN
+      # Animated/eslint-disable/@ts-ignore/any/TODO-FIXME-HACK/console.log
+      # counts), posted as a sticky PR comment. Off by default. Pass
+      # pr_base_sha too if you want a delta-vs-base-branch column:
+      # enable_tech_debt: true
+      # pr_base_sha: ${{ github.event.pull_request.base.sha }}
+      #
       # If a postinstall codegen step (e.g. an OpenAPI-generated SDK) writes
       # outside node_modules, carry it through the deps artifact:
       # extra_deps_paths: 'src/generated'

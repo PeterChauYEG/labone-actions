@@ -38,6 +38,14 @@ name: Develop Mobile CI
 # restored, installed tree - same reasoning as develop-node-ci.yml.
 # `dependency-audit` (`yarn npm audit`) is a genuinely new capability: none
 # of the three source repos have an audit job in their PR workflow today.
+#
+# `tech-debt` is develop-ci.yml's grep-based tech-debt metrics
+# report (useEffect/RN Animated/eslint-disable/@ts-ignore/any/TODO-FIXME-
+# HACK/console.log counts), reused as-is here since it's stack-agnostic
+# TypeScript/React counting, not web- or Next.js-specific. Same opt-in
+# `enable_tech_debt` (default false) and `pr_base_sha` delta input as
+# develop-ci.yml - see `.github/actions/tech-debt-report`'s own header
+# comment for the full metric list.
 
 on:
   workflow_call:
@@ -52,6 +60,15 @@ on:
         required: false
         default: 0
       pr_url:
+        type: string
+        required: false
+        default: ''
+      pr_base_sha:
+        description: >
+          github.event.pull_request.base.sha from the caller. Only used by
+          the `tech-debt` job (when `enable_tech_debt` is true) to compute
+          a delta vs. the PR's base branch. Leave empty (default) to skip
+          the delta and get current-totals only.
         type: string
         required: false
         default: ''
@@ -131,6 +148,14 @@ on:
         description: >
           Run `yarn npm audit`. Off by default - genuinely new, no source
           repo has this in its PR workflow today.
+        type: boolean
+        default: false
+      enable_tech_debt:
+        description: >
+          Run the grep-based tech-debt metrics report (useEffect/RN
+          Animated/eslint-disable/@ts-ignore/any/TODO-FIXME-HACK/
+          console.log counts) and post it as a sticky PR comment. Opt-in -
+          defaults false since no source repo has this today.
         type: boolean
         default: false
       extra_deps_paths:
@@ -445,3 +470,22 @@ jobs:
           node-version-file: ${{ inputs.working-directory }}/package.json
       - run: yarn npm audit
         working-directory: ${{ inputs.working-directory }}
+
+  tech-debt:
+    name: tech-debt
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # No setup-node-yarn call: this is a plain grep over the tracked
+      # .ts/.tsx tree, no installed node_modules needed - just check out
+      # the repo, same as security-scan/dependency-audit above.
+      - uses: actions/checkout@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          pr-number: ${{ inputs.pr_number }}
+          base-sha: ${{ inputs.pr_base_sha }}
