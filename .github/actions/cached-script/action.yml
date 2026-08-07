@@ -155,4 +155,16 @@ runs:
     - name: Run ${{ inputs.package-manager }} ${{ inputs.script }}
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      # gh-token is otherwise only consumed by the setup-node-yarn/-pnpm
+      # steps above (private git-dependency install auth) - it never
+      # reaches the actual script run, so any test/build/lint script that
+      # itself shells out to `gh` or hits the GitHub REST API (e.g. a
+      # cross-repo integration test) has no credentials, even though the
+      # caller already passed one in. Exporting it here as both
+      # GH_TOKEN/GITHUB_TOKEN (the two env vars `gh` and most GitHub REST
+      # clients check) costs nothing when a script doesn't reference
+      # either - empty when gh-token isn't set.
+      env:
+        GH_TOKEN: ${{ inputs.gh-token }}
+        GITHUB_TOKEN: ${{ inputs.gh-token }}
       run: ${{ inputs.package-manager }} ${{ inputs.script }} ${{ inputs.script-args }}
