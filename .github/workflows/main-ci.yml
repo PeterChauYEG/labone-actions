@@ -391,6 +391,11 @@ jobs:
         with:
           git_remote_url: ${{ inputs.dokku_remote_url }}
           ssh_private_key: ${{ secrets.DOKKU_DEPLOY_SSH_KEY }}
+          # See main-node-ci.yml's identical comment: without this, the
+          # action pushes to the dokku remote's `master` ref by default,
+          # which Dokku doesn't build from - the job reports green (git push
+          # succeeds) but no actual deploy happens.
+          branch: main
 
   slack-notification:
     name: slack-notification

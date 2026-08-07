@@ -324,6 +324,14 @@ jobs:
         with:
           git_remote_url: ${{ inputs.dokku_remote_url }}
           ssh_private_key: ${{ secrets.DOKKU_DEPLOY_SSH_KEY }}
+          # dokku/github-action's `branch` input defaults to "master" - every
+          # caller here checks out `main` (this workflow only runs on
+          # push-to-main), so without this the action pushed main's content
+          # to the dokku remote's `master` ref, which Dokku doesn't build
+          # from (it warns "you must push to main" and no-ops). The job
+          # still reported green because the git push itself succeeded -
+          # only the actual deploy silently never happened.
+          branch: main
 
   slack-notification:
     name: slack-notification
