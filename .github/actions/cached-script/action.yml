@@ -25,6 +25,22 @@ inputs:
     description: Passed straight through to setup-node-yarn/setup-node-pnpm's extra-paths input.
     required: false
     default: ''
+  extra-deps-cache-key-glob-1:
+    description: >
+      Passed straight through to setup-node-yarn/setup-node-pnpm's
+      extra-cache-key-glob-1 input - an extra glob (e.g.
+      prisma/schema.prisma) folded into the node_modules cache key so a
+      `postinstall` codegen input changing invalidates the cache even when
+      yarn.lock/pnpm-lock.yaml didn't change. Distinct from
+      cache-key-extra-glob-1 below, which only affects this action's own
+      script-specific cache (.eslintcache/tsbuildinfo/.jestcache), not the
+      node_modules restore.
+    required: false
+    default: ''
+  extra-deps-cache-key-glob-2:
+    description: Second glob - see extra-deps-cache-key-glob-1.
+    required: false
+    default: ''
   ssh-deploy-key:
     description: Passed straight through to setup-node-yarn/setup-node-pnpm's ssh-deploy-key input.
     required: false
@@ -89,6 +105,8 @@ runs:
       with:
         working-directory: ${{ inputs.working-directory }}
         extra-paths: ${{ inputs.extra-paths }}
+        extra-cache-key-glob-1: ${{ inputs.extra-deps-cache-key-glob-1 }}
+        extra-cache-key-glob-2: ${{ inputs.extra-deps-cache-key-glob-2 }}
         ssh-deploy-key: ${{ inputs.ssh-deploy-key }}
         gh-token: ${{ inputs.gh-token }}
         cache-write: ${{ inputs.cache-write }}
@@ -98,6 +116,8 @@ runs:
       with:
         working-directory: ${{ inputs.working-directory }}
         extra-paths: ${{ inputs.extra-paths }}
+        extra-cache-key-glob-1: ${{ inputs.extra-deps-cache-key-glob-1 }}
+        extra-cache-key-glob-2: ${{ inputs.extra-deps-cache-key-glob-2 }}
         ssh-deploy-key: ${{ inputs.ssh-deploy-key }}
         gh-token: ${{ inputs.gh-token }}
         cache-write: ${{ inputs.cache-write }}

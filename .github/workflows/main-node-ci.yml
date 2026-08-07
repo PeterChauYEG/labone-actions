@@ -92,6 +92,31 @@ on:
         type: string
         required: false
         default: ''
+      extra_deps_cache_key_glob_1:
+        description: >
+          Extra glob (relative to working-directory) folded into every
+          job's node_modules cache key alongside yarn.lock - e.g.
+          `prisma/schema.prisma` for a repo whose `postinstall` script runs
+          `prisma generate`. Without this, the node_modules cache key only
+          changes when yarn.lock changes, so editing a `postinstall`
+          codegen input without also bumping a dependency leaves every job
+          restoring stale generated output (a cache hit skips
+          `yarn install`/`postinstall` entirely - see setup-node-yarn's
+          `extra-cache-key-glob-1` input for the full rationale). Passed
+          straight through to setup-node-yarn/setup-node-pnpm's
+          extra-cache-key-glob-1 input in every job below - must be set
+          identically across all of them (setup, lint, typecheck, build,
+          test) so each job's independently-computed cache key actually
+          matches setup's. A caller needing two extra patterns also has
+          extra_deps_cache_key_glob_2.
+        type: string
+        required: false
+        default: ''
+      extra_deps_cache_key_glob_2:
+        description: Second extra glob - see extra_deps_cache_key_glob_1.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -120,6 +145,8 @@ jobs:
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           # Same secret already used by web callers for the private
           # eslint-plugin-lab-react-standards git dependency - a sibling
           # ticket adds a lab-nest-standards rule set to that same
@@ -146,6 +173,8 @@ jobs:
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           script: lint
@@ -165,6 +194,8 @@ jobs:
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           script: typecheck
@@ -184,6 +215,8 @@ jobs:
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           script: build
@@ -201,6 +234,8 @@ jobs:
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           script: test:coverage
