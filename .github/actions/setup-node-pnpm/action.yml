@@ -27,6 +27,23 @@ inputs:
       directory populated by a `postinstall` codegen script.
     required: false
     default: ''
+  extra-cache-key-glob-1:
+    description: >
+      Extra glob pattern (relative to working-directory) folded into the
+      node_modules cache key's hashFiles alongside pnpm-lock.yaml - e.g.
+      `prisma/schema.prisma` for a repo whose `postinstall` script runs
+      `prisma generate`. See `setup-node-yarn`'s identical input for the
+      full rationale (a `postinstall` codegen input changing without a
+      dependency change otherwise leaves every job restoring stale
+      generated output forever). A caller needing two extra patterns also
+      has extra-cache-key-glob-2. Empty (default) matches every existing
+      caller with zero behavior change.
+    required: false
+    default: ''
+  extra-cache-key-glob-2:
+    description: Second extra glob pattern - see extra-cache-key-glob-1.
+    required: false
+    default: ''
   ssh-deploy-key:
     description: >
       SSH private key (e.g. secrets.LAB_GIT_DEPS_SSH_KEY) for cloning
@@ -121,7 +138,10 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ steps.cache-paths.outputs.paths }}
-        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
+        # extra-cache-key-glob-1/-2 are optional (default '') - guarded the
+        # same way as setup-node-yarn's identical key - see that action's
+        # comment.
+        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
         restore-keys: |
           ${{ runner.os }}-node-modules-
 
@@ -131,7 +151,7 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.cache-paths.outputs.paths }}
-        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
+        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
         restore-keys: |
           ${{ runner.os }}-node-modules-
 
