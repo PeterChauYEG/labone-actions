@@ -522,6 +522,14 @@ temp dir, per-runner and never persisted via `actions/cache`), so every run
 paid a cold-cache transform cost that `lint`/`typecheck` had already been
 spared.
 
+`main-node-ci.yml`'s `test` job exposes this as the `test_script_args`
+input (default `--cache --cacheDirectory .jestcache`, identical to the
+prior hardcoded behavior) so a caller whose `test:coverage` script isn't
+Jest-based (e.g. Vitest, which doesn't recognize `--cache`/
+`--cacheDirectory` and exits with `CACError: Unknown option
+--cacheDirectory`) can override it — typically to `''` — instead of the
+job failing outright.
+
 ### Trivy DB cache
 
 `security-scan.yml`'s `trivy` job caches Trivy's vulnerability DB
