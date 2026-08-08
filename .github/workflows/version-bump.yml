@@ -137,15 +137,37 @@ jobs:
 
           HEAD_SHA=$(git rev-parse HEAD)
 
-          for CHECK_NAME in lint ls-lint typecheck build test; do
+          # Skip every branch-protection-required status check for this
+          # automated, package.json-only commit, rather than a hardcoded
+          # guess at check names. The hardcoded list ("lint ls-lint
+          # typecheck build test") used to match, but drifted the moment any
+          # caller repo renamed jobs or added a new required check (e.g. the
+          # "ci / " reusable-workflow namespace prefix, or a newly-required
+          # trivy scan) — silently wedging every future bump PR open forever
+          # since a required check that never posts blocks merge
+          # indefinitely. Reading the actual required contexts back from the
+          # branch's own protection settings keeps this self-synced no
+          # matter what the caller repo's CI is named.
+          BASE_BRANCH="${{ github.event.repository.default_branch }}"
+          REQUIRED_CONTEXTS=$(curl -sf \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${API}/repos/${REPO}/branches/${BASE_BRANCH}/protection/required_status_checks" \
+            | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try { (JSON.parse(d).contexts || []).forEach(c => console.log(c)); } catch (e) {} })" \
+            || true)
+
+          while IFS= read -r CHECK_NAME; do
+            [ -z "$CHECK_NAME" ] && continue
+            BODY=$(node -e "console.log(JSON.stringify({name: process.argv[1], head_sha: process.argv[2], status: 'completed', conclusion: 'success', output: {title: 'Skipped for automated version bump', summary: 'This check is skipped for automated CalVer version bump commits which only modify package.json.'}}))" "$CHECK_NAME" "$HEAD_SHA")
             curl -sf -X POST \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "${API}/repos/${REPO}/check-runs" \
-              -d "{\"name\":\"${CHECK_NAME}\",\"head_sha\":\"${HEAD_SHA}\",\"status\":\"completed\",\"conclusion\":\"success\",\"output\":{\"title\":\"Skipped for automated version bump\",\"summary\":\"This check is skipped for automated CalVer version bump commits which only modify package.json.\"}}" \
+              -d "${BODY}" \
               > /dev/null || true
-          done
+          done <<< "$REQUIRED_CONTEXTS"
 
           PR_RESPONSE=$(curl -sf -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
