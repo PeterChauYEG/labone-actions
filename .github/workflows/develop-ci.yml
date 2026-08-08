@@ -136,6 +136,22 @@ on:
           today. See this file's header comment.
         type: boolean
         default: false
+      test_script_args:
+        description: >
+          Extra args passed straight through to the `test` job's
+          cached-script `script-args` input, appended to `yarn
+          test:coverage`. Defaults to `--cache --cacheDirectory
+          .jestcache`, matching every existing Jest-based caller's prior
+          hardcoded behavior with zero changes required on their end. A
+          consumer whose `test:coverage` script isn't Jest (e.g. Vitest,
+          which doesn't recognize `--cache`/`--cacheDirectory` and exits
+          with `CACError: Unknown option --cacheDirectory`) should override
+          this - typically to '' - to disable/replace the Jest-specific
+          flags. Same input added to main-node-ci.yml for the equivalent
+          push-triggered test job.
+        type: string
+        required: false
+        default: '--cache --cacheDirectory .jestcache'
       extra_deps_paths:
         description: >
           Space-separated list of additional paths (relative to
@@ -284,10 +300,9 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
-      # --cache/--cacheDirectory are passed through to the caller's
-      # `test:coverage` script (yarn forwards extra CLI args) — assumes
-      # that script ultimately invokes jest, true for every existing
-      # caller (LAB-1333). cache-write false: only main-ci.yml writes a new
+      # script-args defaults to --cache --cacheDirectory .jestcache (Jest),
+      # overridable per-caller via test_script_args for non-Jest test
+      # runners (LAB-1333). cache-write false: only main-ci.yml writes a new
       # .jestcache entry - see cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -296,7 +311,7 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           script: test:coverage
-          script-args: --cache --cacheDirectory .jestcache
+          script-args: ${{ inputs.test_script_args }}
           cache-path: .jestcache
           cache-key-prefix: jestcache
           cache-key-extra-glob-1: jest.config.*
