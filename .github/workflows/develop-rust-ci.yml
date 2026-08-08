@@ -328,7 +328,7 @@ jobs:
       # is NOT baked in - confirmed against gha-runner-docker/images/rust/
       # Dockerfile, which has no cargo-dupes install step. Keep this
       # cache/install step until the image bakes it in too.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: dupes-cache
         with:
           path: ~/.cargo/bin/cargo-dupes
