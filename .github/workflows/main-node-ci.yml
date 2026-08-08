@@ -117,6 +117,21 @@ on:
         type: string
         required: false
         default: ''
+      test_script_args:
+        description: >
+          Extra args passed straight through to the `test` job's
+          cached-script `script-args` input, appended to `yarn
+          test:coverage`. Defaults to `--cache --cacheDirectory
+          .jestcache`, matching every existing Jest-based caller's prior
+          hardcoded behavior with zero changes required on their end. A
+          consumer whose `test:coverage` script isn't Jest (e.g. Vitest,
+          which doesn't recognize `--cache`/`--cacheDirectory` and exits
+          with `CACError: Unknown option --cacheDirectory`) should override
+          this - typically to '' - to disable/replace the Jest-specific
+          flags.
+        type: string
+        required: false
+        default: '--cache --cacheDirectory .jestcache'
 
 permissions:
   contents: read
@@ -239,7 +254,7 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           script: test:coverage
-          script-args: --cache --cacheDirectory .jestcache
+          script-args: ${{ inputs.test_script_args }}
           cache-path: .jestcache
           cache-key-prefix: jestcache
           cache-key-extra-glob-1: jest.config.*
