@@ -378,8 +378,18 @@ jobs:
     # only actual failures/cancellations should - hence checking needs.*.result
     # instead of relying on the default all-must-succeed job dependency
     # semantics, which treats "skipped" the same as "failed" for a needs chain.
+    #
+    # This *requires* always() up front: GitHub silently ANDs a bare
+    # success() onto any if: that doesn't already reference one of
+    # always()/success()/failure()/cancelled(). Without it, this condition
+    # never actually overrides the default all-must-succeed behavior it's
+    # trying to replace - any disabled (skipped) optional gate above still
+    # auto-skips deploy, which is exactly what this comment says shouldn't
+    # happen. Caught via landing-lab's main-ci run 2026-08-07: every
+    # enable_* gate but ls-lint/build/test was false, so deploy silently
+    # skipped every push to main despite all real jobs passing.
     if: >-
-      inputs.enable_deploy && !inputs.is_dependabot &&
+      always() && inputs.enable_deploy && !inputs.is_dependabot &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled')
     steps:
