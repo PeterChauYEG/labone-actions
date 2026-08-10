@@ -147,6 +147,18 @@ on:
         type: string
         required: false
         default: ''
+      test_script_args:
+        description: >
+          Extra CLI args forwarded to the caller's `test:coverage` script.
+          Defaults to Jest's cache flags (every existing caller runs Jest).
+          A Vitest-based caller must override this - Vitest 4 removed the
+          `--cacheDirectory` CLI flag ("Unknown option `--cacheDirectory`");
+          pass `--cache` only, and set the cache directory via Vite's
+          `cacheDir` config option in vitest.config.ts instead (point it at
+          `.jestcache` to match `cache-path` below).
+        type: string
+        required: false
+        default: '--cache --cacheDirectory .jestcache'
 
 permissions:
   contents: read
@@ -284,11 +296,11 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
-      # --cache/--cacheDirectory are passed through to the caller's
-      # `test:coverage` script (yarn forwards extra CLI args) — assumes
-      # that script ultimately invokes jest, true for every existing
-      # caller (LAB-1333). cache-write false: only main-ci.yml writes a new
-      # .jestcache entry - see cached-script's cache-write description.
+      # test_script_args (default Jest's cache flags) is passed through to
+      # the caller's `test:coverage` script (yarn forwards extra CLI args) —
+      # see that input's description above for the Vitest caveat (LAB-1333).
+      # cache-write false: only main-ci.yml writes a new .jestcache entry -
+      # see cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
@@ -296,7 +308,7 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           script: test:coverage
-          script-args: --cache --cacheDirectory .jestcache
+          script-args: ${{ inputs.test_script_args }}
           cache-path: .jestcache
           cache-key-prefix: jestcache
           cache-key-extra-glob-1: jest.config.*
