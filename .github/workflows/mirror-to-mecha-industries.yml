@@ -19,6 +19,21 @@ name: Mirror to mecha-industries
 # Triggered on every push to main for near-instant sync, plus a daily
 # schedule as a safety net in case a push-triggered run ever fails or is
 # missed, plus workflow_dispatch for manual testing/recovery.
+#
+# A plain mirror isn't quite enough, though: this repo's own workflow and
+# composite-action files reference each other with hardcoded
+# `uses: PeterChauYEG/labone-actions/...@main` steps. Those nested refs are
+# resolved from the CALLING job's context, so when mecha10 (mecha-industries)
+# calls a reusable workflow out of the *mirror*, its nested `uses:` steps
+# still point back at the original PeterChauYEG-owned repo - which
+# mecha-industries has no access to. That's the same cross-org restriction
+# the mirror exists to work around, just one level deeper. GitHub can't
+# resolve that nested reference at trigger time and rejects the whole
+# workflow file with a startup_failure before any job runs. The "patch
+# mirrored refs" step below rewrites those owner-qualified refs to point at
+# the mirror itself, only in the mecha-industries copy - the source repo's
+# own files are never touched, so same-owner callers like ai-harness-cli are
+# unaffected.
 
 on:
   push:
@@ -64,4 +79,49 @@ jobs:
         run: |
           set +x
           git push --mirror "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git"
+        shell: bash
+
+      - name: Patch mirrored refs for mecha-industries
+        # Rewrites every owner-qualified `PeterChauYEG/labone-actions` ref
+        # under .github/ (workflows and composite actions alike) to
+        # `mecha-industries/labone-actions`, in a FRESH clone of the mirror
+        # only - this never touches the source repo's own files or history.
+        # Idempotent by construction: once a ref has been rewritten it no
+        # longer contains the literal `PeterChauYEG/labone-actions` string,
+        # so re-running the sed against an already-patched mirror finds
+        # nothing to change and `git diff --quiet` skips the commit/push,
+        # producing a no-op run instead of an ever-growing history.
+        env:
+          MECHA_INDUSTRIES_MIRROR_TOKEN: ${{ secrets.MECHA_INDUSTRIES_MIRROR_TOKEN }}
+        run: |
+          set +x
+          set -euo pipefail
+
+          workdir=$(mktemp -d)
+          trap 'rm -rf "$workdir"' EXIT
+
+          repo_url="https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git"
+
+          git clone --depth 1 "$repo_url" "$workdir/labone-actions"
+          cd "$workdir/labone-actions"
+
+          matches=$(grep -rlF 'PeterChauYEG/labone-actions' .github || true)
+
+          if [ -z "$matches" ]; then
+            echo "No PeterChauYEG/labone-actions refs found under .github/ - nothing to patch."
+            exit 0
+          fi
+
+          echo "$matches" | xargs sed -i 's#PeterChauYEG/labone-actions#mecha-industries/labone-actions#g'
+
+          if git diff --quiet; then
+            echo "Patch produced no diff (mirror already patched) - skipping commit."
+            exit 0
+          fi
+
+          git config user.name "labone-actions-mirror-bot"
+          git config user.email "actions@github.com"
+          git add .github
+          git commit -m "chore: rewrite internal action refs for mecha-industries mirror"
+          git push "$repo_url" HEAD:main
         shell: bash
