@@ -45,6 +45,13 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          # Without this, checkout persists an http.https://github.com/.extraheader
+          # git config entry scoped to the whole https://github.com/ origin, using
+          # this job's repo-scoped GITHUB_TOKEN. That header then overrides the
+          # inline MECHA_INDUSTRIES_MIRROR_TOKEN credentials on the push step below,
+          # so the mirror push goes out as GITHUB_TOKEN - which has no access to
+          # mecha-industries/labone-actions - and fails with "Repository not found."
+          persist-credentials: false
 
       - name: Push mirror to mecha-industries/labone-actions
         # A full mirror push (refs/*, including tags) to the org-owned
