@@ -1,0 +1,60 @@
+name: Mirror to mecha-industries
+
+# Keeps a private mirror of this repo in sync at
+# mecha-industries/labone-actions.
+#
+# Why this exists: mecha10 (owned by the mecha-industries org) needs to call
+# this repo's reusable workflows (develop-rust-ci.yml, actionlint.yml,
+# security-scan.yml) via workflow_call. GitHub's private-repo "Access"
+# setting for reusable workflows only allows callers owned by the SAME
+# user/org as the source repo - there's no way to allowlist an external org.
+# This repo is owned by the personal account PeterChauYEG, so
+# mecha-industries-owned repos can never be authorized callers no matter
+# what Access setting is chosen, short of making this repo public (not
+# acceptable). The fix: maintain a synced private copy of this repo inside
+# mecha-industries itself (mecha-industries/labone-actions, already created,
+# Actions access already set to org-wide) - mecha10 calls the mirror
+# instead of this repo directly, since the mirror IS same-org.
+#
+# Triggered on every push to main for near-instant sync, plus a daily
+# schedule as a safety net in case a push-triggered run ever fails or is
+# missed, plus workflow_dispatch for manual testing/recovery.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Daily at 09:00 UTC - off-peak, safety net only (push-to-main is the
+    # primary sync trigger).
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-to-mecha-industries
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Mirror to mecha-industries/labone-actions
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Push mirror to mecha-industries/labone-actions
+        # A full mirror push (refs/*, including tags) to the org-owned
+        # private copy. `set +x` (no shell tracing) and the token is only
+        # ever interpolated into the remote URL argument - never echoed -
+        # so it can't leak into the workflow log; GitHub also automatically
+        # masks any secrets.* value that appears in log output.
+        env:
+          MECHA_INDUSTRIES_MIRROR_TOKEN: ${{ secrets.MECHA_INDUSTRIES_MIRROR_TOKEN }}
+        run: |
+          set +x
+          git push --mirror "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git"
+        shell: bash
