@@ -2,7 +2,7 @@ name: Develop Python CI
 
 # Reusable PR-time CI for Python repos (data pipelines, MCP servers, ML/robotics
 # scripts). Callers are thin wrappers: `on: pull_request` -> `uses:
-# PeterChauYEG/labone-actions/.github/workflows/develop-python-ci.yml@main`
+# mecha-industries/labone-actions/.github/workflows/develop-python-ci.yml@main`
 # with `secrets: inherit`.
 #
 # Unlike develop-node-ci.yml, there is no shared `setup` + cache-restore
@@ -86,6 +86,10 @@ on:
         type: string
         required: false
         default: 'requirements.txt'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

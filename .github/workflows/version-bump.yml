@@ -2,7 +2,7 @@ name: Version Bump
 
 # Reusable CalVer version-bump workflow. Callers are thin wrappers: `on:
 # schedule` + `workflow_dispatch` -> `uses:
-# PeterChauYEG/labone-actions/.github/workflows/version-bump.yml@main` with
+# mecha-industries/labone-actions/.github/workflows/version-bump.yml@main` with
 # `secrets: inherit`. See README.md for the full caller example.
 #
 # Converged from laboratory-one-web's and ai-harness-web's byte-identical

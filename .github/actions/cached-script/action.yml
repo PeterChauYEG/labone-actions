@@ -101,7 +101,7 @@ runs:
   using: composite
   steps:
     - if: inputs.package-manager == 'yarn'
-      uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
       with:
         working-directory: ${{ inputs.working-directory }}
         extra-paths: ${{ inputs.extra-paths }}
@@ -112,7 +112,7 @@ runs:
         cache-write: ${{ inputs.cache-write }}
 
     - if: inputs.package-manager == 'pnpm'
-      uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
+      uses: mecha-industries/labone-actions/.github/actions/setup-node-pnpm@main
       with:
         working-directory: ${{ inputs.working-directory }}
         extra-paths: ${{ inputs.extra-paths }}

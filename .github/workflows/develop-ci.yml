@@ -1,7 +1,7 @@
 name: Develop CI
 
 # Reusable PR-time CI for yarn/Next.js-ish web repos. Callers are thin
-# wrappers: `on: pull_request` -> `uses: PeterChauYEG/labone-actions/.github/workflows/develop-ci.yml@main`
+# wrappers: `on: pull_request` -> `uses: mecha-industries/labone-actions/.github/workflows/develop-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example and a
 # stability note on the input/job names below (a phase-2 migration of
 # laboratory-one-web depends on them being exact).
@@ -160,6 +160,10 @@ on:
         required: false
         default: '--cache --cacheDirectory .jestcache'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -190,7 +194,7 @@ jobs:
       group: catfood-yarn-install-${{ github.repository }}
       cancel-in-progress: false
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -223,7 +227,7 @@ jobs:
       # existing caller. A miss is a no-op flag for a non-eslint script.
       # cache-write false: only main-ci.yml writes a new .eslintcache entry
       # - see cached-script's cache-write description.
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -243,7 +247,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -263,7 +267,7 @@ jobs:
       # script ultimately invokes tsc, true for every existing caller.
       # cache-write false: only main-ci.yml writes a new tsconfig.tsbuildinfo
       # entry - see cached-script's cache-write description.
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -282,7 +286,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -301,7 +305,7 @@ jobs:
       # see that input's description above for the Vitest caveat (LAB-1333).
       # cache-write false: only main-ci.yml writes a new .jestcache entry -
       # see cached-script's cache-write description.
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -323,14 +327,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/scan-with-report@main
         with:
           script: a11y
           report-file: ${{ inputs.working-directory }}/a11y-report.md
@@ -351,14 +355,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/scan-with-report@main
         with:
           script: design-system
           report-file: ${{ inputs.working-directory }}/design-system-report.md
@@ -378,14 +382,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/scan-with-report@main
         with:
           script: dead-code
           report-file: ${{ inputs.working-directory }}/dead-code-report.md
@@ -406,7 +410,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -416,7 +420,7 @@ jobs:
       # Standardized to file a ticket like the other scans do (one of the
       # two source repos this was consolidated from skipped this step,
       # which was an inconsistency, not a deliberate choice - see README.md).
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/scan-with-report@main
         with:
           script: duplicate-code
           report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
@@ -437,14 +441,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/scan-with-report@main
         with:
           script: run-e2e-scan
           report-file: ${{ inputs.working-directory }}/e2e-report.md
@@ -465,14 +469,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/scan-with-report@main
         with:
           script: react-tech-debt
           report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
@@ -492,14 +496,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/scan-with-report@main
         with:
           script: max-lines
           report-file: ${{ inputs.working-directory }}/max-lines-report.md
@@ -523,7 +527,7 @@ jobs:
       # .ts/.tsx tree, no installed node_modules needed - just check out
       # the repo, same as security-scan above.
       - uses: actions/checkout@v7
-      - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/tech-debt-report@main
         with:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}

@@ -3,7 +3,7 @@ name: Develop Mobile CI
 # Reusable PR-time CI for Expo/React Native mobile repos
 # (mc-training-arc-sung-jinwoo-mobile, mangalab, shout-mobile). Callers are
 # thin wrappers: `on: pull_request` -> `uses:
-# PeterChauYEG/labone-actions/.github/workflows/develop-mobile-ci.yml@main`
+# mecha-industries/labone-actions/.github/workflows/develop-mobile-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
 # Same cache-restore-per-job caching strategy as develop-node-ci.yml (LAB-1371,
@@ -168,6 +168,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -177,7 +181,7 @@ jobs:
     name: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -197,7 +201,7 @@ jobs:
       # so this stays a plain restore+save cache (cache-write: 'true') -
       # see README.md "Caching strategy" and cached-script's cache-write
       # description.
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -217,7 +221,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -234,7 +238,7 @@ jobs:
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true').
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -256,7 +260,7 @@ jobs:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true'), same as
       # lint/typecheck above (LAB-1333).
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -283,7 +287,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -322,7 +326,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -361,7 +365,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -400,7 +404,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -484,7 +488,7 @@ jobs:
       # .ts/.tsx tree, no installed node_modules needed - just check out
       # the repo, same as security-scan/dependency-audit above.
       - uses: actions/checkout@v7
-      - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
+      - uses: mecha-industries/labone-actions/.github/actions/tech-debt-report@main
         with:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}
