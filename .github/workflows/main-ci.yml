@@ -2,7 +2,7 @@ name: Main CI
 
 # Reusable push-to-main CI+deploy for yarn/Next.js-ish web repos. Callers
 # are thin wrappers: `on: push: branches: [main]` -> `uses:
-# mecha-industries/labone-actions/.github/workflows/main-ci.yml@main` with
+# PeterChauYEG/labone-actions/.github/workflows/main-ci.yml@main` with
 # `secrets: inherit`. See README.md for the full caller example.
 #
 # Mirrors develop-ci.yml's job set as plain pass/fail gates (no sticky PR
@@ -136,7 +136,7 @@ jobs:
     name: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -165,7 +165,7 @@ jobs:
       # cache-write true: only main-ci.yml writes a new .eslintcache entry
       # - see develop-ci.yml's read-only equivalent and cached-script's
       # cache-write description.
-      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -185,7 +185,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -203,7 +203,7 @@ jobs:
       # cache-write true: only main-ci.yml writes a new tsconfig.tsbuildinfo
       # entry - see develop-ci.yml's read-only equivalent and cached-script's
       # cache-write description.
-      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -222,7 +222,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -239,7 +239,7 @@ jobs:
       # cache-write true: only main-ci.yml writes a new .jestcache entry
       # (LAB-1333) - see develop-ci.yml's read-only equivalent and
       # cached-script's cache-write description.
-      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -258,7 +258,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -276,7 +276,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -292,7 +292,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -308,7 +308,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -324,7 +324,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_e2e && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -342,7 +342,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -358,7 +358,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}

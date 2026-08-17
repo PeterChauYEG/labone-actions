@@ -2,7 +2,7 @@ name: Dependabot Auto-merge
 
 # Reusable workflow_call version of dependabot auto-merge. Callers are thin
 # wrappers: `on: pull_request` -> `uses:
-# mecha-industries/labone-actions/.github/workflows/dependabot-automerge.yml@main`
+# PeterChauYEG/labone-actions/.github/workflows/dependabot-automerge.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
 # Converged from three near-identical copies: this repo's own prior

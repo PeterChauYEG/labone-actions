@@ -1,7 +1,7 @@
 name: Godot Develop CI
 
 # Reusable PR-time CI for Godot 4/GDScript repos. Callers are thin wrappers:
-# `on: pull_request` -> `uses: mecha-industries/labone-actions/.github/workflows/godot-develop-ci.yml@main`
+# `on: pull_request` -> `uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main`
 # with `secrets: inherit`. Mirrors develop-ci.yml's caller pattern for the web stack.
 #
 # format/lint/duplicate-code are the mandatory quality gate for this stack — no enable_* toggle,
@@ -49,10 +49,6 @@ on:
         required: false
         default: 'tests'
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -66,7 +62,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
-      - uses: mecha-industries/labone-actions/.github/actions/setup-gdtoolkit@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-gdtoolkit@main
         with:
           working-directory: ${{ inputs.working-directory }}
       - name: Check formatting
@@ -98,7 +94,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
-      - uses: mecha-industries/labone-actions/.github/actions/setup-gdtoolkit@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-gdtoolkit@main
         with:
           working-directory: ${{ inputs.working-directory }}
       - name: Lint

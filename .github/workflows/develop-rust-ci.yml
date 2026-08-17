@@ -2,7 +2,7 @@ name: Develop Rust CI
 
 # Reusable PR-time CI for Rust CLI/tool repos (gdscript-lsp, ai-harness-cli).
 # Callers are thin wrappers: `on: pull_request` -> `uses:
-# mecha-industries/labone-actions/.github/workflows/develop-rust-ci.yml@main`
+# PeterChauYEG/labone-actions/.github/workflows/develop-rust-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
 # Unlike develop-node-ci.yml, there is no shared `setup` + artifact-restore
@@ -143,10 +143,6 @@ on:
         type: boolean
         default: false
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -161,7 +157,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-rust@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
           working-directory: ${{ inputs.working-directory }}
           components: rustfmt
@@ -203,7 +199,7 @@ jobs:
       # job to finish wins the save - the others no-op), but every
       # subsequent run for the same Cargo.lock now hits one shared, warm
       # cache instead of three separate cold ones.
-      - uses: mecha-industries/labone-actions/.github/actions/setup-rust@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
           working-directory: ${{ inputs.working-directory }}
           components: clippy
@@ -237,7 +233,7 @@ jobs:
     steps:
       # Same converged cargo-${Cargo.lock hash} key as clippy/build - see
       # clippy's setup-rust step comment above.
-      - uses: mecha-industries/labone-actions/.github/actions/setup-rust@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
           working-directory: ${{ inputs.working-directory }}
       - if: inputs.pre_build_command != ''
@@ -267,7 +263,7 @@ jobs:
     steps:
       # Same converged cargo-${Cargo.lock hash} key as clippy/test - see
       # clippy's setup-rust step comment above.
-      - uses: mecha-industries/labone-actions/.github/actions/setup-rust@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
           working-directory: ${{ inputs.working-directory }}
       - if: inputs.pre_build_command != ''
@@ -284,7 +280,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-rust@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
           working-directory: ${{ inputs.working-directory }}
           cache: 'false'
@@ -322,7 +318,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-rust@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
           working-directory: ${{ inputs.working-directory }}
           cache: 'false'
@@ -402,7 +398,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
-      - uses: mecha-industries/labone-actions/.github/actions/setup-rust@main
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
           working-directory: ${{ inputs.working-directory }}
           cache: 'false'
