@@ -163,6 +163,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Scoped per repo+PR so callers don't cancel each other.
 # pr_number must be passed explicitly because github.event.pull_request
 # is not populated in the called workflow context.

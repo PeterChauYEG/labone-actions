@@ -65,3 +65,65 @@ jobs:
           set +x
           git push --mirror "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git"
         shell: bash
+
+      - name: Patch nested action refs in the mirror
+        # The byte-for-byte mirror above keeps every `uses:
+        # PeterChauYEG/labone-actions/...` reference exactly as it appears
+        # in THIS (source) repo. That's correct for same-owner
+        # (PeterChauYEG-owned) callers of the mirror's own reusable
+        # workflows, which resolve fine, but it's a problem one level
+        # deeper: when a mecha-industries-owned repo (e.g. mecha10-api)
+        # calls mecha-industries/labone-actions/.github/workflows/
+        # develop-rust-ci.yml@main, that workflow's own NESTED steps still
+        # say `uses: PeterChauYEG/labone-actions/...` - a different,
+        # private, personal-account repo that mecha-industries-owned jobs
+        # have no access to. GitHub can't resolve that nested reference and
+        # every job fails immediately with "Repository not found," before
+        # running any real command.
+        #
+        # Do NOT "fix" this by editing this repo's own workflow/action
+        # files to say mecha-industries/labone-actions instead - that was
+        # tried (#60) and reverted the same day, because it breaks every
+        # same-owner (PeterChauYEG-owned) caller the exact same way, in the
+        # opposite direction (they can't resolve an org-private repo they
+        # have zero access to). This repo's own files must always keep
+        # `PeterChauYEG/labone-actions` self-references exactly as-is.
+        #
+        # Instead, patch ONLY the freshly-pushed mirror, in a separate
+        # clone, immediately after the mirror push above. Idempotent: if a
+        # prior run (or this same run, on a re-trigger) already rewrote
+        # everything, the grep finds nothing, no commit is made, and the
+        # step exits cleanly - this runs on every push-to-main plus a daily
+        # cron, so it must be safe to no-op.
+        env:
+          MECHA_INDUSTRIES_MIRROR_TOKEN: ${{ secrets.MECHA_INDUSTRIES_MIRROR_TOKEN }}
+        run: |
+          set +x
+
+          workdir=$(mktemp -d)
+          git clone --quiet "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git" "$workdir"
+          cd "$workdir"
+
+          # Rewrite every self-reference under .github/ (workflows and
+          # composite actions alike, in case a composite action references
+          # another composite action) from the source repo's owner to the
+          # mirror's owner.
+          if grep -rlF "PeterChauYEG/labone-actions" .github >/dev/null 2>&1; then
+            grep -rlF "PeterChauYEG/labone-actions" .github \
+              | xargs sed -i "s#PeterChauYEG/labone-actions#mecha-industries/labone-actions#g"
+          fi
+
+          git config user.name "labone-actions-mirror-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No stale PeterChauYEG/labone-actions refs found in the mirror - nothing to patch."
+          else
+            git commit --quiet -m "chore: rewrite internal action refs for mecha-industries mirror"
+            git push --quiet "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git" HEAD:main
+          fi
+
+          cd /
+          rm -rf "$workdir"
+        shell: bash
