@@ -61,6 +61,15 @@ inputs:
       the calling job must pass `secrets.LINEAR_API_KEY` in explicitly.
     required: false
     default: ''
+  blocking:
+    description: >
+      Whether a scan failure fails the containing job. Defaults to 'true'
+      (today's behavior for every existing caller). Set to 'false' for
+      report-only/advisory scans (e.g. dead-code, duplicate-code) that
+      should keep scanning, posting the sticky comment, and filing a Linear
+      ticket on failure, but never block auto-merge.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -101,6 +110,6 @@ runs:
       # out), so anchor the script path off that instead.
       run: bash "${{ github.action_path }}/../../../scripts/file-linear-ticket.sh" ${{ inputs.job-name }} ${{ inputs.report-file }}
 
-    - if: steps.scan.outcome == 'failure'
+    - if: steps.scan.outcome == 'failure' && inputs.blocking == 'true'
       shell: bash
       run: exit 1

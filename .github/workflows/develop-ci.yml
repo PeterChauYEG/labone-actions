@@ -395,6 +395,7 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   duplicate-code:
     name: duplicate-code
@@ -425,6 +426,7 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   run-e2e-tests:
     name: run-e2e-tests

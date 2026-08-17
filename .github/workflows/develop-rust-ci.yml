@@ -309,8 +309,6 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         working-directory: ${{ inputs.working-directory }}
         run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
 
   duplicate-code:
     name: duplicate-code
@@ -355,8 +353,6 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         working-directory: ${{ inputs.working-directory }}
         run: bash scripts/file-linear-ticket.sh duplicate-code duplicate-code-report.md
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
 
   file-size:
     name: file-size
