@@ -3,7 +3,7 @@ name: Develop Node CI
 # Reusable PR-time CI for yarn- or pnpm-based Node/NestJS backend service
 # repos (LAB-1247, pnpm support LAB-1268). Callers are thin wrappers: `on:
 # pull_request` -> `uses:
-# PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main`
+# mecha-industries/labone-actions/.github/workflows/develop-node-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
 # This is the backend-service sibling of develop-ci.yml (which targets
@@ -160,6 +160,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -170,7 +174,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     steps:
       - if: inputs.package_manager == 'yarn'
-        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        uses: mecha-industries/labone-actions/.github/actions/setup-node-yarn@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -187,7 +191,7 @@ jobs:
           # description and README.md "Caching strategy".
           cache-write: 'false'
       - if: inputs.package_manager == 'pnpm'
-        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
+        uses: mecha-industries/labone-actions/.github/actions/setup-node-pnpm@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -210,7 +214,7 @@ jobs:
       # --max-warnings=0 to eslint - see this file's header comment and
       # README.md. cache-write false: only main-node-ci.yml writes a new
       # .eslintcache entry - see cached-script's cache-write description.
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -232,7 +236,7 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -254,7 +258,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build }}
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
@@ -274,7 +278,7 @@ jobs:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
       # (recommended default: 90% lines/branches). See README.md.
-      - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
+      - uses: mecha-industries/labone-actions/.github/actions/cached-script@main
         with:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
