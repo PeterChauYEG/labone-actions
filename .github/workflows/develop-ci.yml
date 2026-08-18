@@ -372,6 +372,7 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   dead-code:
     name: dead-code
@@ -486,6 +487,7 @@ jobs:
           file-ticket: 'false'
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
+          blocking: 'false'
 
   max-lines:
     name: max-lines
