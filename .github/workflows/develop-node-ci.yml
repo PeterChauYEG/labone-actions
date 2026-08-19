@@ -96,6 +96,25 @@ on:
         type: boolean
         required: false
         default: false
+      pr_number:
+        description: >
+          github.event.pull_request.number from the caller. Only used by
+          the `dead-code` job (when `enable_dead_code` is true) for its
+          sticky PR comment and Linear ticket-filing link - see
+          develop-ci.yml's identical input for the pattern this was copied
+          from. Harmless to leave at its default (0) for every caller that
+          doesn't enable `enable_dead_code`.
+        type: number
+        required: false
+        default: 0
+      pr_url:
+        description: >
+          github.event.pull_request.html_url from the caller. Only used by
+          the `dead-code` job (when `enable_dead_code` is true) - see
+          `pr_number` above.
+        type: string
+        required: false
+        default: ''
       enable_build:
         description: Run `yarn build`.
         type: boolean
@@ -112,6 +131,20 @@ on:
         description: Run `yarn npm audit` (fails on any known vulnerability).
         type: boolean
         default: true
+      enable_dead_code:
+        description: >
+          Run a dead-code scan (`yarn dead-code`) with a sticky PR comment +
+          Linear ticket filing on failure, advisory-only (never blocks the
+          job - see `scan-with-report`'s `blocking` input). Opt-in, unlike
+          most other `enable_*` inputs above - defaults false since no
+          consumer repo of this workflow has this today (LAB-1866). Mirrors
+          develop-ci.yml's `dead-code` job. Note: the underlying
+          `scan-with-report` action always runs `yarn <script>` regardless
+          of `package_manager`, so this only works for `package_manager:
+          yarn` callers today - a `pnpm` caller enabling this would fail.
+        type: boolean
+        required: false
+        default: false
       security_scan_trivyignores:
         description: >
           Comma-separated list of relative paths to .trivyignore file(s), or
@@ -349,3 +382,39 @@ jobs:
       - if: inputs.package_manager == 'pnpm'
         run: pnpm audit
         working-directory: ${{ inputs.working-directory }}
+
+  dead-code:
+    name: dead-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # scan-with-report below always runs `yarn <script>` (not
+      # package-manager-aware, unlike cached-script) - see this job's
+      # enable_dead_code input description - so this restores deps via
+      # setup-node-yarn unconditionally rather than branching on
+      # inputs.package_manager like the `setup` job does.
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: dead-code
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/dead-code-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: dead-code-scan
+          job-name: dead-code
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
