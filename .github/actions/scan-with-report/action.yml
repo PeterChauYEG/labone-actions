@@ -54,6 +54,25 @@ inputs:
     description: Whether to install Playwright's chromium browser before running the scan.
     required: false
     default: 'false'
+  gh-token:
+    description: >
+      Optional per-repo secret (e.g. secrets.GH_PAT) forwarded as GH_TOKEN/
+      GITHUB_TOKEN to the `yarn <script>` step below — only needed for repos
+      whose script transitively needs `gh` CLI/GitHub REST access (e.g. a
+      pretest/prebuild hook that installs a generated SDK from a sibling
+      repo's release, same rationale as cached-script's identical input).
+      Empty string for every other repo, which is a no-op. Callers must
+      still restore deps via setup-node-yarn/-pnpm's own `gh-token` input
+      first (this action doesn't do that itself) - this input only covers
+      the scan script's own run, which cached-script's equivalent step
+      already covers for lint/typecheck/build/test but scan-with-report
+      never did until now (see the PR that added this input for the
+      incident writeup - the a11y/design-system/dead-code/duplicate-code/
+      run-e2e-tests/react-tech-debt/max-lines jobs across every caller
+      repo had no token available to their own SDK-install pretest/
+      prebuild hooks).
+    required: false
+    default: ''
   linear-api-key:
     description: >
       Linear GraphQL API key, forwarded to `scripts/file-linear-ticket.sh`.
@@ -84,6 +103,9 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       continue-on-error: true
+      env:
+        GH_TOKEN: ${{ inputs.gh-token }}
+        GITHUB_TOKEN: ${{ inputs.gh-token }}
 
     - uses: marocchino/sticky-pull-request-comment@v3
       if: always()

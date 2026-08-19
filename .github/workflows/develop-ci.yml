@@ -337,6 +337,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: a11y
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/a11y-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: a11y-scan
@@ -365,6 +366,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: design-system
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: design-system-scan
@@ -393,6 +395,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: dead-code
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/dead-code-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: dead-code-scan
@@ -424,6 +427,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: duplicate-code
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: duplicate-code-scan
@@ -452,6 +456,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: run-e2e-scan
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/e2e-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: e2e-scan
@@ -480,6 +485,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: react-tech-debt
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: react-tech-debt-scan
@@ -508,6 +514,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: max-lines
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/max-lines-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: max-lines-scan

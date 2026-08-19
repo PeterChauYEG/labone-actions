@@ -268,6 +268,9 @@ jobs:
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
       - run: yarn a11y
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   design-system:
@@ -284,6 +287,9 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - run: yarn design-system
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   dead-code:
@@ -300,6 +306,9 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - run: yarn dead-code
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   duplicate-code:
@@ -316,6 +325,9 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - run: yarn duplicate-code
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   run-e2e-tests:
@@ -334,6 +346,9 @@ jobs:
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
       - run: yarn run-e2e-scan
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   react-tech-debt:
@@ -350,6 +365,9 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - run: yarn react-tech-debt
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   max-lines:
@@ -366,6 +384,9 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - run: yarn max-lines
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   deploy:
