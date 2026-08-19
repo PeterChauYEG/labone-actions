@@ -54,6 +54,17 @@ on:
         description: Run `yarn npm audit` (fails on any known vulnerability).
         type: boolean
         default: true
+      enable_dead_code:
+        description: >
+          Run a dead-code scan (`yarn dead-code`) as a plain pass/fail gate
+          (no sticky comment/Linear ticket filing - there's no PR to
+          comment on at this point, matching main-ci.yml's `dead-code`
+          job). Opt-in, unlike most other `enable_*` inputs above - defaults
+          false since no consumer repo of this workflow has this today
+          (LAB-1866).
+        type: boolean
+        required: false
+        default: false
       security_scan_trivyignores:
         description: >
           Comma-separated list of relative paths to .trivyignore file(s), or
@@ -306,6 +317,27 @@ jobs:
       # Berry, per setup-node-yarn's .yarn/cache paths); a Yarn Classic
       # repo would need `yarn audit` instead.
       - run: yarn npm audit
+        working-directory: ${{ inputs.working-directory }}
+
+  dead-code:
+    name: dead-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - run: yarn dead-code
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   deploy:

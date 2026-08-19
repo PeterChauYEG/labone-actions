@@ -14,8 +14,8 @@ these workflows.
 |---|---|---|
 | `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. For yarn/Next.js-ish **web** repos. |
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
-| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
-| `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
+| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks, optional dead-code (`enable_dead_code`, LAB-1866, sticky PR comment + Linear ticket filing, yarn-only) opt-in and advisory-only. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
+| `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. Optional dead-code (`enable_dead_code`, LAB-1866, plain pass/fail, yarn-only) opt-in. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
 | `.github/workflows/develop-rust-ci.yml` | `pull_request` | fmt/clippy/test as Linear-ticket-filing gates, optional build/dead-code (cargo-machete)/duplicate-code (cargo-dupes)/file-size/security-scan/dependency-audit (cargo-audit). For **Rust CLI/tool** repos. |
@@ -316,6 +316,18 @@ Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
 - `enable_build`, `enable_test`, `enable_security_scan`,
   `enable_dependency_audit` (boolean) — turn a job off if your repo has no
   matching yarn script.
+- `enable_dead_code` (boolean, default **`false`** — opt-in, unlike the
+  `enable_*` inputs above, LAB-1866) — runs `yarn dead-code` via the shared
+  `scan-with-report` composite action (same one `develop-ci.yml`'s
+  `dead-code` job uses), posting a sticky PR comment and filing a Linear
+  ticket on failure, but `blocking: 'false'` so it never fails the job
+  itself. `scan-with-report` always runs `yarn <script>` regardless of
+  `package_manager`, so this only works for `package_manager: yarn`
+  callers — a `pnpm` caller enabling it would fail. `pr_number`/`pr_url`
+  (below) feed the sticky comment/ticket link.
+- `pr_number` (number, default `0`) / `pr_url` (string, default `''`) —
+  same role as `develop-ci.yml`'s identical inputs; only consumed by the
+  `dead-code` job above when `enable_dead_code` is true.
 - `security_scan_trivyignores` (string, default `''`) — passed straight
   through to the `security-scan` job's `trivy-action` call. Empty by
   default: this shared workflow ships **no default `.trivyignore`
@@ -331,10 +343,14 @@ set to the same `labone-eslint-plugin` package for backend services,
 consumed the same way via a private git dependency).
 
 Jobs: `setup`, `lint`, `typecheck`, `build`, `test`, `security-scan`,
-`dependency-audit`. All plain pass/fail gates — no sticky PR comments, no
-Linear ticket filing (unlike `develop-ci.yml`'s scan jobs). Two gates are
-worth calling out explicitly because this shared workflow can't fully
-enforce them on its own:
+`dependency-audit`, plus optional `dead-code` (`enable_dead_code`, off by
+default). Every job except `dead-code` is a plain pass/fail gate — no
+sticky PR comments, no Linear ticket filing (unlike `develop-ci.yml`'s scan
+jobs); `dead-code` is the one exception, matching `develop-ci.yml`'s
+identical job (sticky comment + Linear ticket filing on failure, but
+advisory-only — never fails the job). Two gates are worth calling out
+explicitly because this shared workflow can't fully enforce them on its
+own:
 
 - **`lint` is zero-tolerance**, but only if the caller's own `lint` script
   passes `--max-warnings=0` to eslint (e.g. `"lint": "eslint .
@@ -380,15 +396,27 @@ push-to-main time), plus:
 - `dokku_remote_url` (string) — required if `enable_deploy` is true.
 - `enable_slack_notification` (boolean, default `true`)
 
+This workflow also has `enable_dead_code` (boolean, default **`false`**,
+LAB-1866), but unlike `develop-node-ci.yml`'s version it's a plain
+pass/fail gate — no sticky comment/Linear ticket filing, no `pr_number`/
+`pr_url` inputs, since there's no PR to comment on at push-to-main time
+(matching `main-ci.yml`'s `dead-code` job, which runs `yarn dead-code`
+directly instead of going through `scan-with-report`). Yarn-only, same
+caveat as `develop-node-ci.yml`'s `enable_dead_code`.
+
 Jobs: the same `setup`/`lint`/`typecheck`/`build`/`test`/`security-scan`/
-`dependency-audit` set as plain pass/fail gates, plus `deploy` (pushes to
-`dokku_remote_url` using secret `DOKKU_DEPLOY_SSH_KEY`) and
-`slack-notification` (posts the deploy result using secret
-`SLACK_WEBHOOK_URL`), identical semantics to `main-ci.yml`'s `deploy`/
-`slack-notification` — `deploy` runs only if every enabled gate job
-actually passed (skipped-via-`enable_*: false` doesn't block it, but any
-real failure or cancellation does) and is skipped entirely for
-`is_dependabot`.
+`dependency-audit` set as plain pass/fail gates, plus optional `dead-code`
+(off by default) and `deploy` (pushes to `dokku_remote_url` using secret
+`DOKKU_DEPLOY_SSH_KEY`) and `slack-notification` (posts the deploy result
+using secret `SLACK_WEBHOOK_URL`), identical semantics to `main-ci.yml`'s
+`deploy`/`slack-notification` — `deploy` runs only if every enabled gate
+job actually passed (skipped-via-`enable_*: false` doesn't block it, but
+any real failure or cancellation does) and is skipped entirely for
+`is_dependabot`. Note: unlike `main-ci.yml`'s `deploy` job (whose `needs:`
+list includes `dead-code`), this workflow's `deploy` job's `needs:` list
+was deliberately left unchanged (LAB-1866 scope) — `dead-code` is not a
+dependency of `deploy` here, so a caller that enables it should be aware
+`deploy` doesn't wait on it.
 
 ## Caching strategy
 
