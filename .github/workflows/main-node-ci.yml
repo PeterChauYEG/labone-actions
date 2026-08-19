@@ -157,9 +157,14 @@ permissions:
 # README.md "Concurrency" for the full explanation, including how this is
 # unrelated to (and doesn't replace) the gha-runner host's own per-repo/
 # global job-concurrency semaphore.
+#
+# `cancel-in-progress: true` is a deliberate, confirmed tradeoff: a rapid
+# second push to main will cancel whatever the first run's `deploy` step
+# was doing mid-flight. That's accepted because leaving main pinned to
+# stale code deployed by a superseded run is worse.
 concurrency:
   group: main-node-ci-${{ github.repository }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 
 jobs:
