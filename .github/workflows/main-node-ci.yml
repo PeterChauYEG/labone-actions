@@ -388,7 +388,7 @@ jobs:
   slack-notification:
     name: slack-notification
     needs: [deploy]
-    if: ${{ always() && inputs.enable_slack_notification }}
+    if: ${{ always() && inputs.enable_slack_notification && needs.deploy.result == 'failure' }}
     runs-on: [self-hosted, catfood]
     steps:
       - name: Notify Slack
