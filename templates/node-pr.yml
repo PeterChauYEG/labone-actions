@@ -4,7 +4,7 @@ run-name: PR CI
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, closed]
 
 permissions:
   contents: read
@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   ci:
+    if: github.event.action != 'closed'
     uses: PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main
     secrets: inherit
     with:
@@ -28,6 +29,7 @@ jobs:
       # enable_dependency_audit: false   # mandatory false if this repo is Yarn Classic, not Berry
 
   actionlint:
+    if: github.event.action != 'closed'
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     secrets: inherit
     with:

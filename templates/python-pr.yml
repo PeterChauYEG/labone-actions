@@ -4,10 +4,11 @@ run-name: PR CI
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, closed]
 
 jobs:
   ci:
+    if: github.event.action != 'closed'
     uses: PeterChauYEG/labone-actions/.github/workflows/develop-python-ci.yml@main
     secrets: inherit
     with:
@@ -19,6 +20,7 @@ jobs:
       # enable_dependency_audit: true # off by default - opt in explicitly (pip-audit)
 
   actionlint:
+    if: github.event.action != 'closed'
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     secrets: inherit
     with:

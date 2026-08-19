@@ -2,10 +2,15 @@ name: Develop CI
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, closed]
+
+concurrency:
+  group: ${{ github.repository }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   ci:
+    if: github.event.action != 'closed'
     uses: PeterChauYEG/labone-actions/.github/workflows/develop-ci.yml@main
     secrets: inherit
     with:
@@ -29,6 +34,7 @@ jobs:
       # extra_deps_paths: 'src/generated'
 
   actionlint:
+    if: github.event.action != 'closed'
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     secrets: inherit
     with:

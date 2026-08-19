@@ -4,7 +4,7 @@ run-name: PR CI
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, closed]
     branches: [main]
 
 permissions:
@@ -18,6 +18,7 @@ concurrency:
 jobs:
   ci:
     name: ci
+    if: github.event.action != 'closed'
     permissions:
       contents: read
       pull-requests: write
@@ -46,6 +47,7 @@ jobs:
       # extra_deps_paths: 'src/generated'
 
   actionlint:
+    if: github.event.action != 'closed'
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     secrets: inherit
     with:
