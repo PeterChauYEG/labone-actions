@@ -47,15 +47,25 @@ on:
         type: boolean
         default: true
       enable_a11y:
-        description: Run `yarn a11y` (accessibility scan) as a pass/fail gate.
+        description: >
+          Run `yarn a11y` (accessibility scan). Advisory only (nextjs-ci
+          v1.0.3, 2026-08-20) - same rationale/mechanism as
+          `enable_duplicate_code` below: still runs, never fails the job or
+          blocks `deploy`.
         type: boolean
         default: true
       enable_design_system:
-        description: Run `yarn design-system` as a pass/fail gate.
+        description: >
+          Run `yarn design-system`. Advisory only (nextjs-ci v1.0.3,
+          2026-08-20) - same rationale/mechanism as `enable_duplicate_code`
+          below: still runs, never fails the job or blocks `deploy`.
         type: boolean
         default: true
       enable_dead_code:
-        description: Run `yarn dead-code` as a pass/fail gate.
+        description: >
+          Run `yarn dead-code`. Advisory only (nextjs-ci v1.0.3, 2026-08-20)
+          - same rationale/mechanism as `enable_duplicate_code` below: still
+          runs, never fails the job or blocks `deploy`.
         type: boolean
         default: true
       enable_duplicate_code:
@@ -74,7 +84,10 @@ on:
         type: boolean
         default: true
       enable_react_tech_debt:
-        description: Run `yarn react-tech-debt` as a pass/fail gate.
+        description: >
+          Run `yarn react-tech-debt`. Advisory only (nextjs-ci v1.0.3,
+          2026-08-20) - same rationale/mechanism as `enable_duplicate_code`
+          below: still runs, never fails the job or blocks `deploy`.
         type: boolean
         default: true
       enable_max_lines:
@@ -282,7 +295,14 @@ jobs:
           cache-write: 'false'
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
+      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same
+      # continue-on-error mechanism/rationale as duplicate-code/max-lines
+      # below: still runs, never fails the job or blocks `deploy`. It's a
+      # repo-wide scan that can trip on pre-existing findings unrelated to
+      # the commit that triggered the run, too brittle to gate deploy on.
+      # See PR #68 for the original duplicate-code/max-lines rationale.
       - run: yarn a11y
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
@@ -301,7 +321,10 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
+      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same rationale as
+      # a11y's identical continue-on-error above.
       - run: yarn design-system
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
@@ -320,7 +343,10 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
+      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same rationale as
+      # a11y's identical continue-on-error above.
       - run: yarn dead-code
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
@@ -387,7 +413,10 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
+      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same rationale as
+      # a11y's identical continue-on-error above.
       - run: yarn react-tech-debt
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
@@ -433,16 +462,24 @@ jobs:
         react-tech-debt,
         max-lines,
       ]
-    # `duplicate-code`/`max-lines` stay in this list for ordering (deploy
-    # waits for them to finish) but no longer block deploy on a finding:
-    # both jobs' `run: yarn <script>` steps now set `continue-on-error:
-    # true` (nextjs-ci v1.0.2, 2026-08-20), which keeps the job's own
-    # conclusion 'success' even when the script exits non-zero - GitHub
-    # Actions never counts a continue-on-error step's failure toward the
-    # containing job's conclusion. So `needs.duplicate-code.result` /
-    # `needs.max-lines.result` read 'success' below regardless of scan
-    # outcome, and the `!contains(needs.*.result, 'failure')` check further
-    # down doesn't need to change.
+    # `a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/
+    # `max-lines` all stay in this list for ordering (deploy waits for them
+    # to finish) but none of them block deploy on a finding: every one of
+    # those jobs' `run: yarn <script>` steps sets `continue-on-error: true`
+    # (nextjs-ci v1.0.3, 2026-08-20 - duplicate-code/max-lines got this
+    # first in PR #68/v1.0.2, the other four followed in this round), which
+    # keeps the job's own conclusion 'success' even when the script exits
+    # non-zero - GitHub Actions never counts a continue-on-error step's
+    # failure toward the containing job's conclusion. So
+    # `needs.a11y.result` / `needs.design-system.result` /
+    # `needs.dead-code.result` / `needs.duplicate-code.result` /
+    # `needs.react-tech-debt.result` / `needs.max-lines.result` all read
+    # 'success' below regardless of scan outcome, and the
+    # `!contains(needs.*.result, 'failure')` check further down doesn't need
+    # to change. `typecheck`/`build`/`lint`/`test`/`run-e2e-tests` (and
+    # `ls-lint`) remain hard gates - their steps have no
+    # `continue-on-error`, so a real failure there still shows up as
+    # 'failure' in `needs.*.result` and blocks deploy as before.
     #
     # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
     # only actual failures/cancellations should - hence checking needs.*.result

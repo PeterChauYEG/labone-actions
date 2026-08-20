@@ -346,6 +346,11 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - matches
+          # design-system/dead-code/duplicate-code below: still runs and
+          # still files a sticky comment/ticket on a finding, but never
+          # fails this job or blocks merge.
+          blocking: 'false'
 
   design-system:
     name: design-system

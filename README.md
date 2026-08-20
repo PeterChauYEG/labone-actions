@@ -13,7 +13,7 @@ these workflows.
 | Workflow | Trigger it's meant for | Purpose |
 |---|---|---|
 | `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. For yarn/Next.js-ish **web** repos. |
-| `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks (`duplicate-code`/`max-lines` are advisory-only, nextjs-ci v1.0.2 — see below), plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
+| `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks (`a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/`max-lines` are all advisory-only, nextjs-ci v1.0.3 — see below), plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
 | `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks, optional dead-code (`enable_dead_code`, LAB-1866, sticky PR comment + Linear ticket filing, yarn-only) opt-in and advisory-only. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. Optional dead-code (`enable_dead_code`, LAB-1866, plain pass/fail, yarn-only) opt-in. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
@@ -267,16 +267,20 @@ per-repo behavior. Internally, each of these 7 jobs is just a
 `.github/actions/scan-with-report` composite action — see "Scan job
 dedup" below.
 
-**Blocking vs advisory (nextjs-ci v1.0.2, 2026-08-20):** `a11y` and
-`run-e2e-tests` are hard pass/fail gates — a failure fails the job.
-`design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`, and
-`max-lines` are all advisory (`scan-with-report`'s `blocking: 'false'`
+**Blocking vs advisory (nextjs-ci v1.0.3, 2026-08-20):** `run-e2e-tests` is
+the only remaining hard pass/fail scan gate — a failure fails the job.
+`a11y`, `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+and `max-lines` are all advisory (`scan-with-report`'s `blocking: 'false'`
 input) — they still run, still post their sticky comment/report, and
 `duplicate-code` still files a Linear ticket on failure, but a finding
-never fails the job. `duplicate-code` and `max-lines` moved from blocking
-to advisory in this pass: both are repo-wide scans that can trip on a
+never fails the job. `design-system`/`dead-code`/`duplicate-code`/
+`react-tech-debt`/`max-lines` were already advisory here; `a11y` was the
+last holdout in `develop-ci.yml` and moved to advisory in this v1.0.3 pass
+(nextjs-ci v1.0.2, 2026-08-20, PR #68 covered `duplicate-code`/`max-lines`
+in `main-ci.yml`'s equivalent pass/fail-to-advisory move — same rationale
+applies here: all of these are repo-wide scans that can trip on a
 pre-existing finding unrelated to the PR's own diff, which is too brittle
-to gate a merge/deploy on. See `main-ci.yml`'s equivalent note below for
+to gate a merge/deploy on). See `main-ci.yml`'s equivalent note below for
 the push-to-main side of this same change.
 
 ### `main-ci.yml` — inputs and jobs
@@ -297,19 +301,23 @@ gates (no sticky comments, no ticket filing), plus `deploy` (pushes to
 passed — jobs skipped via `enable_*: false` don't block it (skipped isn't a
 failure), but any real failure or cancellation does.
 
-**`duplicate-code`/`max-lines` are advisory, not pass/fail (nextjs-ci
-v1.0.2, 2026-08-20):** unlike the other gate jobs here, their `run: yarn
-duplicate-code` / `run: yarn max-lines` steps set `continue-on-error:
-true`, so a finding never fails the job (and therefore never blocks
-`deploy` via the `needs.*.result` check) — it still runs and still exits
-non-zero internally on a finding, only the workflow's treatment of that
-exit code changed. This is push-to-main, so there's no PR to post a sticky
-comment on; check the job's own log for output. Confirmed root cause of a
-stalled ai-harness-web deploy on 2026-08-20, where an unrelated PR merged
-fine but push-to-main deploy silently never ran because `duplicate-code`
-failed on a pre-existing repo-wide jscpd finding unrelated to that PR's
-diff. `a11y`, `design-system`, `dead-code`, `run-e2e-tests`, and
-`react-tech-debt` are unchanged and still block deploy on failure.
+**`a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/
+`max-lines` are advisory, not pass/fail (nextjs-ci v1.0.3, 2026-08-20):**
+unlike the other gate jobs here, their `run: yarn <script>` steps all set
+`continue-on-error: true`, so a finding never fails the job (and therefore
+never blocks `deploy` via the `needs.*.result` check) — the step still
+runs and still exits non-zero internally on a finding, only the workflow's
+treatment of that exit code changed. This is push-to-main, so there's no
+PR to post a sticky comment on; check the job's own log for output.
+`duplicate-code`/`max-lines` got this treatment first (nextjs-ci v1.0.2,
+2026-08-20, PR #68) — confirmed root cause of a stalled ai-harness-web
+deploy on 2026-08-20, where an unrelated PR merged fine but push-to-main
+deploy silently never ran because `duplicate-code` failed on a
+pre-existing repo-wide jscpd finding unrelated to that PR's diff. `a11y`,
+`design-system`, `dead-code`, and `react-tech-debt` followed the same
+pattern in this v1.0.3 pass, for the same reason. `typecheck`, `build`,
+`lint`, `test`, `run-e2e-tests`, and `ls-lint` are unchanged and still
+block `deploy` on failure.
 
 **These names are load-bearing**: a follow-on task migrates
 `laboratory-one-web` to call these exact workflows, so treat the
@@ -739,13 +747,14 @@ action with inputs:
   caller's `secrets` context directly, so each job passes
   `secrets.LINEAR_API_KEY` in explicitly.
 - `blocking` (boolean-as-string, default `'true'`) — set `'false'` for
-  `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`, and
-  `max-lines` (nextjs-ci v1.0.2, 2026-08-20): the scan still runs, still
+  `a11y`, `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+  and `max-lines` (`design-system`/`dead-code`/`duplicate-code`/
+  `react-tech-debt`/`max-lines` in nextjs-ci v1.0.2, 2026-08-20; `a11y`
+  followed in nextjs-ci v1.0.3, 2026-08-20): the scan still runs, still
   posts its sticky comment, and `duplicate-code`/`dead-code` still file a
   Linear ticket on failure, but the composite action's final `exit 1` is
-  skipped, so a finding never fails the containing job. `a11y` and
-  `run-e2e-tests` leave this at the default `'true'` and stay hard
-  pass/fail gates.
+  skipped, so a finding never fails the containing job. `run-e2e-tests`
+  leaves this at the default `'true'` and stays a hard pass/fail gate.
 
 Each of the 7 scan jobs in `develop-ci.yml` now shrinks to its
 `needs`/`runs-on`/`if`/`permissions` header, a `setup-node-yarn` call, and
