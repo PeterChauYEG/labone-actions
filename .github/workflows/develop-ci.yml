@@ -522,6 +522,7 @@ jobs:
           file-ticket: 'false'
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
+          blocking: 'false'
 
   tech-debt:
     name: tech-debt
