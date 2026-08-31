@@ -6,8 +6,11 @@ on:
 
 jobs:
   ci:
-    uses: PeterChauYEG/labone-actions/.github/workflows/main-node-ci.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/node-main.yml@main
     secrets: inherit
     with:
-      is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' }}
       dokku_remote_url: 'ssh://dokku@192.168.1.31:22/<app-name>'
+      # Also fold in github-actions[bot] here if this repo's own CalVer
+      # version-bump commits should also skip test/security-scan/
+      # dependency-audit/deploy:
+      # also_treat_actions_bot_as_dependabot: true
