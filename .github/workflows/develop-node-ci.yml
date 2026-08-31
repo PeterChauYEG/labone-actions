@@ -210,6 +210,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # LAB-2097: path-filters that skip lint/typecheck/build/test below when
+  # the PR touches nothing they'd actually re-check. Runs first, no
+  # dependencies, so it overlaps with `setup` instead of gating it -
+  # `setup` (dep install/cache restore) still runs unconditionally since
+  # `dead-code`/`security-scan`/`dependency-audit` below are NOT gated by
+  # this job's outputs (out of scope for LAB-2097 - only
+  # lint/typecheck/build/test/ls-lint are). Checkout here runs against the
+  # CALLER repo (this reusable workflow's checkout context is whichever
+  # repo invoked it via workflow_call), which is exactly what needs
+  # filtering - not this labone-actions repo itself.
+  #
+  # `node` covers everything lint/typecheck/build/test actually consume
+  # today (checked against each job's own cached-script `script`/
+  # `cache-key-extra-glob-*` inputs above): TS/JS source, package.json,
+  # both supported lockfiles (package_manager: yarn vs pnpm, LAB-1268),
+  # eslint/tsconfig/jest/vitest config. Not confident this list is
+  # exhaustive for every one of the ~20 current callers - a repo with an
+  # unusual extra config file consumed by a custom lint/build script
+  # (surfaced via extra_deps_cache_key_glob_1/2, which are caller-specific
+  # and can't be folded into a static filter list here) could still see a
+  # stale skip. Erring toward a broader match (more false "changed"
+  # positives, i.e. running when not strictly needed) rather than a
+  # narrower one, since a wrong filter that skips real work is a
+  # correctness bug across every caller.
+  #
+  # `ls_lint` is added per LAB-2097's spec for output-shape parity with the
+  # `node`/`ls_lint` pair used elsewhere, but neither develop-node-ci.yml
+  # nor main-node-ci.yml actually run an `ls-lint` job today (confirmed:
+  # no such job exists in either file, unlike develop-ci.yml/
+  # develop-mobile-ci.yml's `enable_ls_lint` gate) - this output is
+  # currently unused by any job below. Left in so a future `ls-lint` job
+  # added to this workflow can gate on it immediately, and conservatively
+  # scoped to the same source-file patterns `node` uses (ls-lint polices
+  # filenames of source files, not their content) plus `.ls-lint.yml`
+  # itself, since no caller's actual `.ls-lint.yml` was read to confirm an
+  # exact pattern - see this job's PR description for the explicit
+  # "unconfirmed" callout.
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      node: ${{ steps.filter.outputs.node }}
+      ls_lint: ${{ steps.filter.outputs.ls_lint }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            node:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '**/package.json'
+              - '**/yarn.lock'
+              - '**/pnpm-lock.yaml'
+              - '**/.yarnrc.yml'
+              - '**/tsconfig*.json'
+              - '**/.eslintrc*'
+              - '**/eslint.config.*'
+              - '**/jest.config.*'
+              - '**/vitest.config.*'
+            ls_lint:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '.ls-lint.yml'
+
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
@@ -246,8 +323,17 @@ jobs:
 
   lint:
     name: lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See the `changes` job's precedent comment (this file's `build`/`test`
+    # jobs already skip via `if:` on `enable_*`/`is_dependabot` today, and
+    # that `skipped` result is already relied upon by branch protection -
+    # see this file's `build`/`test` `if:` below) - a `skipped` required
+    # check satisfies branch protection identically to `success` (GitHub
+    # docs: "Require status checks to pass" treats neutral/skipped the same
+    # as passing). LAB-2097 only adds a second, independent condition
+    # (`needs.changes.outputs.node`) ANDed onto that same mechanism.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       # Zero-tolerance gate: this just runs `<package manager> lint` and
       # fails on any non-zero exit. Whether that actually means "zero
@@ -274,8 +360,11 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See the `lint` job's comment above - identical skipped-satisfies-
+    # branch-protection precedent applies here.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -295,9 +384,14 @@ jobs:
 
   build:
     name: build
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build }}
+    # `inputs.enable_build` is the existing `enable_*`-gated `if:`-skip
+    # precedent this file already relies on for branch protection (a
+    # caller setting enable_build: false already produces a `skipped`
+    # required check today, and that's accepted) - LAB-2097 ANDs in the new
+    # path-filter condition alongside it, unchanged otherwise.
+    if: ${{ inputs.enable_build && needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -312,9 +406,13 @@ jobs:
 
   test:
     name: test
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    # `inputs.enable_test && !inputs.is_dependabot` is the existing
+    # `enable_*`/`is_dependabot`-gated `if:`-skip precedent this file
+    # already relies on for branch protection - LAB-2097 ANDs in the new
+    # path-filter condition alongside it, unchanged otherwise.
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.node == 'true' }}
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
