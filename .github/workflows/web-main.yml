@@ -38,10 +38,6 @@ on:
         type: boolean
         required: false
         default: false
-      enable_ls_lint:
-        description: Run the ls-lint file naming check.
-        type: boolean
-        default: true
       enable_build:
         description: Run `yarn build`.
         type: boolean
@@ -56,10 +52,6 @@ on:
         default: true
       enable_design_system:
         description: Run `yarn design-system`. Advisory only.
-        type: boolean
-        default: true
-      enable_dead_code:
-        description: Run `yarn dead-code`. Advisory only.
         type: boolean
         default: true
       enable_duplicate_code:
@@ -120,12 +112,10 @@ jobs:
     with:
       working-directory: ${{ inputs.working-directory }}
       is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.head_commit.author.name == 'github-actions[bot]') }}
-      enable_ls_lint: ${{ inputs.enable_ls_lint }}
       enable_build: ${{ inputs.enable_build }}
       enable_test: ${{ inputs.enable_test }}
       enable_a11y: ${{ inputs.enable_a11y }}
       enable_design_system: ${{ inputs.enable_design_system }}
-      enable_dead_code: ${{ inputs.enable_dead_code }}
       enable_duplicate_code: ${{ inputs.enable_duplicate_code }}
       enable_e2e: ${{ inputs.enable_e2e }}
       enable_react_tech_debt: ${{ inputs.enable_react_tech_debt }}
