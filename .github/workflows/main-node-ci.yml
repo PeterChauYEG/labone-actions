@@ -135,6 +135,70 @@ concurrency:
 
 
 jobs:
+  # LAB-2097: same path-filter pattern as develop-node-ci.yml's `changes`
+  # job - see that file's header comment for the full `node`/`ls_lint`
+  # filter-list rationale and the "unconfirmed, erring broad" caveat, which
+  # applies identically here (main-node-ci.yml intentionally keeps its
+  # input/job names identical to develop-node-ci.yml's, per this file's own
+  # header comment). This workflow only runs on `push` to main (not
+  # `pull_request`), so `dorny/paths-filter@v3` diffs against
+  # `github.event.before` instead of a PR base - `pull-requests: read`
+  # permission isn't needed here (dropped vs. develop-node-ci.yml's
+  # `changes` job), only `contents: read`.
+  #
+  # Like develop-node-ci.yml, `ls_lint` is unused today - neither this file
+  # nor develop-node-ci.yml runs an `ls-lint` job - left in for output-shape
+  # parity and so a future `ls-lint` job here can gate on it immediately.
+  #
+  # A gated job (lint/typecheck/build/test below) that's skipped resolves
+  # to `needs.*.result == 'skipped'`, NOT `'failure'` - so `deploy`'s own
+  # `if:` (which only blocks on `contains(needs.*.result, 'failure')` /
+  # `'cancelled'`, see that job's own comment) still runs normally even on
+  # a push whose only changes are docs/config. This is the exact same
+  # skipped-doesn't-block-deploy behavior `test` already relies on today
+  # via `is_dependabot` (a dependabot push already produces a `skipped`
+  # `test` result that doesn't block `deploy`) - LAB-2097 doesn't change
+  # that contract, only adds a second, independent way a job can resolve to
+  # `skipped`.
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+    outputs:
+      node: ${{ steps.filter.outputs.node }}
+      ls_lint: ${{ steps.filter.outputs.ls_lint }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            node:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '**/package.json'
+              - '**/yarn.lock'
+              - '**/pnpm-lock.yaml'
+              - '**/.yarnrc.yml'
+              - '**/tsconfig*.json'
+              - '**/.eslintrc*'
+              - '**/eslint.config.*'
+              - '**/jest.config.*'
+              - '**/vitest.config.*'
+            ls_lint:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '.ls-lint.yml'
+
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
@@ -158,8 +222,13 @@ jobs:
 
   lint:
     name: lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See develop-node-ci.yml's `lint` job comment for the skipped-
+    # satisfies-branch-protection precedent (this file's own `build`/`test`
+    # jobs already skip via `if:` on `enable_*`/`is_dependabot` today, relied
+    # on by branch protection) that this new condition rides on.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       # Zero-tolerance gate: this just runs `yarn lint` and fails on any
       # non-zero exit. Whether that actually means "zero warnings" depends
@@ -185,8 +254,10 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See the `lint` job's comment above.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -205,9 +276,9 @@ jobs:
 
   build:
     name: build
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build }}
+    if: ${{ inputs.enable_build && needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -221,9 +292,9 @@ jobs:
 
   test:
     name: test
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.node == 'true' }}
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config

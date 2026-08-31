@@ -444,15 +444,35 @@ No `secrets:` are declared here either — every caller uses
 set to the same `labone-eslint-plugin` package for backend services,
 consumed the same way via a private git dependency).
 
-Jobs: `setup`, `lint`, `typecheck`, `build`, `test`, `security-scan`,
-`dependency-audit`, plus optional `dead-code` (`enable_dead_code`, off by
-default). Every job except `dead-code` is a plain pass/fail gate — no
-sticky PR comments, no Linear ticket filing (unlike `develop-ci.yml`'s scan
-jobs); `dead-code` is the one exception, matching `develop-ci.yml`'s
-identical job (sticky comment + Linear ticket filing on failure, but
-advisory-only — never fails the job). Two gates are worth calling out
-explicitly because this shared workflow can't fully enforce them on its
-own:
+Jobs: `changes`, `setup`, `lint`, `typecheck`, `build`, `test`,
+`security-scan`, `dependency-audit`, plus optional `dead-code`
+(`enable_dead_code`, off by default). Every job except `dead-code` is a
+plain pass/fail gate — no sticky PR comments, no Linear ticket filing
+(unlike `develop-ci.yml`'s scan jobs); `dead-code` is the one exception,
+matching `develop-ci.yml`'s identical job (sticky comment + Linear ticket
+filing on failure, but advisory-only — never fails the job). Two gates are
+worth calling out explicitly because this shared workflow can't fully
+enforce them on its own:
+
+- **`changes` (LAB-2097)** runs `dorny/paths-filter@v3` against the caller
+  repo's changed files first (no dependencies, overlaps with `setup`) and
+  produces a `node` output. `lint`/`typecheck`/`build`/`test` each AND
+  `needs.changes.outputs.node == 'true'` onto their existing `if:`
+  condition, so a PR that only touches docs/unrelated files skips all four
+  as `skipped` (which satisfies branch-protection required checks
+  identically to `success`) instead of re-running them for nothing. A
+  `ls_lint` output is also produced for parity, but is currently unused —
+  neither this workflow nor `main-node-ci.yml` runs an `ls-lint` job today.
+  `security-scan`/`dependency-audit`/`dead-code` are intentionally NOT
+  gated by `changes` (out of scope for LAB-2097). The `node`/`ls_lint`
+  filter glob lists were derived from what `lint`/`typecheck`/`build`/
+  `test`'s own steps consume (TS/JS source, `package.json`,
+  `yarn.lock`/`pnpm-lock.yaml`, `tsconfig*.json`, eslint/jest/vitest
+  config) but are **not confirmed exhaustive** for every caller — a repo
+  whose custom script depends on an unusual extra file (surfaced via
+  `extra_deps_cache_key_glob_1`/`_2`, which are caller-specific and can't
+  be folded into this static filter) could still see a stale skip. Report
+  a miss if you hit one.
 
 - **`lint` is zero-tolerance**, but only if the caller's own `lint` script
   passes `--max-warnings=0` to eslint (e.g. `"lint": "eslint .
@@ -506,17 +526,24 @@ pass/fail gate — no sticky comment/Linear ticket filing, no `pr_number`/
 directly instead of going through `scan-with-report`). Yarn-only, same
 caveat as `develop-node-ci.yml`'s `enable_dead_code`.
 
-Jobs: the same `setup`/`lint`/`typecheck`/`build`/`test`/`security-scan`/
-`dependency-audit` set as plain pass/fail gates, plus optional `dead-code`
-(off by default) and `deploy` (pushes to `dokku_remote_url` using secret
-`DOKKU_DEPLOY_SSH_KEY`) and `slack-notification` (posts the deploy result
-using secret `SLACK_WEBHOOK_URL`), identical semantics to `main-ci.yml`'s
-`deploy`/`slack-notification` — `deploy` runs only if every enabled gate
-job actually passed (skipped-via-`enable_*: false` doesn't block it, but
-any real failure or cancellation does) and is skipped entirely for
-`is_dependabot`. Note: unlike `main-ci.yml`'s `deploy` job (whose `needs:`
-list includes `dead-code`), this workflow's `deploy` job's `needs:` list
-was deliberately left unchanged (LAB-1866 scope) — `dead-code` is not a
+Jobs: `changes` (LAB-2097, same `dorny/paths-filter@v3` pattern as
+`develop-node-ci.yml`'s `changes` job — see that section for the full
+`node`/`ls_lint` filter rationale and its "not confirmed exhaustive"
+caveat; this one diffs against `github.event.before` since this workflow
+triggers on `push`, not `pull_request`, so it needs `contents: read` only,
+no `pull-requests: read`), then `setup`/`lint`/`typecheck`/`build`/`test`
+as plain pass/fail gates (`lint`/`typecheck`/`build`/`test` additionally
+gated on `needs.changes.outputs.node == 'true'`), plus optional
+`dead-code` (off by default) and `deploy` (pushes to `dokku_remote_url`
+using secret `DOKKU_DEPLOY_SSH_KEY`) and `slack-notification` (posts the
+deploy result using secret `SLACK_WEBHOOK_URL`), identical semantics to
+`main-ci.yml`'s `deploy`/`slack-notification` — `deploy` runs only if
+every enabled gate job actually passed (skipped-via-`enable_*: false` or
+skipped-via-`changes` doesn't block it, but any real failure or
+cancellation does) and is skipped entirely for `is_dependabot`. Note:
+unlike `main-ci.yml`'s `deploy` job (whose `needs:` list includes
+`dead-code`), this workflow's `deploy` job's `needs:` list was
+deliberately left unchanged (LAB-1866 scope) — `dead-code` is not a
 dependency of `deploy` here, so a caller that enables it should be aware
 `deploy` doesn't wait on it.
 
