@@ -6,6 +6,15 @@ name: Develop Node CI
 # PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
+# CALLER'S `ci` JOB MUST ALSO SET `permissions: {contents: read,
+# pull-requests: write}` — the `dead-code` job below (see its own
+# `permissions:` block) needs `pull-requests: write` for its sticky-PR-
+# comment feature, and GitHub validates the full callee permission graph
+# before dispatching any job, so a caller missing this fails its ENTIRE PR
+# CI run with `startup_failure`/0 jobs, even with `enable_dead_code` off.
+# See README.md's "`develop-node-ci.yml` — inputs and jobs" caller example
+# for the full explanation.
+#
 # This is the backend-service sibling of develop-ci.yml (which targets
 # Next.js/React web repos) - same `setup` + artifact-restore caching
 # strategy and the same `enable_*`/`is_dependabot` input conventions, but a

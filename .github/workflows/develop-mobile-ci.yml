@@ -6,6 +6,16 @@ name: Develop Mobile CI
 # PeterChauYEG/labone-actions/.github/workflows/develop-mobile-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
+# CALLER'S `ci` JOB MUST ALSO SET `permissions: {contents: read,
+# pull-requests: write}` — the dead-code/duplicate-code/a11y/design-system
+# jobs below (see their own `permissions:` blocks) need `pull-requests:
+# write` for their sticky-PR-comment feature, and GitHub validates the
+# full callee permission graph before dispatching any job, so a caller
+# missing this fails its ENTIRE PR CI run with `startup_failure`/0 jobs,
+# even with those `enable_*` flags off. `templates/mobile-pr.yml` already
+# has this set correctly. See README.md's "`develop-mobile-ci.yml`" caller
+# example for the full explanation.
+#
 # Same cache-restore-per-job caching strategy as develop-node-ci.yml (LAB-1371,
 # both are Yarn Berry - reuses the same setup-node-yarn action as-is), but a
 # mobile-app-shaped job set: lint/ls-lint/

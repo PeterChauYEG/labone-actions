@@ -5,6 +5,12 @@ name: Main Node CI
 # `uses: PeterChauYEG/labone-actions/.github/workflows/main-node-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
+# Unlike develop-node-ci.yml, this workflow's `dead-code` job has no
+# `permissions:` override (plain pass/fail, no sticky-PR-comment feature -
+# there's no PR at push-to-main time), so callers do NOT need to grant
+# `pull-requests: write` here. See README.md's `develop-node-ci.yml` caller
+# example for why that grant *is* required on the PR-time sibling.
+#
 # Mirrors develop-node-ci.yml's job set as plain pass/fail gates (same as
 # main-ci.yml's relationship to develop-ci.yml) plus `deploy` and
 # `slack-notification`. Input and job names are intentionally identical to
