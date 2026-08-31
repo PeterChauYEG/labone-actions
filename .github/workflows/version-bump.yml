@@ -15,6 +15,11 @@ name: Version Bump
 # deliberately NOT centralized here: it's repo-specific (which files carry a
 # version string varies per repo), so every caller must have its own copy at
 # that exact path.
+#
+# IMPORTANT — every caller repo MUST have a `GH_PAT` secret (a PAT with at
+# least Contents: read/write and Pull requests: read/write on that repo).
+# See the "Verify GH_PAT is configured" step below for why this is required
+# and what breaks without it (LAB-2087).
 
 run-name: Version Bump (CalVer)
 
@@ -32,19 +37,49 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  checks: write
-  actions: read
 
 jobs:
   version-bump:
     name: version-bump
     runs-on: [self-hosted, catfood]
     steps:
+      - name: Verify GH_PAT is configured
+        # Every git-writing step below (checkout's push credentials, the
+        # bump-branch push, and the PR creation) must run as a real PAT, not
+        # secrets.GITHUB_TOKEN. GitHub's documented anti-recursion rule
+        # suppresses `pull_request`/`push` events for anything authored by
+        # GITHUB_TOKEN itself, and this is not a theoretical concern here:
+        # across every current caller of this workflow (laboratory-one-web,
+        # budget, and others), the automated bot-authored bump commit has
+        # NEVER once triggered real CI in its own run history — the job
+        # opens the PR, enables auto_merge, and the PR then sits blocked
+        # forever until a human happens to push a follow-up commit to the
+        # branch (which does trigger CI, because it's human-authored). That
+        # backlog of stuck-open bump PRs going back weeks is what this check
+        # prevents from recurring silently. (A sibling repo, mangalab,
+        # previously concluded GITHUB_TOKEN was fine here and cited a real
+        # `pull_request` run as proof — but that run's triggering commit was
+        # also human-authored, not the bot's own commit; the underlying bug
+        # was misdiagnosed as a non-issue there.)
+        #
+        # Fail loudly here instead of letting `Checkout code` below either
+        # silently fall back to GITHUB_TOKEN or fail with an opaque auth
+        # error. To fix: create a PAT scoped to this repo with at least
+        # Contents: read/write and Pull requests: read/write, then add it as
+        # this repo's `GH_PAT` secret.
+        run: |
+          if [ -z "$GH_PAT" ]; then
+            echo "::error::secrets.GH_PAT is not set on this repository. version-bump.yml requires a real PAT (not GITHUB_TOKEN) to push the bump commit and open its PR, otherwise GitHub's anti-recursion rule silently drops the pull_request event, real CI never runs, and the bump PR never auto-merges (see LAB-2087). Create a PAT (Contents: read/write, Pull requests: read/write) and add it as this repo's GH_PAT secret."
+            exit 1
+          fi
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
 
       - name: Check for new commits since last bump
         id: check
@@ -117,7 +152,7 @@ jobs:
                 fi
               done
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Commit version bump via PR
         if: steps.check.outputs.bumped == 'true'
@@ -135,40 +170,18 @@ jobs:
           git commit -m "chore: bump version to ${NEW_VERSION} [skip ci]"
           git push origin "$BRANCH"
 
-          HEAD_SHA=$(git rev-parse HEAD)
-
-          # Skip every branch-protection-required status check for this
-          # automated, package.json-only commit, rather than a hardcoded
-          # guess at check names. The hardcoded list ("lint ls-lint
-          # typecheck build test") used to match, but drifted the moment any
-          # caller repo renamed jobs or added a new required check (e.g. the
-          # "ci / " reusable-workflow namespace prefix, or a newly-required
-          # trivy scan) — silently wedging every future bump PR open forever
-          # since a required check that never posts blocks merge
-          # indefinitely. Reading the actual required contexts back from the
-          # branch's own protection settings keeps this self-synced no
-          # matter what the caller repo's CI is named.
-          BASE_BRANCH="${{ github.event.repository.default_branch }}"
-          REQUIRED_CONTEXTS=$(curl -sf \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "${API}/repos/${REPO}/branches/${BASE_BRANCH}/protection/required_status_checks" \
-            | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try { (JSON.parse(d).contexts || []).forEach(c => console.log(c)); } catch (e) {} })" \
-            || true)
-
-          while IFS= read -r CHECK_NAME; do
-            [ -z "$CHECK_NAME" ] && continue
-            BODY=$(node -e "console.log(JSON.stringify({name: process.argv[1], head_sha: process.argv[2], status: 'completed', conclusion: 'success', output: {title: 'Skipped for automated version bump', summary: 'This check is skipped for automated CalVer version bump commits which only modify package.json.'}}))" "$CHECK_NAME" "$HEAD_SHA")
-            curl -sf -X POST \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/check-runs" \
-              -d "${BODY}" \
-              > /dev/null || true
-          done <<< "$REQUIRED_CONTEXTS"
-
+          # No fabricated check-runs here (LAB-2087). The push and the PR
+          # creation below both authenticate as GH_TOKEN=secrets.GH_PAT (a
+          # real user PAT, not GITHUB_TOKEN), so this branch's push and its
+          # PR both raise genuine push/pull_request events — the caller
+          # repo's real CI runs against HEAD_SHA and posts its own real
+          # check-runs for whatever contexts are actually required, so
+          # there's nothing left to fabricate. (A required check that
+          # legitimately no-ops for a `[skip ci]`, package.json-only commit
+          # — e.g. via a path filter — still reports conclusion "skipped",
+          # which GitHub's branch protection treats as satisfying a required
+          # status check, same as "success".) `auto_merge` below simply
+          # waits on those real checks like any other PR.
           PR_RESPONSE=$(curl -sf -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
@@ -200,13 +213,13 @@ jobs:
               > /dev/null || true
           fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Create Git Tag
         if: steps.check.outputs.bumped == 'true'
         uses: pkgdeps/git-tag-action@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_PAT }}
           github_repo: ${{ github.repository }}
           version: ${{ steps.calver.outputs.new_version }}
           git_commit_sha: ${{ github.sha }}
