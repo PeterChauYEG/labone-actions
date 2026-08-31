@@ -1204,11 +1204,27 @@ above.
 Now a `workflow_call` reusable workflow, converged from
 laboratory-one-web's and ai-harness-web's byte-identical
 `.github/workflows/version-bump.yml`. CalVer-bumps the caller repo on a
-schedule (or `workflow_dispatch`), opens+auto-merges a PR, tags a release,
-and fakes `lint`/`ls-lint`/`typecheck`/`build`/`test` check-runs as skipped
-(hardcoded — both existing callers use exactly this same 5-name set, so an
-input wasn't added for it; add one later if a caller ever needs a different
-set). **Depends on the caller repo providing its own
+schedule (or `workflow_dispatch`), opens a PR, waits on that caller repo's
+own real CI, and auto-merges + tags a release once it's green.
+
+**Requires a `GH_PAT` secret on every caller repo** (a PAT with at least
+Contents: read/write and Pull requests: read/write on that repo) — the
+bump-branch push and PR creation must authenticate as a real user, not
+`secrets.GITHUB_TOKEN`. GitHub's anti-recursion rule silently drops
+`pull_request`/`push` events for anything authored by `GITHUB_TOKEN`
+itself, and this used to bite every caller in practice: the bot-authored
+bump commit never triggered real CI, so the job used to paper over it by
+POSTing fabricated `completed`/`success` check-runs for the base branch's
+required-status-check contexts before merging — bypassing real CI review
+of the bump commit entirely (LAB-2087). That fabrication is gone; with a
+real PAT, the push and PR both raise genuine events, real CI runs and
+posts its own real check-runs, and `auto_merge` simply waits on those like
+it would for any other PR. The "Verify GH_PAT is configured" step fails
+fast with a pointer here if the secret is missing, rather than the job
+either silently falling back to `GITHUB_TOKEN` or failing with an opaque
+checkout auth error.
+
+**Depends on the caller repo providing its own
 `./scripts/bump-version.sh <new-version>`** — that script actually rewrites
 version strings in the repo's files, which varies per repo, so it is
 deliberately not centralized here. Call it with `secrets: inherit`; see the
