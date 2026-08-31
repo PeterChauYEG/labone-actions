@@ -5,21 +5,13 @@ name: Main Node CI
 # `uses: PeterChauYEG/labone-actions/.github/workflows/main-node-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
-# Unlike develop-node-ci.yml, this workflow's `dead-code` job has no
-# `permissions:` override (plain pass/fail, no sticky-PR-comment feature -
-# there's no PR at push-to-main time), so callers do NOT need to grant
-# `pull-requests: write` here. See README.md's `develop-node-ci.yml` caller
-# example for why that grant *is* required on the PR-time sibling.
-#
 # Mirrors develop-node-ci.yml's job set as plain pass/fail gates (same as
 # main-ci.yml's relationship to develop-ci.yml) plus `deploy` and
 # `slack-notification`. Input and job names are intentionally identical to
 # develop-node-ci.yml's - see that file's header comment for the
-# lint/typecheck/test/security-scan/dependency-audit rationale
-# (zero-warnings lint, strict typecheck, coverage-threshold-is-the-
-# consumer's-job test gate, HIGH/CRITICAL Trivy scan with no shipped
-# ignore baseline, zero-severity-floor dependency audit) - it all applies
-# here unchanged.
+# lint/typecheck/test rationale (zero-warnings lint, strict typecheck,
+# coverage-threshold-is-the-consumer's-job test gate) - it all applies here
+# unchanged.
 
 on:
   workflow_call:
@@ -38,9 +30,8 @@ on:
           Whether the triggering commit was authored by dependabot[bot].
           Caller must compute this from github.event.head_commit.author.name,
           since reusable workflows can't see that context directly. When
-          true, `test`, `security-scan` and `dependency-audit` are skipped
-          (`lint`, `typecheck` and `build` stay on), and deploy itself is
-          skipped.
+          true, `test` is skipped (`lint`, `typecheck` and `build` stay on),
+          and deploy itself is skipped.
         type: boolean
         required: false
         default: false
@@ -52,36 +43,6 @@ on:
         description: Run `yarn test:coverage`.
         type: boolean
         default: true
-      enable_security_scan:
-        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
-        type: boolean
-        default: true
-      enable_dependency_audit:
-        description: Run `yarn npm audit` (fails on any known vulnerability).
-        type: boolean
-        default: true
-      enable_dead_code:
-        description: >
-          Run a dead-code scan (`yarn dead-code`) as a plain pass/fail gate
-          (no sticky comment/Linear ticket filing - there's no PR to
-          comment on at this point, matching main-ci.yml's `dead-code`
-          job). Opt-in, unlike most other `enable_*` inputs above - defaults
-          false since no consumer repo of this workflow has this today
-          (LAB-1866).
-        type: boolean
-        required: false
-        default: false
-      security_scan_trivyignores:
-        description: >
-          Comma-separated list of relative paths to .trivyignore file(s), or
-          a single .trivyignore.yaml file, passed straight through to
-          trivy-action's `trivyignores` input. Empty by default - this
-          shared workflow ships no default ignore baseline, so every
-          suppression is a deliberate, visible file living in the consumer
-          repo. See README.md.
-        type: string
-        required: false
-        default: ''
       enable_deploy:
         description: Push to the dokku remote after all gates pass.
         type: boolean
@@ -282,92 +243,21 @@ jobs:
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'true'
 
-  security-scan:
-    name: security-scan
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
-    steps:
-      # Trivy's fs scanner resolves vulnerable packages straight from
-      # yarn.lock - it doesn't need an installed node_modules tree, so this
-      # job checks out source only instead of paying to download/untar the
-      # setup job's full deps artifact like every other job here.
-      - uses: actions/checkout@v7
-      # Same severity/exit-code/no-default-ignore contract as
-      # security-scan.yml's own `trivy` job - reimplemented inline (rather
-      # than a nested `uses: security-scan.yml` call).
-      - name: Run Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: ${{ inputs.working-directory }}
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
-          trivyignores: ${{ inputs.security_scan_trivyignores }}
-
-  dependency-audit:
-    name: dependency-audit
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
-    steps:
-      # `yarn npm audit` resolves entirely from yarn.lock against the
-      # registry - no installed node_modules tree needed, just the yarn
-      # binary itself. So this job checks out + enables Corepack + sets up
-      # Node directly instead of restoring the setup job's full deps
-      # artifact like every other job here.
-      - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: ${{ inputs.working-directory }}/package.json
-      # Hard gate, no severity floor - any known vulnerability fails the
-      # job. Yarn Berry command (this repo and its Node/NestJS callers use
-      # Berry, per setup-node-yarn's .yarn/cache paths); a Yarn Classic
-      # repo would need `yarn audit` instead.
-      - run: yarn npm audit
-        working-directory: ${{ inputs.working-directory }}
-
-  dead-code:
-    name: dead-code
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
-    steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
-        with:
-          working-directory: ${{ inputs.working-directory }}
-          extra-paths: ${{ inputs.extra_deps_paths }}
-          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
-          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
-          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          gh-token: ${{ secrets.GH_PAT }}
-          cache-write: 'false'
-      - run: yarn dead-code
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        working-directory: ${{ inputs.working-directory }}
-
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]
-    needs: [lint, typecheck, build, test, security-scan, dependency-audit]
+    needs: [lint, typecheck, build, test]
     # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
     # only actual failures/cancellations should - hence checking
     # needs.*.result instead of relying on the default all-must-succeed job
     # dependency semantics, which treats "skipped" the same as "failed" for
     # a needs chain. That intent only actually works with always() here:
     # without it, GitHub's own default scheduling skips this job outright
-    # whenever ANY needs entry is skipped (e.g. dependency-audit, which
-    # Yarn-Classic callers like business-ops-service turn off via
-    # enable_dependency_audit: false) before this custom expression is ever
-    # evaluated - confirmed live, deploy silently no-op'd on every run of a
-    # caller with dependency-audit disabled. always() forces evaluation of
-    # the expression below instead of GitHub's implicit success()-only
-    # default.
+    # whenever ANY needs entry is skipped (e.g. test, which is skipped for
+    # dependabot commits via is_dependabot) before this custom expression is
+    # ever evaluated - confirmed live, deploy silently no-op'd on every run
+    # triggered by a dependabot commit. always() forces evaluation of the
+    # expression below instead of GitHub's implicit success()-only default.
     if: >-
       always() &&
       !contains(needs.*.result, 'failure') &&

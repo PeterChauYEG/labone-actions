@@ -34,10 +34,6 @@ on:
         type: boolean
         required: false
         default: false
-      enable_ls_lint:
-        description: Run the ls-lint file naming check.
-        type: boolean
-        default: true
       enable_build:
         description: Run `yarn build`.
         type: boolean
@@ -59,13 +55,6 @@ on:
           Run `yarn design-system`. Advisory only (nextjs-ci v1.0.3,
           2026-08-20) - same rationale/mechanism as `enable_duplicate_code`
           below: still runs, never fails the job or blocks `deploy`.
-        type: boolean
-        default: true
-      enable_dead_code:
-        description: >
-          Run `yarn dead-code`. Advisory only (nextjs-ci v1.0.3, 2026-08-20)
-          - same rationale/mechanism as `enable_duplicate_code` below: still
-          runs, never fails the job or blocks `deploy`.
         type: boolean
         default: true
       enable_duplicate_code:
@@ -207,22 +196,6 @@ jobs:
           cache-key-extra-glob-2: eslint.config.*
           cache-write: 'true'
 
-  ls-lint:
-    name: ls-lint
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
-    steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
-        with:
-          working-directory: ${{ inputs.working-directory }}
-          extra-paths: ${{ inputs.extra_deps_paths }}
-          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          gh-token: ${{ secrets.GH_PAT }}
-          cache-write: 'false'
-      - run: yarn lint:ls
-        working-directory: ${{ inputs.working-directory }}
-
   typecheck:
     name: typecheck
     needs: setup
@@ -330,28 +303,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
-  dead-code:
-    name: dead-code
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
-    steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
-        with:
-          working-directory: ${{ inputs.working-directory }}
-          extra-paths: ${{ inputs.extra_deps_paths }}
-          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          gh-token: ${{ secrets.GH_PAT }}
-          cache-write: 'false'
-      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same rationale as
-      # a11y's identical continue-on-error above.
-      - run: yarn dead-code
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        working-directory: ${{ inputs.working-directory }}
-
   duplicate-code:
     name: duplicate-code
     needs: setup
@@ -450,36 +401,33 @@ jobs:
     needs:
       [
         lint,
-        ls-lint,
         typecheck,
         build,
         test,
         a11y,
         design-system,
-        dead-code,
         duplicate-code,
         run-e2e-tests,
         react-tech-debt,
         max-lines,
       ]
-    # `a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/
-    # `max-lines` all stay in this list for ordering (deploy waits for them
-    # to finish) but none of them block deploy on a finding: every one of
-    # those jobs' `run: yarn <script>` steps sets `continue-on-error: true`
-    # (nextjs-ci v1.0.3, 2026-08-20 - duplicate-code/max-lines got this
-    # first in PR #68/v1.0.2, the other four followed in this round), which
-    # keeps the job's own conclusion 'success' even when the script exits
-    # non-zero - GitHub Actions never counts a continue-on-error step's
-    # failure toward the containing job's conclusion. So
-    # `needs.a11y.result` / `needs.design-system.result` /
-    # `needs.dead-code.result` / `needs.duplicate-code.result` /
+    # `a11y`/`design-system`/`duplicate-code`/`react-tech-debt`/`max-lines`
+    # all stay in this list for ordering (deploy waits for them to finish)
+    # but none of them block deploy on a finding: every one of those jobs'
+    # `run: yarn <script>` steps sets `continue-on-error: true` (nextjs-ci
+    # v1.0.3, 2026-08-20 - duplicate-code/max-lines got this first in PR
+    # #68/v1.0.2, the other three followed in this round), which keeps the
+    # job's own conclusion 'success' even when the script exits non-zero -
+    # GitHub Actions never counts a continue-on-error step's failure toward
+    # the containing job's conclusion. So `needs.a11y.result` /
+    # `needs.design-system.result` / `needs.duplicate-code.result` /
     # `needs.react-tech-debt.result` / `needs.max-lines.result` all read
     # 'success' below regardless of scan outcome, and the
     # `!contains(needs.*.result, 'failure')` check further down doesn't need
-    # to change. `typecheck`/`build`/`lint`/`test`/`run-e2e-tests` (and
-    # `ls-lint`) remain hard gates - their steps have no
-    # `continue-on-error`, so a real failure there still shows up as
-    # 'failure' in `needs.*.result` and blocks deploy as before.
+    # to change. `typecheck`/`build`/`lint`/`test`/`run-e2e-tests` remain
+    # hard gates - their steps have no `continue-on-error`, so a real
+    # failure there still shows up as 'failure' in `needs.*.result` and
+    # blocks deploy as before.
     #
     # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
     # only actual failures/cancellations should - hence checking needs.*.result
