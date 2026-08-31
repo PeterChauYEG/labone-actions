@@ -180,8 +180,9 @@ jobs:
           # legitimately no-ops for a `[skip ci]`, package.json-only commit
           # — e.g. via a path filter — still reports conclusion "skipped",
           # which GitHub's branch protection treats as satisfying a required
-          # status check, same as "success".) `auto_merge` below simply
-          # waits on those real checks like any other PR.
+          # status check, same as "success".) Auto-merge below simply queues
+          # the PR to merge once those real checks pass, exactly like any
+          # other PR.
           PR_RESPONSE=$(curl -sf -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
@@ -191,27 +192,30 @@ jobs:
 
           PR_NUMBER=$(echo "$PR_RESPONSE" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).number))")
 
-          if ! curl -sf -X PUT \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/pulls/${PR_NUMBER}/auto_merge" \
-              -d '{"merge_method":"squash"}' \
-              > /dev/null 2>&1; then
-            curl -sf -X PUT \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/pulls/${PR_NUMBER}/merge" \
-              -d "{\"merge_method\":\"squash\",\"commit_title\":\"chore: bump version to ${NEW_VERSION} [skip ci]\"}" \
-              > /dev/null
-            curl -sf -X DELETE \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/git/refs/heads/${BRANCH}" \
-              > /dev/null || true
+          # `PUT /repos/{owner}/{repo}/pulls/{pull_number}/auto_merge` (a raw
+          # REST call) is NOT a real GitHub API route — it 404s
+          # unconditionally regardless of PR number (confirmed via direct
+          # probe: a route-not-found 404, not a PR-not-found 404). GitHub
+          # only exposes auto-merge enablement via the GraphQL
+          # `enablePullRequestAutoMerge` mutation, which `gh pr merge --auto`
+          # wraps. Because the old REST call always failed, this step always
+          # fell into its "curl failed" fallback branch below and did an
+          # immediate, unconditional squash merge — bypassing every required
+          # status check with zero wait, silently reintroducing the exact bug
+          # class LAB-2087/LAB-2090 were meant to fix (verified live against
+          # mangalab: bump PR #221 merged 2 seconds after creation with zero
+          # check-runs and zero workflow runs against its head commit).
+          #
+          # Fixed by using `gh pr merge --auto` (GraphQL under the hood)
+          # instead. If auto-merge isn't allowed on this repo at all, that's
+          # a real configuration gap — fail loudly rather than silently
+          # falling back to an unconditional bypass merge.
+          if [ "$(gh api "repos/${REPO}" --jq .allow_auto_merge)" != "true" ]; then
+            echo "::error::Auto-merge is not enabled on ${REPO}, so this workflow cannot safely wait for required status checks before merging the version-bump PR (#${PR_NUMBER}). Enable 'Allow auto-merge' in this repo's Settings > General > Pull Requests, then re-run this workflow. Refusing to fall back to an unconditional merge that would bypass required checks (see LAB-2087/LAB-2090/LAB-2102)."
+            exit 1
           fi
+
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch --auto
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
