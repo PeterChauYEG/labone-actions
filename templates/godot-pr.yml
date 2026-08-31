@@ -6,39 +6,19 @@ on:
   pull_request:
     types: [opened, synchronize, closed]
 
-# godot-develop-ci.yml's format/lint/duplicate-code/test jobs need
-# pull-requests: write (sticky comments + Linear ticket filing). A called
-# reusable workflow can't escalate beyond what the caller grants here, or
-# every job in it fails to start (startup_failure, zero jobs created).
-permissions:
-  contents: read
-  pull-requests: write
-
-concurrency:
-  group: ${{ github.repository }}-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   godot-ci:
-    if: github.event.action != 'closed'
-    uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/godot-pr.yml@main
     secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}
-      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
-      # Set false only for repos that structurally can't run GUT standalone
-      # (e.g. a plugin monorepo whose class_name symbols only resolve
-      # inside a separate host project) - document why if you do:
-      # enable_test: false
-
-  actionlint:
-    if: github.event.action != 'closed'
-    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
-    secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}
+    # with:
+    #   Set false only for repos that structurally can't run GUT standalone
+    #   (e.g. a plugin monorepo whose class_name symbols only resolve
+    #   inside a separate host project) - document why if you do:
+    #   enable_test: false
+    #
+    #   Also fold in github-actions[bot] here if this repo's main.yml
+    #   pre-creates check-runs for its own CalVer version-bump PR:
+    #   also_treat_actions_bot_as_dependabot: true
 
   # Add repo-specific bespoke jobs below as needed (e.g. dead-code,
   # a project-specific smoke test) - none of these are standardized in

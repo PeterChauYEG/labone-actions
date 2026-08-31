@@ -1,0 +1,137 @@
+name: Web Main Orchestrator
+
+# Thin orchestrator layer between a Next.js/yarn web repo's own main.yml
+# and main-ci.yml (LAB-2096). Bakes in is_dependabot computation (from
+# github.event.head_commit.author.name, available here since the
+# outermost trigger - the calling repo's own main.yml - is still `push`).
+# None of main-ci.yml's jobs declare a job-level `permissions:` override
+# (every advisory scan there uses `continue-on-error: true` inline instead
+# of a sticky-PR-comment action - there's no PR to comment on at
+# push-to-main time), so this orchestrator's `ci` job needs no extra grant
+# beyond the workflow-level `contents: read` default.
+#
+# Deliberately does NOT declare its own `concurrency:` block: main-ci.yml
+# already owns a `main-ci-${{ github.repository }}` group at its own
+# level, and README.md's "Concurrency" section documents the deadlock risk
+# of a caller/nested-workflow_call pair fighting over a concurrency group
+# (this exact pattern blocked laboratory-one-web's production deploys on
+# 2026-08-04) - the safest shape for this middle layer is to declare no
+# concurrency of its own and let the innermost workflow keep owning it.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Next.js/yarn app lives
+          in. Set this for a monorepo caller, e.g. `prototype`.
+        type: string
+        required: false
+        default: '.'
+      also_treat_actions_bot_as_dependabot:
+        description: >
+          OR'd into the computed is_dependabot expression - set true if
+          this repo's own CalVer version-bump commits (authored by
+          github-actions[bot]) should also skip every gate but
+          lint/typecheck/build the same way a dependabot-authored push
+          would.
+        type: boolean
+        required: false
+        default: false
+      enable_ls_lint:
+        description: Run the ls-lint file naming check.
+        type: boolean
+        default: true
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_a11y:
+        description: Run `yarn a11y` (accessibility scan). Advisory only.
+        type: boolean
+        default: true
+      enable_design_system:
+        description: Run `yarn design-system`. Advisory only.
+        type: boolean
+        default: true
+      enable_dead_code:
+        description: Run `yarn dead-code`. Advisory only.
+        type: boolean
+        default: true
+      enable_duplicate_code:
+        description: Run `yarn duplicate-code`. Advisory only.
+        type: boolean
+        default: true
+      enable_e2e:
+        description: Run `yarn run-e2e-scan` (Playwright e2e) as a pass/fail gate.
+        type: boolean
+        default: true
+      enable_react_tech_debt:
+        description: Run `yarn react-tech-debt`. Advisory only.
+        type: boolean
+        default: true
+      enable_max_lines:
+        description: Run `yarn max-lines`. Advisory only.
+        type: boolean
+        default: true
+      enable_deploy:
+        description: Push to the dokku remote after all gates pass.
+        type: boolean
+        default: true
+      dokku_remote_url:
+        description: >
+          Dokku git remote URL to push to, e.g.
+          ssh://dokku@192.168.1.31:22/<app-name>. Every real deploy caller
+          needs a distinct value, so this is required with no default.
+        type: string
+        required: true
+      enable_slack_notification:
+        description: Post the deploy result to Slack after `deploy` completes.
+        type: boolean
+        default: true
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules and .next/cache.
+        type: string
+        required: false
+        default: ''
+      test_script_args:
+        description: >
+          Extra CLI args forwarded to the caller's `test:coverage` script.
+          Override for a Vitest-based caller.
+        type: string
+        required: false
+        default: '--cache --cacheDirectory .jestcache'
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ci
+    uses: PeterChauYEG/labone-actions/.github/workflows/main-ci.yml@main
+    secrets: inherit
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.head_commit.author.name == 'github-actions[bot]') }}
+      enable_ls_lint: ${{ inputs.enable_ls_lint }}
+      enable_build: ${{ inputs.enable_build }}
+      enable_test: ${{ inputs.enable_test }}
+      enable_a11y: ${{ inputs.enable_a11y }}
+      enable_design_system: ${{ inputs.enable_design_system }}
+      enable_dead_code: ${{ inputs.enable_dead_code }}
+      enable_duplicate_code: ${{ inputs.enable_duplicate_code }}
+      enable_e2e: ${{ inputs.enable_e2e }}
+      enable_react_tech_debt: ${{ inputs.enable_react_tech_debt }}
+      enable_max_lines: ${{ inputs.enable_max_lines }}
+      enable_deploy: ${{ inputs.enable_deploy }}
+      dokku_remote_url: ${{ inputs.dokku_remote_url }}
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
+      extra_deps_paths: ${{ inputs.extra_deps_paths }}
+      test_script_args: ${{ inputs.test_script_args }}

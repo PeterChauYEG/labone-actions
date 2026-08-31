@@ -1,0 +1,137 @@
+name: Node Main Orchestrator
+
+# Thin orchestrator layer between a Node/NestJS backend service repo's own
+# main.yml and main-node-ci.yml (LAB-2096). Bakes in is_dependabot
+# computation (from github.event.head_commit.author.name, available here
+# since the outermost trigger - the calling repo's own main.yml - is still
+# `push`). main-node-ci.yml's `dead-code` job has NO `permissions:`
+# override (plain pass/fail, no sticky-PR-comment feature - there's no PR
+# to comment on at push-to-main time, see that file's own header comment),
+# so this orchestrator's `ci` job needs no extra grant beyond the
+# workflow-level `contents: read` default.
+#
+# Deliberately does NOT declare its own `concurrency:` block:
+# main-node-ci.yml already owns a `main-node-ci-${{ github.repository }}`
+# group at its own level, and README.md's "Concurrency" section documents
+# a caller/nested-workflow_call pair sharing (or needlessly duplicating) a
+# concurrency group here risking exactly the kind of deadlock that broke
+# laboratory-one-web's production deploys in 2026-08-04 - the safest shape
+# for this middle layer is to declare no concurrency of its own and let
+# the innermost workflow keep owning it.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Node/NestJS service
+          lives in.
+        type: string
+        required: false
+        default: '.'
+      also_treat_actions_bot_as_dependabot:
+        description: >
+          OR'd into the computed is_dependabot expression - set true if
+          this repo's own CalVer version-bump commits (authored by
+          github-actions[bot]) should also skip test/security-scan/
+          dependency-audit/deploy the same way a dependabot-authored push
+          would.
+        type: boolean
+        required: false
+        default: false
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      enable_dependency_audit:
+        description: Run `yarn npm audit` (fails on any known vulnerability).
+        type: boolean
+        default: true
+      enable_dead_code:
+        description: Run a dead-code scan (`yarn dead-code`) as a plain pass/fail gate.
+        type: boolean
+        required: false
+        default: false
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file.
+        type: string
+        required: false
+        default: ''
+      enable_deploy:
+        description: Push to the dokku remote after all gates pass.
+        type: boolean
+        default: true
+      dokku_remote_url:
+        description: >
+          Dokku git remote URL to push to, e.g.
+          ssh://dokku@192.168.1.31:22/<app-name>. Every real deploy caller
+          needs a distinct value, so this is required with no default.
+        type: string
+        required: true
+      enable_slack_notification:
+        description: Post the deploy result to Slack after `deploy` completes.
+        type: boolean
+        default: true
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules.
+        type: string
+        required: false
+        default: ''
+      extra_deps_cache_key_glob_1:
+        description: >
+          Extra glob (relative to working-directory) folded into every
+          job's node_modules cache key alongside yarn.lock.
+        type: string
+        required: false
+        default: ''
+      extra_deps_cache_key_glob_2:
+        description: Second extra glob - see extra_deps_cache_key_glob_1.
+        type: string
+        required: false
+        default: ''
+      test_script_args:
+        description: >
+          Extra args passed straight through to the `test` job's
+          cached-script `script-args` input, appended to `yarn
+          test:coverage`. Override for a non-Jest test runner.
+        type: string
+        required: false
+        default: '--cache --cacheDirectory .jestcache'
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ci
+    uses: PeterChauYEG/labone-actions/.github/workflows/main-node-ci.yml@main
+    secrets: inherit
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.head_commit.author.name == 'github-actions[bot]') }}
+      enable_build: ${{ inputs.enable_build }}
+      enable_test: ${{ inputs.enable_test }}
+      enable_security_scan: ${{ inputs.enable_security_scan }}
+      enable_dependency_audit: ${{ inputs.enable_dependency_audit }}
+      enable_dead_code: ${{ inputs.enable_dead_code }}
+      security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
+      enable_deploy: ${{ inputs.enable_deploy }}
+      dokku_remote_url: ${{ inputs.dokku_remote_url }}
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
+      extra_deps_paths: ${{ inputs.extra_deps_paths }}
+      extra_deps_cache_key_glob_1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+      extra_deps_cache_key_glob_2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+      test_script_args: ${{ inputs.test_script_args }}

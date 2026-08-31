@@ -8,21 +8,14 @@ on:
 
 jobs:
   ci:
-    if: github.event.action != 'closed'
-    uses: PeterChauYEG/labone-actions/.github/workflows/develop-python-ci.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/python-pr.yml@main
     secrets: inherit
-    with:
-      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
-      # lint_path: src   # defaults to '.' (whole repo)
-      # Turn off any job your repo doesn't need, e.g.:
-      # enable_test: false
-      # enable_security_scan: false   # if a sibling security.yml already covers Trivy
-      # enable_dependency_audit: true # off by default - opt in explicitly (pip-audit)
-
-  actionlint:
-    if: github.event.action != 'closed'
-    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
-    secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}
+    # with:
+    #   lint_path: src   # defaults to '.' (whole repo)
+    #   Turn off any job your repo doesn't need, e.g.:
+    #   enable_test: false
+    #   enable_security_scan: false   # if a sibling security.yml already covers Trivy
+    #   enable_dependency_audit: true # off by default - opt in explicitly (pip-audit)
+    #   Also fold in github-actions[bot] here if this repo's main.yml
+    #   pre-creates check-runs for its own CalVer version-bump PR:
+    #   also_treat_actions_bot_as_dependabot: true
