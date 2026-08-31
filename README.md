@@ -147,6 +147,9 @@ on:
 
 jobs:
   ci:
+    permissions:
+      contents: read
+      pull-requests: write
     uses: PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main
     secrets: inherit
     with:
@@ -154,6 +157,24 @@ jobs:
       # Turn off any job your repo doesn't have a yarn script for, e.g.:
       # enable_security_scan: false
 ```
+
+**The `ci` job's `permissions: {contents: read, pull-requests: write}` block
+above is REQUIRED, not optional** — `develop-node-ci.yml`'s `dead-code` job
+(and, on the mobile sibling below, `dead-code`/`duplicate-code`/`a11y`/
+`design-system`) declares its own job-level `permissions:
+pull-requests: write` for its sticky-PR-comment feature, and GitHub
+validates a reusable workflow's *entire* permission graph up front, before
+dispatching a single job — it can never grant the callee more scope than
+the caller's own job holds. A caller `ci` job with no `permissions:`
+override (or one that omits `pull-requests: write`) makes the **whole PR
+CI run** fail with `startup_failure` and 0 jobs recorded, even if
+`enable_dead_code`/`enable_duplicate_code`/`enable_a11y`/
+`enable_design_system` are all left off — the permission-graph check
+happens before any job's `if:` is evaluated, so the `enable_*` flag never
+gets a chance to skip it. See gateway-service PR #164 for the incident
+this pattern was found from (7 caller repos hit it independently before
+each added this block); if you suspect a caller repo is missing it, check
+`gh run list --event pull_request` for `startup_failure` conclusions.
 
 And `main.yml`:
 
@@ -1177,6 +1198,9 @@ on:
 
 jobs:
   ci:
+    permissions:
+      contents: read
+      pull-requests: write
     uses: PeterChauYEG/labone-actions/.github/workflows/develop-mobile-ci.yml@main
     secrets: inherit
     with:
@@ -1184,6 +1208,19 @@ jobs:
       pr_url: ${{ github.event.pull_request.html_url }}
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
 ```
+
+**The `ci` job's `permissions: {contents: read, pull-requests: write}`
+block above is REQUIRED, not optional** — see the identical callout under
+`develop-node-ci.yml`'s caller example above for the full explanation.
+This repo's own `templates/mobile-pr.yml` already carries this block
+correctly; `templates/node-pr.yml` does not yet, so copy the block above
+by hand for now if you're wiring up a Node/NestJS caller from that
+template. `main-node-ci.yml` does **not** need this
+block — its `dead-code` job has no sticky-PR-comment feature (plain
+pass/fail, no `permissions:` override), and `main-mobile-ci.yml` doesn't
+exist in this repo (see "`develop-mobile-ci.yml` has no `main-*-ci.yml`
+counterpart" above), so there's nothing to document for either of those
+two push-to-main paths.
 
 ## `dependabot-automerge.yml`
 
