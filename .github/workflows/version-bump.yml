@@ -156,6 +156,7 @@ jobs:
 
       - name: Commit version bump via PR
         if: steps.check.outputs.bumped == 'true'
+        id: pr
         run: |
           NEW_VERSION="${{ steps.calver.outputs.new_version }}"
           BRANCH="ci/calver-${NEW_VERSION}"
@@ -212,6 +213,7 @@ jobs:
             -d "{\"title\":\"chore: bump version to ${NEW_VERSION}\",\"body\":\"Automated CalVer version bump to ${NEW_VERSION}.\",\"head\":\"${BRANCH}\",\"base\":\"main\"}")
 
           PR_NUMBER=$(echo "$PR_RESPONSE" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).number))")
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
           # `PUT /repos/{owner}/{repo}/pulls/{pull_number}/auto_merge` (a raw
           # REST call) is NOT a real GitHub API route — it 404s
@@ -240,12 +242,92 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
-      - name: Create Git Tag
+      - name: Wait for version-bump PR to merge
         if: steps.check.outputs.bumped == 'true'
-        uses: pkgdeps/git-tag-action@v3
-        with:
-          github_token: ${{ secrets.GH_PAT }}
-          github_repo: ${{ github.repository }}
-          version: ${{ steps.calver.outputs.new_version }}
-          git_commit_sha: ${{ github.sha }}
-          git_tag_prefix: 'v'
+        id: wait-merge
+        # LAB-2104: `gh pr merge --auto` above only *queues* the merge — it
+        # returns as soon as auto-merge is enabled, not once the PR has
+        # actually landed on main. At the point this job would previously
+        # have tagged, the real bump commit only exists on the (possibly
+        # still-open) PR branch; `github.sha` is main's HEAD from BEFORE
+        # this run started, i.e. the commit the bump PR is based on, not the
+        # bump commit itself.
+        #
+        # Poll for up to ~2 minutes (mirroring ai-harness-cli's main.yml
+        # check-bump job, which polls the same class of problem from the
+        # caller side) for the PR to actually merge, then capture the real
+        # post-merge SHA that landed on main. If it hasn't merged within the
+        # timeout, do not report merged — the next step fails loudly instead
+        # of tagging nothing (which previously caused every subsequent run's
+        # "new commits since last tag" check to find nothing and silently
+        # no-op forever, permanently masking a stalled bump).
+        run: |
+          PR_NUMBER="${{ steps.pr.outputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          DEADLINE=$((SECONDS + 120))
+          STATE=""
+          MERGE_SHA=""
+
+          while [[ "$SECONDS" -lt "$DEADLINE" ]]; do
+            PR_JSON=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,mergeCommit)
+            STATE=$(echo "$PR_JSON" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).state))")
+            if [[ "$STATE" == "MERGED" ]]; then
+              MERGE_SHA=$(echo "$PR_JSON" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{const p=JSON.parse(d); console.log(p.mergeCommit ? p.mergeCommit.oid : '')})")
+              break
+            fi
+            if [[ "$STATE" == "CLOSED" ]]; then
+              echo "::error::version-bump PR #${PR_NUMBER} was closed without merging. Refusing to tag."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          if [[ "$STATE" == "MERGED" && -n "$MERGE_SHA" ]]; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+            echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
+            echo "PR #${PR_NUMBER} merged, real bump commit is $MERGE_SHA"
+          else
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            echo "::error::version-bump PR #${PR_NUMBER} did not merge within ~120s (last observed state: '${STATE:-unknown}'). Refusing to tag against a speculative commit — this is the exact bug LAB-2104 fixed (tagging github.sha, main's pre-bump HEAD, made every later run's 'new commits since last tag' check silently find nothing and no-op forever). Check the PR for stuck required checks or branch-protection issues; the tag will be created on a future run once it actually merges."
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Create Git Tag
+        # LAB-2104: previously used pkgdeps/git-tag-action@v3 with
+        # `git_commit_sha: ${{ github.sha }}`, which tagged main's HEAD as
+        # of when this workflow run *started* — the commit BEFORE the bump
+        # PR merged, not the bump commit itself (that commit only exists on
+        # the PR branch at the time the old tagging step ran, since it was
+        # unconditional right after enabling auto-merge with no wait for
+        # the merge to land). Confirmed live on PeterChauYEG/mangalab: tag
+        # v26.831.1 pointed at main's pre-bump tip, identical to `main`,
+        # while the real bump commit sat on PR #222's still-open branch.
+        # Once that happens, every later run's `git log ${LAST_TAG}..HEAD`
+        # "new commits since last bump" check finds nothing (from git's
+        # perspective nothing happened since that tag) and the workflow
+        # silently no-ops forever with a clean "success" — permanently
+        # masking a stalled bump with no visible error.
+        #
+        # Fixed by only ever reaching this step once "Wait for version-bump
+        # PR to merge" above has confirmed the PR actually landed on main
+        # and captured the real post-merge SHA. Also switched from the
+        # third-party action to a plain `git tag` + `git push` against that
+        # confirmed SHA — simpler, avoids trusting the action's own
+        # ref-resolution behavior for a case (tagging a commit that isn't
+        # the checkout's current HEAD) it wasn't obviously designed for,
+        # and keeps the "which exact commit gets tagged" logic fully
+        # visible in this file.
+        if: steps.check.outputs.bumped == 'true' && steps.wait-merge.outputs.merged == 'true'
+        run: |
+          VERSION="${{ steps.calver.outputs.new_version }}"
+          SHA="${{ steps.wait-merge.outputs.merge_sha }}"
+          TAG="v${VERSION}"
+
+          git fetch origin main
+          git tag "$TAG" "$SHA"
+          git push origin "$TAG"
+          echo "Tagged $SHA as $TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
