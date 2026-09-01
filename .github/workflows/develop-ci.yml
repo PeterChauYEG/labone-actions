@@ -547,3 +547,38 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
+
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts - see
+  # develop-node-ci.yml's identical job comment for the general rationale.
+  #
+  # `needs:` lists this file's REAL (blocking) gates: `lint`, `ls-lint`,
+  # `typecheck`, `build`, `test`, `run-e2e-tests`. Per this file's own
+  # "Blocking vs advisory" precedent (nextjs-ci v1.0.3, 2026-08-20 - see
+  # README.md), `run-e2e-tests` is the only scan job that's still a hard
+  # pass/fail gate (`scan-with-report`'s `blocking` input defaults to
+  # `'true'` and this job's call doesn't override it) - deliberately
+  # excludes the 6 explicitly-advisory scan jobs, each of which sets
+  # `blocking: 'false'` on its own `scan-with-report` call: `a11y`,
+  # `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+  # `max-lines`. Also excludes `tech-debt` - a metrics report, not a gate,
+  # per this file's own header comment ("it never fails the job"). Also
+  # excludes `setup` - infra, not a gate itself.
+  #
+  # `if: always()` for the same reason as develop-node-ci.yml's identical
+  # job: without it, GitHub's default scheduling would skip this job
+  # outright whenever any `needs:` entry is `skipped` (e.g. `ls-lint` when
+  # `enable_ls_lint: false`, or any of the four `enable_*`-gated jobs above
+  # when disabled, or every job when `is_dependabot`), which is the
+  # opposite of what an aggregator gate needs to do. A `skipped` result
+  # must NOT fail this job - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs: [lint, ls-lint, typecheck, build, test, run-e2e-tests]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

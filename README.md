@@ -351,6 +351,24 @@ pre-existing finding unrelated to the PR's own diff, which is too brittle
 to gate a merge/deploy on). See `main-ci.yml`'s equivalent note below for
 the push-to-main side of this same change.
 
+**`required-checks` (LAB-2103):** a final aggregator job that `needs:` every
+REAL (blocking) gate job above - `lint`, `ls-lint`, `typecheck`, `build`,
+`test`, `run-e2e-tests` - and fails if any of them resolves to `failure` or
+`cancelled` (`if: always()`, so it still runs and reports even when an
+upstream gate didn't). The 6 explicitly-advisory scan jobs (`a11y`,
+`design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+`max-lines`) and the opt-in `tech-debt` metrics report are deliberately
+**not** dependencies - see the job's own comment in the workflow file.
+**Caller repos' branch protection should require ONLY this one context
+(`required-checks`) going forward, not the individual per-job contexts** -
+that's what prevents required-check drift when a job inside this shared
+workflow is renamed/added/removed, which previously desynced every caller's
+branch protection silently (no visible error - just permanently blocked
+merges). This PR does **not** change branch protection on any caller repo
+itself - that's a separate follow-up once this merges (the
+`required-checks` context doesn't exist until then, so requiring it now
+would immediately and permanently block every caller).
+
 ### `main-ci.yml` — inputs and jobs
 
 Same `working-directory`/`enable_*`/`is_dependabot` inputs as
@@ -386,6 +404,20 @@ pre-existing repo-wide jscpd finding unrelated to that PR's diff. `a11y`,
 pattern in this v1.0.3 pass, for the same reason. `typecheck`, `build`,
 `lint`, `test`, `run-e2e-tests`, and `ls-lint` are unchanged and still
 block `deploy` on failure.
+
+**`required-checks` (LAB-2103):** same aggregator pattern as
+`develop-ci.yml`'s job (see that section for the full rationale), scoped to
+this file's actual job list - `needs: [lint, typecheck, build, test,
+run-e2e-tests]` (no `ls-lint` job exists here). `a11y`/`design-system`/
+`duplicate-code`/`react-tech-debt`/`max-lines` are excluded (their
+`continue-on-error: true` steps already keep them out of the failure path -
+see above), as are `deploy`/`slack-notification` (redundant with `deploy`'s
+own `needs.*.result` check). Since this workflow only runs on `push` to
+`main`, not `pull_request`, branch protection's required-status-checks
+mechanism never actually gates it - this job exists here for parity with
+`develop-ci.yml` and as a single visible pass/fail signal on the run
+summary, not because any caller repo's branch protection currently (or
+will) point at it.
 
 **These names are load-bearing**: a follow-on task migrates
 `laboratory-one-web` to call these exact workflows, so treat the
@@ -493,6 +525,23 @@ yarn-based Node/NestJS callers are on Yarn Berry) or `pnpm audit`
 (`package_manager: pnpm` callers) as a hard gate with no severity floor —
 any known vulnerability fails the job.
 
+**`required-checks` (LAB-2103):** a final aggregator job that `needs:`
+every REAL (blocking) gate job above - `lint`, `typecheck`, `build`, `test`,
+`security-scan`, `dependency-audit` - and fails (`exit 1`) if any of them
+resolves to `failure` or `cancelled` (`if: always()`, so it still runs even
+when an upstream gate didn't). `changes`/`setup` (infra, not gates) and the
+opt-in, explicitly advisory-only `dead-code` job (`blocking: 'false'`) are
+deliberately **not** dependencies - see the job's own comment in the
+workflow file. **Caller repos' branch protection should require ONLY this
+one context (`required-checks`) going forward, not the individual per-job
+contexts** - that's what prevents required-check drift when a job inside
+this shared workflow is renamed/added/removed, which previously desynced
+every caller's branch protection silently (no visible error - just
+permanently blocked merges). This PR does **not** change branch protection
+on any caller repo itself - that's a separate follow-up once this merges
+(the `required-checks` context doesn't exist until then, so requiring it
+now would immediately and permanently block every caller).
+
 For a pnpm-based backend service (e.g. a repo with `packageManager:
 pnpm@...`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`), just add
 `package_manager: pnpm` to the caller snippet above:
@@ -546,6 +595,21 @@ unlike `main-ci.yml`'s `deploy` job (whose `needs:` list includes
 deliberately left unchanged (LAB-1866 scope) — `dead-code` is not a
 dependency of `deploy` here, so a caller that enables it should be aware
 `deploy` doesn't wait on it.
+
+**`required-checks` (LAB-2103):** same aggregator pattern as
+`develop-node-ci.yml`'s job (see that section for the full rationale),
+scoped to this file's actual job list - `needs: [lint, typecheck, build,
+test]` (this file has no `security-scan`/`dependency-audit` jobs at all,
+unlike `develop-node-ci.yml`, so there's nothing advisory to exclude
+besides `changes`/`setup`). `deploy`/`slack-notification` are also
+excluded - `deploy` already has its own well-established
+`needs.*.result` failure/cancelled check (see that job's own comment
+above), so folding it into `required-checks` too would be redundant.
+Since this workflow only runs on `push` to `main`, not `pull_request`,
+branch protection's required-status-checks mechanism never actually gates
+it - this job exists here for parity with `develop-node-ci.yml` and as a
+single visible pass/fail signal on the run summary, not because any caller
+repo's branch protection currently (or will) point at it.
 
 ## Caching strategy
 

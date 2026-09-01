@@ -314,6 +314,45 @@ jobs:
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'true'
 
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts - see
+  # develop-node-ci.yml's identical job comment for the full rationale
+  # (job/input names are intentionally identical between the two files per
+  # this file's own header comment).
+  #
+  # `needs:` lists this file's REAL (blocking) gates: `lint`, `typecheck`,
+  # `build`, `test`. Deliberately excludes `changes`/`setup` (infra, not
+  # gates) - this file has no `security-scan`/`dependency-audit`/
+  # `dead-code` jobs (unlike `develop-node-ci.yml`), so there's nothing
+  # advisory to exclude here. Also deliberately excludes `deploy` and
+  # `slack-notification`: this workflow only runs on `push` to `main`, not
+  # `pull_request`, so branch protection's required-status-checks
+  # mechanism (what `required-checks` exists to aggregate for) never
+  # actually applies to it - `required-checks` here mirrors
+  # `develop-node-ci.yml`'s gate set 1:1 for consistency/parity rather than
+  # gating anything real. Kept to the same 4 jobs as a deliberate, callable
+  # judgment: `deploy` has its own well-established `needs.*.result`
+  # failure/cancelled check already (see that job's own comment below), so
+  # folding it into `required-checks` too would be redundant rather than
+  # additive.
+  #
+  # `if: always()` for the same reason as `deploy`'s own `if:` below -
+  # without it, GitHub's default scheduling skips this job outright
+  # whenever any `needs:` entry resolves to `skipped` (e.g. every gate job
+  # here when `needs.changes.outputs.node == 'false'`), which is the
+  # opposite of what an aggregator gate needs. A `skipped` result must NOT
+  # fail this job - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs: [lint, typecheck, build, test]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]
