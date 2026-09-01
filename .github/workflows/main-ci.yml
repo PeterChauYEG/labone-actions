@@ -395,6 +395,48 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts - see
+  # develop-node-ci.yml's identical job comment for the general rationale.
+  # This workflow runs on `push` to `main` (not `pull_request`), so branch
+  # protection's required-status-checks mechanism never actually applies to
+  # it - included for parity with `develop-ci.yml`'s gate set and as a
+  # visible, single "did everything real actually pass" signal on this
+  # workflow's own run summary.
+  #
+  # `needs:` lists this file's REAL (blocking) gates: `lint`, `typecheck`,
+  # `build`, `test`, `run-e2e-tests` - this file has no `ls-lint` job
+  # (unlike `develop-ci.yml`). Deliberately excludes `a11y`, `design-system`,
+  # `duplicate-code`, `react-tech-debt`, `max-lines` - each of their
+  # `run: yarn <script>` steps sets `continue-on-error: true` (see this
+  # file's own "Blocking vs advisory" comments above and README.md), which
+  # already keeps their job `result` at `success` regardless of a finding,
+  # so including them here would be a no-op at best - explicitly left out
+  # to make that advisory status unambiguous at the `required-checks`
+  # level too, matching `deploy`'s own `needs:` list precedent/comment
+  # above this job. Also excludes `setup` (infra, not a gate) and `deploy`/
+  # `slack-notification` (deploy already has its own well-established
+  # `needs.*.result` failure/cancelled check - see that job's own comment -
+  # so folding it into `required-checks` too would be redundant).
+  #
+  # `if: always()` for the same reason as `deploy`'s own `if:` below -
+  # without it, GitHub's default scheduling skips this job outright
+  # whenever any `needs:` entry resolves to `skipped` (e.g. every gate job
+  # here when disabled via `enable_*: false`, or every job but
+  # `lint`/`typecheck`/`build` when `is_dependabot`), which is the opposite
+  # of what an aggregator gate needs. A `skipped` result must NOT fail this
+  # job - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs: [lint, typecheck, build, test, run-e2e-tests]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]

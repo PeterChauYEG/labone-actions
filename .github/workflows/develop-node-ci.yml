@@ -525,3 +525,44 @@ jobs:
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
+
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts. Without this, any
+  # rename/add/remove of a job in this shared workflow silently desyncs
+  # every caller's branch protection required-status-check list -
+  # permanently blocking merges with no visible error until someone thinks
+  # to compare the two lists by hand. See README.md's "required-checks"
+  # section for the full rationale and the caller-side branch-protection
+  # follow-up this unblocks.
+  #
+  # `needs:` lists every job in this file that's currently a REAL
+  # (blocking) gate: `lint`, `typecheck`, `build`, `test`, `security-scan`,
+  # `dependency-audit`. Deliberately excludes:
+  #   - `changes`/`setup` - infra/plumbing jobs, not gates themselves.
+  #   - `dead-code` - explicitly advisory-only (`blocking: 'false'` on its
+  #     `scan-with-report` call above), never fails on its own even when
+  #     `enable_dead_code` is on. Making it a `needs:` dependency of a
+  #     REQUIRED job would make a design-advisory scan block merges, which
+  #     is exactly the failure mode `blocking: 'false'` exists to prevent.
+  #
+  # `if: always()` so this job still runs (and can report a real result)
+  # even when an upstream gate job fails/is cancelled - without it, GitHub's
+  # default scheduling would skip this job outright whenever any `needs:`
+  # entry didn't succeed, which is the opposite of what an aggregator gate
+  # needs to do. A `skipped` result on any needed job (from `enable_*:
+  # false`, `is_dependabot`, or LAB-2097's `needs.changes.outputs.node ==
+  # 'false'` path-filter gating) must NOT fail this job - that's the same
+  # "skipped satisfies the requirement" precedent every `if:` in this file
+  # already relies on for branch protection (see the `lint` job's comment
+  # above) - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs:
+      [lint, typecheck, build, test, security-scan, dependency-audit]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

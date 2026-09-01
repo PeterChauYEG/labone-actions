@@ -167,7 +167,7 @@ jobs:
           git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           git add package.json
-          git commit -m "chore: bump version to ${NEW_VERSION} [skip ci]"
+          git commit -m "chore: bump version to ${NEW_VERSION}"
           git push origin "$BRANCH"
 
           # No fabricated check-runs here (LAB-2087). The push and the PR
@@ -177,18 +177,39 @@ jobs:
           # repo's real CI runs against HEAD_SHA and posts its own real
           # check-runs for whatever contexts are actually required, so
           # there's nothing left to fabricate. (A required check that
-          # legitimately no-ops for a `[skip ci]`, package.json-only commit
-          # — e.g. via a path filter — still reports conclusion "skipped",
-          # which GitHub's branch protection treats as satisfying a required
-          # status check, same as "success".) Auto-merge below simply queues
-          # the PR to merge once those real checks pass, exactly like any
-          # other PR.
+          # legitimately no-ops for a package.json-only commit — e.g. via a
+          # path filter — still reports conclusion "skipped", which GitHub's
+          # branch protection treats as satisfying a required status check,
+          # same as "success".) Auto-merge below simply queues the PR to
+          # merge once those real checks pass, exactly like any other PR.
+          #
+          # LAB-2103: the commit message (and PR title) below used to end in
+          # "[skip ci]". That's GitHub Actions' own documented skip-ci
+          # convention — ANY commit whose message contains `[skip ci]`/
+          # `[ci skip]` (etc.) has its `push`/`pull_request` triggers
+          # suppressed entirely by GitHub itself, regardless of which
+          # identity authored it. That's a completely separate mechanism
+          # from the GITHUB_TOKEN-vs-PAT anti-recursion rule this same
+          # comment block is about (LAB-2087/LAB-2090/LAB-2102) - using a
+          # real PAT here fixes the anti-recursion suppression, but
+          # `[skip ci]` in the message was independently suppressing the
+          # caller repo's real `pull_request` CI (`pr.yml` ->
+          # `develop-node-ci.yml`/`develop-ci.yml`, whose jobs are the
+          # actual required status checks) on every single bump PR, so it
+          # sat `BLOCKED` on branch protection forever with zero check-runs
+          # (confirmed live against PeterChauYEG/budget PRs #242/#243/#244/
+          # #245/#247 and PeterChauYEG/mangalab PR #222). The paragraph
+          # above ("the caller repo's real CI runs against HEAD_SHA...") is
+          # only actually true with `[skip ci]` removed - it was aspirational
+          # documentation describing intended behavior, not what was
+          # actually happening. Removed here so the bump commit is a normal,
+          # CI-triggering commit like any other.
           PR_RESPONSE=$(curl -sf -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "${API}/repos/${REPO}/pulls" \
-            -d "{\"title\":\"chore: bump version to ${NEW_VERSION} [skip ci]\",\"body\":\"Automated CalVer version bump to ${NEW_VERSION}.\",\"head\":\"${BRANCH}\",\"base\":\"main\"}")
+            -d "{\"title\":\"chore: bump version to ${NEW_VERSION}\",\"body\":\"Automated CalVer version bump to ${NEW_VERSION}.\",\"head\":\"${BRANCH}\",\"base\":\"main\"}")
 
           PR_NUMBER=$(echo "$PR_RESPONSE" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).number))")
 
