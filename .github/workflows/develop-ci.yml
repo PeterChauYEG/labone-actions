@@ -450,6 +450,17 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # NEXT_PUBLIC_API_URL (LAB-2100): job-level env, not a scan-with-report
+    # input — that composite action is shared across every scan type
+    # (a11y/dead-code/etc), not e2e-specific, so this stays here instead.
+    # Composite-action `run:` steps inherit the calling job's env, so this
+    # reaches `yarn run-e2e-scan` without scan-with-report needing to know
+    # about it. `vars.*` resolves against whichever repo actually calls
+    # this reusable workflow — repos with no NEXT_PUBLIC_API_URL variable
+    # set just get an empty string here (no behavior change for them; the
+    # app's own code-level fallback, if any, still applies).
+    env:
+      NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
