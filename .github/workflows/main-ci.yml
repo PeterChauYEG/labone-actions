@@ -345,10 +345,16 @@ jobs:
           cache-write: 'false'
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
+      # NEXT_PUBLIC_API_URL (LAB-2100): vars.* resolves against whichever
+      # repo actually calls this reusable workflow — repos with no
+      # NEXT_PUBLIC_API_URL variable set just get an empty string (no
+      # behavior change for them; the app's own code-level fallback, if
+      # any, still applies).
       - run: yarn run-e2e-scan
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
         working-directory: ${{ inputs.working-directory }}
 
   react-tech-debt:
