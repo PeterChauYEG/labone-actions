@@ -104,9 +104,16 @@ jobs:
         id: calver
         run: |
           YEAR=$(date +%y)
-          MONTH=$(date +%-m)
-          DAY=$(date +%-d)
-          CALVER_BASE="${YEAR}.${MONTH}${DAY}"
+          # %j is the day of year, already zero-padded to 3 digits (001-366)
+          # by GNU/BSD date. Do NOT switch this to the non-padded `%-j` -
+          # that drops the format down to 1-2 digits for the first ~99 days
+          # of the year (e.g. day 91 -> "91" instead of "091"), which both
+          # breaks the intended 2-digit-year.3-digit-day-of-year CalVer
+          # shape and, because the resulting CALVER_BASE then never matches
+          # a previously-stored zero-padded value, silently resets PATCH to
+          # 0 on every run instead of incrementing same-day bumps.
+          DAY_OF_YEAR=$(date +%j)
+          CALVER_BASE="${YEAR}.${DAY_OF_YEAR}"
 
           CURRENT_VERSION=$(node -p "require('./package.json').version")
 
