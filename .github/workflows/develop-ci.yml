@@ -506,9 +506,9 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           sticky-header: react-tech-debt-scan
           job-name: react-tech-debt
-          file-ticket: 'false'
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
   max-lines:
@@ -535,9 +535,9 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           sticky-header: max-lines-scan
           job-name: max-lines
-          file-ticket: 'false'
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
   tech-debt:
