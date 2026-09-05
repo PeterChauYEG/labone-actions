@@ -37,6 +37,13 @@ name: Develop Mobile CI
 # github-actions[bot] today; the other two repos' PR workflow don't, which
 # looks like a latent gap rather than an intentional difference.
 #
+# `peer-deps` is a hard, always-on gate that runs `yarn install --immutable`
+# and fails if any YN0060 (incompatible peer dependency) lines appear in the
+# output. Runs as a plain checkout+corepack+setup-node job (no node_modules
+# cache needed) so it stays fast and independent of the `setup` job. No
+# `.yarnrc.yml` changes are required in individual repos - detection is done
+# by grepping the install output directly.
+#
 # `lint`/`typecheck` are HARD, always-on gates (no dependabot skip - a
 # broken lint/type error is exactly what a dependency bump can cause,
 # mirroring develop-node-ci.yml's same reasoning for its own lint/
@@ -200,6 +207,25 @@ jobs:
           # cache here too - no read/write split, matching every other
           # cache in this workflow. See README.md "Caching strategy".
           cache-write: 'true'
+
+  peer-deps:
+    name: peer-deps
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ${{ inputs.working-directory }}/package.json
+      - name: Install and check for peer dependency conflicts
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          yarn install --immutable 2>&1 | tee /tmp/yarn-install.log
+          if grep -q "YN0060" /tmp/yarn-install.log; then
+            echo "Peer dependency conflicts detected:"
+            grep "YN0060" /tmp/yarn-install.log
+            exit 1
+          fi
 
   lint:
     name: lint

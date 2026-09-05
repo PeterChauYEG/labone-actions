@@ -216,6 +216,25 @@ jobs:
           # "Caching strategy".
           cache-write: 'false'
 
+  peer-deps:
+    name: peer-deps
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ${{ inputs.working-directory }}/package.json
+      - name: Check for peer dependency conflicts
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          yarn install --immutable 2>&1 | tee /tmp/yarn-install.log
+          if grep -q "YN0060" /tmp/yarn-install.log; then
+            echo "Peer dependency conflicts detected:"
+            grep "YN0060" /tmp/yarn-install.log
+            exit 1
+          fi
+
   lint:
     name: lint
     needs: setup
