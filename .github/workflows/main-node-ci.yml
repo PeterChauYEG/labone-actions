@@ -9,11 +9,9 @@ name: Main Node CI
 # main-ci.yml's relationship to develop-ci.yml) plus `deploy` and
 # `slack-notification`. Input and job names are intentionally identical to
 # develop-node-ci.yml's - see that file's header comment for the
-# lint/typecheck/test/security-scan/dependency-audit rationale
-# (zero-warnings lint, strict typecheck, coverage-threshold-is-the-
-# consumer's-job test gate, HIGH/CRITICAL Trivy scan with no shipped
-# ignore baseline, zero-severity-floor dependency audit) - it all applies
-# here unchanged.
+# lint/typecheck/test rationale (zero-warnings lint, strict typecheck,
+# coverage-threshold-is-the-consumer's-job test gate) - it all applies here
+# unchanged.
 
 on:
   workflow_call:
@@ -32,9 +30,8 @@ on:
           Whether the triggering commit was authored by dependabot[bot].
           Caller must compute this from github.event.head_commit.author.name,
           since reusable workflows can't see that context directly. When
-          true, `test`, `security-scan` and `dependency-audit` are skipped
-          (`lint`, `typecheck` and `build` stay on), and deploy itself is
-          skipped.
+          true, `test` is skipped (`lint`, `typecheck` and `build` stay on),
+          and deploy itself is skipped.
         type: boolean
         required: false
         default: false
@@ -46,25 +43,6 @@ on:
         description: Run `yarn test:coverage`.
         type: boolean
         default: true
-      enable_security_scan:
-        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
-        type: boolean
-        default: true
-      enable_dependency_audit:
-        description: Run `yarn npm audit` (fails on any known vulnerability).
-        type: boolean
-        default: true
-      security_scan_trivyignores:
-        description: >
-          Comma-separated list of relative paths to .trivyignore file(s), or
-          a single .trivyignore.yaml file, passed straight through to
-          trivy-action's `trivyignores` input. Empty by default - this
-          shared workflow ships no default ignore baseline, so every
-          suppression is a deliberate, visible file living in the consumer
-          repo. See README.md.
-        type: string
-        required: false
-        default: ''
       enable_deploy:
         description: Push to the dokku remote after all gates pass.
         type: boolean
@@ -146,12 +124,81 @@ permissions:
 # README.md "Concurrency" for the full explanation, including how this is
 # unrelated to (and doesn't replace) the gha-runner host's own per-repo/
 # global job-concurrency semaphore.
+#
+# `cancel-in-progress: true` is a deliberate, confirmed tradeoff: a rapid
+# second push to main will cancel whatever the first run's `deploy` step
+# was doing mid-flight. That's accepted because leaving main pinned to
+# stale code deployed by a superseded run is worse.
 concurrency:
   group: main-node-ci-${{ github.repository }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 
 jobs:
+  # LAB-2097: same path-filter pattern as develop-node-ci.yml's `changes`
+  # job - see that file's header comment for the full `node`/`ls_lint`
+  # filter-list rationale and the "unconfirmed, erring broad" caveat, which
+  # applies identically here (main-node-ci.yml intentionally keeps its
+  # input/job names identical to develop-node-ci.yml's, per this file's own
+  # header comment). This workflow only runs on `push` to main (not
+  # `pull_request`), so `dorny/paths-filter@v3` diffs against
+  # `github.event.before` instead of a PR base - `pull-requests: read`
+  # permission isn't needed here (dropped vs. develop-node-ci.yml's
+  # `changes` job), only `contents: read`.
+  #
+  # Like develop-node-ci.yml, `ls_lint` is unused today - neither this file
+  # nor develop-node-ci.yml runs an `ls-lint` job - left in for output-shape
+  # parity and so a future `ls-lint` job here can gate on it immediately.
+  #
+  # A gated job (lint/typecheck/build/test below) that's skipped resolves
+  # to `needs.*.result == 'skipped'`, NOT `'failure'` - so `deploy`'s own
+  # `if:` (which only blocks on `contains(needs.*.result, 'failure')` /
+  # `'cancelled'`, see that job's own comment) still runs normally even on
+  # a push whose only changes are docs/config. This is the exact same
+  # skipped-doesn't-block-deploy behavior `test` already relies on today
+  # via `is_dependabot` (a dependabot push already produces a `skipped`
+  # `test` result that doesn't block `deploy`) - LAB-2097 doesn't change
+  # that contract, only adds a second, independent way a job can resolve to
+  # `skipped`.
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+    outputs:
+      node: ${{ steps.filter.outputs.node }}
+      ls_lint: ${{ steps.filter.outputs.ls_lint }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            node:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '**/package.json'
+              - '**/yarn.lock'
+              - '**/pnpm-lock.yaml'
+              - '**/.yarnrc.yml'
+              - '**/tsconfig*.json'
+              - '**/.eslintrc*'
+              - '**/eslint.config.*'
+              - '**/jest.config.*'
+              - '**/vitest.config.*'
+            ls_lint:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '.ls-lint.yml'
+
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
@@ -175,8 +222,13 @@ jobs:
 
   lint:
     name: lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See develop-node-ci.yml's `lint` job comment for the skipped-
+    # satisfies-branch-protection precedent (this file's own `build`/`test`
+    # jobs already skip via `if:` on `enable_*`/`is_dependabot` today, relied
+    # on by branch protection) that this new condition rides on.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       # Zero-tolerance gate: this just runs `yarn lint` and fails on any
       # non-zero exit. Whether that actually means "zero warnings" depends
@@ -202,8 +254,10 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See the `lint` job's comment above.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -222,9 +276,9 @@ jobs:
 
   build:
     name: build
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build }}
+    if: ${{ inputs.enable_build && needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -238,9 +292,9 @@ jobs:
 
   test:
     name: test
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.node == 'true' }}
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
@@ -260,71 +314,60 @@ jobs:
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'true'
 
-  security-scan:
-    name: security-scan
-    needs: setup
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts - see
+  # develop-node-ci.yml's identical job comment for the full rationale
+  # (job/input names are intentionally identical between the two files per
+  # this file's own header comment).
+  #
+  # `needs:` lists this file's REAL (blocking) gates: `lint`, `typecheck`,
+  # `build`, `test`. Deliberately excludes `changes`/`setup` (infra, not
+  # gates) - this file has no `security-scan`/`dependency-audit`/
+  # `dead-code` jobs (unlike `develop-node-ci.yml`), so there's nothing
+  # advisory to exclude here. Also deliberately excludes `deploy` and
+  # `slack-notification`: this workflow only runs on `push` to `main`, not
+  # `pull_request`, so branch protection's required-status-checks
+  # mechanism (what `required-checks` exists to aggregate for) never
+  # actually applies to it - `required-checks` here mirrors
+  # `develop-node-ci.yml`'s gate set 1:1 for consistency/parity rather than
+  # gating anything real. Kept to the same 4 jobs as a deliberate, callable
+  # judgment: `deploy` has its own well-established `needs.*.result`
+  # failure/cancelled check already (see that job's own comment below), so
+  # folding it into `required-checks` too would be redundant rather than
+  # additive.
+  #
+  # `if: always()` for the same reason as `deploy`'s own `if:` below -
+  # without it, GitHub's default scheduling skips this job outright
+  # whenever any `needs:` entry resolves to `skipped` (e.g. every gate job
+  # here when `needs.changes.outputs.node == 'false'`), which is the
+  # opposite of what an aggregator gate needs. A `skipped` result must NOT
+  # fail this job - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs: [lint, typecheck, build, test]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    if: always()
     steps:
-      # Trivy's fs scanner resolves vulnerable packages straight from
-      # yarn.lock - it doesn't need an installed node_modules tree, so this
-      # job checks out source only instead of paying to download/untar the
-      # setup job's full deps artifact like every other job here.
-      - uses: actions/checkout@v7
-      # Same severity/exit-code/no-default-ignore contract as
-      # security-scan.yml's own `trivy` job - reimplemented inline (rather
-      # than a nested `uses: security-scan.yml` call).
-      - name: Run Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: ${{ inputs.working-directory }}
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
-          trivyignores: ${{ inputs.security_scan_trivyignores }}
-
-  dependency-audit:
-    name: dependency-audit
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
-    steps:
-      # `yarn npm audit` resolves entirely from yarn.lock against the
-      # registry - no installed node_modules tree needed, just the yarn
-      # binary itself. So this job checks out + enables Corepack + sets up
-      # Node directly instead of restoring the setup job's full deps
-      # artifact like every other job here.
-      - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: ${{ inputs.working-directory }}/package.json
-      # Hard gate, no severity floor - any known vulnerability fails the
-      # job. Yarn Berry command (this repo and its Node/NestJS callers use
-      # Berry, per setup-node-yarn's .yarn/cache paths); a Yarn Classic
-      # repo would need `yarn audit` instead.
-      - run: yarn npm audit
-        working-directory: ${{ inputs.working-directory }}
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
 
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]
-    needs: [lint, typecheck, build, test, security-scan, dependency-audit]
+    needs: [lint, typecheck, build, test]
     # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
     # only actual failures/cancellations should - hence checking
     # needs.*.result instead of relying on the default all-must-succeed job
     # dependency semantics, which treats "skipped" the same as "failed" for
     # a needs chain. That intent only actually works with always() here:
     # without it, GitHub's own default scheduling skips this job outright
-    # whenever ANY needs entry is skipped (e.g. dependency-audit, which
-    # Yarn-Classic callers like business-ops-service turn off via
-    # enable_dependency_audit: false) before this custom expression is ever
-    # evaluated - confirmed live, deploy silently no-op'd on every run of a
-    # caller with dependency-audit disabled. always() forces evaluation of
-    # the expression below instead of GitHub's implicit success()-only
-    # default.
+    # whenever ANY needs entry is skipped (e.g. test, which is skipped for
+    # dependabot commits via is_dependabot) before this custom expression is
+    # ever evaluated - confirmed live, deploy silently no-op'd on every run
+    # triggered by a dependabot commit. always() forces evaluation of the
+    # expression below instead of GitHub's implicit success()-only default.
     if: >-
       always() &&
       !contains(needs.*.result, 'failure') &&
@@ -351,7 +394,7 @@ jobs:
   slack-notification:
     name: slack-notification
     needs: [deploy]
-    if: ${{ always() && inputs.enable_slack_notification }}
+    if: ${{ always() && inputs.enable_slack_notification && needs.deploy.result == 'failure' }}
     runs-on: [self-hosted, catfood]
     steps:
       - name: Notify Slack

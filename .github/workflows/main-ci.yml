@@ -34,10 +34,6 @@ on:
         type: boolean
         required: false
         default: false
-      enable_ls_lint:
-        description: Run the ls-lint file naming check.
-        type: boolean
-        default: true
       enable_build:
         description: Run `yarn build`.
         type: boolean
@@ -47,19 +43,29 @@ on:
         type: boolean
         default: true
       enable_a11y:
-        description: Run `yarn a11y` (accessibility scan) as a pass/fail gate.
+        description: >
+          Run `yarn a11y` (accessibility scan). Advisory only (nextjs-ci
+          v1.0.3, 2026-08-20) - same rationale/mechanism as
+          `enable_duplicate_code` below: still runs, never fails the job or
+          blocks `deploy`.
         type: boolean
         default: true
       enable_design_system:
-        description: Run `yarn design-system` as a pass/fail gate.
-        type: boolean
-        default: true
-      enable_dead_code:
-        description: Run `yarn dead-code` as a pass/fail gate.
+        description: >
+          Run `yarn design-system`. Advisory only (nextjs-ci v1.0.3,
+          2026-08-20) - same rationale/mechanism as `enable_duplicate_code`
+          below: still runs, never fails the job or blocks `deploy`.
         type: boolean
         default: true
       enable_duplicate_code:
-        description: Run `yarn duplicate-code` as a pass/fail gate.
+        description: >
+          Run `yarn duplicate-code`. Advisory only (nextjs-ci v1.0.2,
+          2026-08-20): the step still runs and still reports its outcome
+          via the job's own conclusion, but a finding never fails the job
+          or blocks `deploy` — it's a repo-wide scan that can trip on
+          pre-existing findings unrelated to the commit that triggered the
+          run. See `continue-on-error` on the job's `run: yarn
+          duplicate-code` step below.
         type: boolean
         default: true
       enable_e2e:
@@ -67,11 +73,17 @@ on:
         type: boolean
         default: true
       enable_react_tech_debt:
-        description: Run `yarn react-tech-debt` as a pass/fail gate.
+        description: >
+          Run `yarn react-tech-debt`. Advisory only (nextjs-ci v1.0.3,
+          2026-08-20) - same rationale/mechanism as `enable_duplicate_code`
+          below: still runs, never fails the job or blocks `deploy`.
         type: boolean
         default: true
       enable_max_lines:
-        description: Run `yarn max-lines` as a pass/fail gate.
+        description: >
+          Run `yarn max-lines`. Advisory only (nextjs-ci v1.0.2,
+          2026-08-20) — same rationale/mechanism as `enable_duplicate_code`
+          above: still runs, never fails the job or blocks `deploy`.
         type: boolean
         default: true
       enable_deploy:
@@ -126,9 +138,14 @@ permissions:
 # removed. See README.md "Concurrency" section for the full explanation,
 # including how this is unrelated to (and doesn't replace) the gha-runner
 # host's own per-repo/global job-concurrency semaphore.
+#
+# `cancel-in-progress: true` is a deliberate, confirmed tradeoff: a rapid
+# second push to main will cancel whatever the first run's `deploy` step
+# was doing mid-flight. That's accepted because leaving main pinned to
+# stale code deployed by a superseded run is worse.
 concurrency:
   group: main-ci-${{ github.repository }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 
 jobs:
@@ -178,22 +195,6 @@ jobs:
           cache-key-extra-glob-1: .eslintrc*
           cache-key-extra-glob-2: eslint.config.*
           cache-write: 'true'
-
-  ls-lint:
-    name: ls-lint
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
-    steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
-        with:
-          working-directory: ${{ inputs.working-directory }}
-          extra-paths: ${{ inputs.extra_deps_paths }}
-          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          gh-token: ${{ secrets.GH_PAT }}
-          cache-write: 'false'
-      - run: yarn lint:ls
-        working-directory: ${{ inputs.working-directory }}
 
   typecheck:
     name: typecheck
@@ -267,7 +268,17 @@ jobs:
           cache-write: 'false'
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
+      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same
+      # continue-on-error mechanism/rationale as duplicate-code/max-lines
+      # below: still runs, never fails the job or blocks `deploy`. It's a
+      # repo-wide scan that can trip on pre-existing findings unrelated to
+      # the commit that triggered the run, too brittle to gate deploy on.
+      # See PR #68 for the original duplicate-code/max-lines rationale.
       - run: yarn a11y
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   design-system:
@@ -283,23 +294,13 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
+      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same rationale as
+      # a11y's identical continue-on-error above.
       - run: yarn design-system
-        working-directory: ${{ inputs.working-directory }}
-
-  dead-code:
-    name: dead-code
-    needs: setup
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
-    steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
-        with:
-          working-directory: ${{ inputs.working-directory }}
-          extra-paths: ${{ inputs.extra_deps_paths }}
-          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          gh-token: ${{ secrets.GH_PAT }}
-          cache-write: 'false'
-      - run: yarn dead-code
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   duplicate-code:
@@ -315,7 +316,18 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
+      # Advisory only (nextjs-ci v1.0.2, 2026-08-20): continue-on-error
+      # keeps the job's own conclusion 'success' even when this step's
+      # outcome is 'failure', so `deploy`'s `needs.*.result` check below
+      # never sees this as a blocking failure. Confirmed root cause of a
+      # stalled ai-harness-web deploy on 2026-08-20 - a pre-existing
+      # repo-wide jscpd finding unrelated to that push's diff failed this
+      # step and silently blocked deploy under the old plain `run:` step.
       - run: yarn duplicate-code
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   run-e2e-tests:
@@ -333,7 +345,16 @@ jobs:
           cache-write: 'false'
       - run: npx playwright install chromium
         working-directory: ${{ inputs.working-directory }}
+      # NEXT_PUBLIC_API_URL (LAB-2100): vars.* resolves against whichever
+      # repo actually calls this reusable workflow — repos with no
+      # NEXT_PUBLIC_API_URL variable set just get an empty string (no
+      # behavior change for them; the app's own code-level fallback, if
+      # any, still applies).
       - run: yarn run-e2e-scan
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
         working-directory: ${{ inputs.working-directory }}
 
   react-tech-debt:
@@ -349,7 +370,13 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
+      # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - same rationale as
+      # a11y's identical continue-on-error above.
       - run: yarn react-tech-debt
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
 
   max-lines:
@@ -365,8 +392,56 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
+      # Advisory only (nextjs-ci v1.0.2, 2026-08-20) - same rationale as
+      # duplicate-code's identical continue-on-error above.
       - run: yarn max-lines
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         working-directory: ${{ inputs.working-directory }}
+
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts - see
+  # develop-node-ci.yml's identical job comment for the general rationale.
+  # This workflow runs on `push` to `main` (not `pull_request`), so branch
+  # protection's required-status-checks mechanism never actually applies to
+  # it - included for parity with `develop-ci.yml`'s gate set and as a
+  # visible, single "did everything real actually pass" signal on this
+  # workflow's own run summary.
+  #
+  # `needs:` lists this file's REAL (blocking) gates: `lint`, `typecheck`,
+  # `build`, `test`, `run-e2e-tests` - this file has no `ls-lint` job
+  # (unlike `develop-ci.yml`). Deliberately excludes `a11y`, `design-system`,
+  # `duplicate-code`, `react-tech-debt`, `max-lines` - each of their
+  # `run: yarn <script>` steps sets `continue-on-error: true` (see this
+  # file's own "Blocking vs advisory" comments above and README.md), which
+  # already keeps their job `result` at `success` regardless of a finding,
+  # so including them here would be a no-op at best - explicitly left out
+  # to make that advisory status unambiguous at the `required-checks`
+  # level too, matching `deploy`'s own `needs:` list precedent/comment
+  # above this job. Also excludes `setup` (infra, not a gate) and `deploy`/
+  # `slack-notification` (deploy already has its own well-established
+  # `needs.*.result` failure/cancelled check - see that job's own comment -
+  # so folding it into `required-checks` too would be redundant).
+  #
+  # `if: always()` for the same reason as `deploy`'s own `if:` below -
+  # without it, GitHub's default scheduling skips this job outright
+  # whenever any `needs:` entry resolves to `skipped` (e.g. every gate job
+  # here when disabled via `enable_*: false`, or every job but
+  # `lint`/`typecheck`/`build` when `is_dependabot`), which is the opposite
+  # of what an aggregator gate needs. A `skipped` result must NOT fail this
+  # job - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs: [lint, typecheck, build, test, run-e2e-tests]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
 
   deploy:
     name: deploy
@@ -374,18 +449,34 @@ jobs:
     needs:
       [
         lint,
-        ls-lint,
         typecheck,
         build,
         test,
         a11y,
         design-system,
-        dead-code,
         duplicate-code,
         run-e2e-tests,
         react-tech-debt,
         max-lines,
       ]
+    # `a11y`/`design-system`/`duplicate-code`/`react-tech-debt`/`max-lines`
+    # all stay in this list for ordering (deploy waits for them to finish)
+    # but none of them block deploy on a finding: every one of those jobs'
+    # `run: yarn <script>` steps sets `continue-on-error: true` (nextjs-ci
+    # v1.0.3, 2026-08-20 - duplicate-code/max-lines got this first in PR
+    # #68/v1.0.2, the other three followed in this round), which keeps the
+    # job's own conclusion 'success' even when the script exits non-zero -
+    # GitHub Actions never counts a continue-on-error step's failure toward
+    # the containing job's conclusion. So `needs.a11y.result` /
+    # `needs.design-system.result` / `needs.duplicate-code.result` /
+    # `needs.react-tech-debt.result` / `needs.max-lines.result` all read
+    # 'success' below regardless of scan outcome, and the
+    # `!contains(needs.*.result, 'failure')` check further down doesn't need
+    # to change. `typecheck`/`build`/`lint`/`test`/`run-e2e-tests` remain
+    # hard gates - their steps have no `continue-on-error`, so a real
+    # failure there still shows up as 'failure' in `needs.*.result` and
+    # blocks deploy as before.
+    #
     # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
     # only actual failures/cancellations should - hence checking needs.*.result
     # instead of relying on the default all-must-succeed job dependency
@@ -422,7 +513,7 @@ jobs:
   slack-notification:
     name: slack-notification
     needs: [deploy]
-    if: ${{ always() && inputs.enable_slack_notification }}
+    if: ${{ always() && inputs.enable_slack_notification && needs.deploy.result == 'failure' }}
     runs-on: [self-hosted, catfood]
     steps:
       - name: Notify Slack

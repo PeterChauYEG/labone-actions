@@ -1,0 +1,129 @@
+name: Mirror to mecha-industries
+
+# Keeps a private mirror of this repo in sync at
+# mecha-industries/labone-actions.
+#
+# Why this exists: mecha10 (owned by the mecha-industries org) needs to call
+# this repo's reusable workflows (develop-rust-ci.yml, actionlint.yml,
+# security-scan.yml) via workflow_call. GitHub's private-repo "Access"
+# setting for reusable workflows only allows callers owned by the SAME
+# user/org as the source repo - there's no way to allowlist an external org.
+# This repo is owned by the personal account PeterChauYEG, so
+# mecha-industries-owned repos can never be authorized callers no matter
+# what Access setting is chosen, short of making this repo public (not
+# acceptable). The fix: maintain a synced private copy of this repo inside
+# mecha-industries itself (mecha-industries/labone-actions, already created,
+# Actions access already set to org-wide) - mecha10 calls the mirror
+# instead of this repo directly, since the mirror IS same-org.
+#
+# Triggered on every push to main for near-instant sync, plus a daily
+# schedule as a safety net in case a push-triggered run ever fails or is
+# missed, plus workflow_dispatch for manual testing/recovery.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Daily at 09:00 UTC - off-peak, safety net only (push-to-main is the
+    # primary sync trigger).
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-to-mecha-industries
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Mirror to mecha-industries/labone-actions
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          # Without this, checkout persists an http.https://github.com/.extraheader
+          # git config entry scoped to the whole https://github.com/ origin, using
+          # this job's repo-scoped GITHUB_TOKEN. That header then overrides the
+          # inline MECHA_INDUSTRIES_MIRROR_TOKEN credentials on the push step below,
+          # so the mirror push goes out as GITHUB_TOKEN - which has no access to
+          # mecha-industries/labone-actions - and fails with "Repository not found."
+          persist-credentials: false
+
+      - name: Push mirror to mecha-industries/labone-actions
+        # A full mirror push (refs/*, including tags) to the org-owned
+        # private copy. `set +x` (no shell tracing) and the token is only
+        # ever interpolated into the remote URL argument - never echoed -
+        # so it can't leak into the workflow log; GitHub also automatically
+        # masks any secrets.* value that appears in log output.
+        env:
+          MECHA_INDUSTRIES_MIRROR_TOKEN: ${{ secrets.MECHA_INDUSTRIES_MIRROR_TOKEN }}
+        run: |
+          set +x
+          git push --mirror "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git"
+        shell: bash
+
+      - name: Patch nested action refs in the mirror
+        # The byte-for-byte mirror above keeps every `uses:
+        # PeterChauYEG/labone-actions/...` reference exactly as it appears
+        # in THIS (source) repo. That's correct for same-owner
+        # (PeterChauYEG-owned) callers of the mirror's own reusable
+        # workflows, which resolve fine, but it's a problem one level
+        # deeper: when a mecha-industries-owned repo (e.g. mecha10-api)
+        # calls mecha-industries/labone-actions/.github/workflows/
+        # develop-rust-ci.yml@main, that workflow's own NESTED steps still
+        # say `uses: PeterChauYEG/labone-actions/...` - a different,
+        # private, personal-account repo that mecha-industries-owned jobs
+        # have no access to. GitHub can't resolve that nested reference and
+        # every job fails immediately with "Repository not found," before
+        # running any real command.
+        #
+        # Do NOT "fix" this by editing this repo's own workflow/action
+        # files to say mecha-industries/labone-actions instead - that was
+        # tried (#60) and reverted the same day, because it breaks every
+        # same-owner (PeterChauYEG-owned) caller the exact same way, in the
+        # opposite direction (they can't resolve an org-private repo they
+        # have zero access to). This repo's own files must always keep
+        # `PeterChauYEG/labone-actions` self-references exactly as-is.
+        #
+        # Instead, patch ONLY the freshly-pushed mirror, in a separate
+        # clone, immediately after the mirror push above. Idempotent: if a
+        # prior run (or this same run, on a re-trigger) already rewrote
+        # everything, the grep finds nothing, no commit is made, and the
+        # step exits cleanly - this runs on every push-to-main plus a daily
+        # cron, so it must be safe to no-op.
+        env:
+          MECHA_INDUSTRIES_MIRROR_TOKEN: ${{ secrets.MECHA_INDUSTRIES_MIRROR_TOKEN }}
+        run: |
+          set +x
+
+          workdir=$(mktemp -d)
+          git clone --quiet "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git" "$workdir"
+          cd "$workdir"
+
+          # Rewrite every self-reference under .github/ (workflows and
+          # composite actions alike, in case a composite action references
+          # another composite action) from the source repo's owner to the
+          # mirror's owner.
+          if grep -rlF "PeterChauYEG/labone-actions" .github >/dev/null 2>&1; then
+            grep -rlF "PeterChauYEG/labone-actions" .github \
+              | xargs sed -i "s#PeterChauYEG/labone-actions#mecha-industries/labone-actions#g"
+          fi
+
+          git config user.name "labone-actions-mirror-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No stale PeterChauYEG/labone-actions refs found in the mirror - nothing to patch."
+          else
+            git commit --quiet -m "chore: rewrite internal action refs for mecha-industries mirror"
+            git push --quiet "https://x-access-token:${MECHA_INDUSTRIES_MIRROR_TOKEN}@github.com/mecha-industries/labone-actions.git" HEAD:main
+          fi
+
+          cd /
+          rm -rf "$workdir"
+        shell: bash

@@ -1,0 +1,136 @@
+name: Node PR Orchestrator
+
+# Thin orchestrator layer between a Node/NestJS backend service repo's own
+# develop.yml and develop-node-ci.yml (LAB-2096). Bakes in what every
+# existing node caller repeats today - is_dependabot computation, the
+# `if: github.event.action != 'closed'` guard, the PR concurrency group,
+# the actionlint sibling job, and the `pull-requests: write` grant
+# develop-node-ci.yml's `dead-code` job needs (see that file's own header
+# comment - a caller missing this fails the ENTIRE run with
+# `startup_failure`, 0 jobs, even with `enable_dead_code` off, since GitHub
+# validates the whole callee permission graph before dispatching any job -
+# this is the exact incident README.md's `develop-node-ci.yml` caller
+# example documents, which several existing hand-authored callers were
+# found missing). A caller repo `develop.yml` now only needs
+# `uses: .../node-pr.yml@main` with zero `with:` keys for the common case.
+#
+# github.event.pull_request is available here because the outermost
+# trigger (the calling repo's own develop.yml) is still `pull_request` -
+# that context flows transitively through the whole `workflow_call` chain,
+# so is_dependabot is computed directly below instead of being a
+# caller-supplied input. pr_number/pr_url are likewise computed here and
+# forwarded - only used by the `dead-code` job when enabled.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: >
+          Directory (relative to the repo root) the Node/NestJS service
+          lives in.
+        type: string
+        required: false
+        default: '.'
+      package_manager:
+        description: Package manager the caller repo uses - 'yarn' or 'pnpm' (LAB-1268).
+        type: string
+        required: false
+        default: 'yarn'
+      also_treat_actions_bot_as_dependabot:
+        description: >
+          OR'd into the computed is_dependabot expression - set true for a
+          repo whose main.yml pre-creates check-runs for its own CalVer
+          version-bump PR (opened by github-actions[bot]).
+        type: boolean
+        required: false
+        default: false
+      enable_build:
+        description: Run `yarn build`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `yarn test:coverage`.
+        type: boolean
+        default: true
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      enable_dependency_audit:
+        description: Run `yarn npm audit` / `pnpm audit`.
+        type: boolean
+        default: true
+      enable_dead_code:
+        description: >
+          Run a dead-code scan (`yarn dead-code`) with a sticky PR comment +
+          Linear ticket filing on failure. Opt-in - defaults false.
+        type: boolean
+        required: false
+        default: false
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file.
+        type: string
+        required: false
+        default: ''
+      extra_deps_paths:
+        description: >
+          Space-separated list of additional paths (relative to
+          working-directory) to carry from the `setup` job into every
+          downstream job, beyond node_modules.
+        type: string
+        required: false
+        default: ''
+      extra_deps_cache_key_glob_1:
+        description: >
+          Extra glob (relative to working-directory) folded into every
+          job's node_modules cache key alongside yarn.lock/pnpm-lock.yaml.
+        type: string
+        required: false
+        default: ''
+      extra_deps_cache_key_glob_2:
+        description: Second extra glob - see extra_deps_cache_key_glob_1.
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.repository }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    if: github.event.action != 'closed'
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main
+    secrets: inherit
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      package_manager: ${{ inputs.package_manager }}
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.pull_request.user.login == 'github-actions[bot]') }}
+      enable_build: ${{ inputs.enable_build }}
+      enable_test: ${{ inputs.enable_test }}
+      enable_security_scan: ${{ inputs.enable_security_scan }}
+      enable_dependency_audit: ${{ inputs.enable_dependency_audit }}
+      enable_dead_code: ${{ inputs.enable_dead_code }}
+      security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
+      extra_deps_paths: ${{ inputs.extra_deps_paths }}
+      extra_deps_cache_key_glob_1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+      extra_deps_cache_key_glob_2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+
+  actionlint:
+    if: github.event.action != 'closed'
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}

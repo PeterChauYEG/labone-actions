@@ -1,0 +1,96 @@
+name: Python PR Orchestrator
+
+# Thin orchestrator layer between a Python repo's own develop.yml and
+# develop-python-ci.yml (LAB-2096). Bakes in what every existing python
+# caller repeats today - is_dependabot computation, the
+# `if: github.event.action != 'closed'` guard, the PR concurrency group,
+# and the actionlint sibling job. develop-python-ci.yml has no job that
+# declares its own `pull-requests: write` (no sticky comments, no ticket
+# filing for any job here, and it doesn't even take pr_number/pr_url
+# inputs) so no extra permissions grant is needed on the `ci` job beyond
+# the workflow-level `contents: read` default. A caller repo `develop.yml`
+# now only needs `uses: .../python-pr.yml@main` with zero `with:` keys for
+# the common case.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Python project lives in.
+        type: string
+        required: false
+        default: '.'
+      also_treat_actions_bot_as_dependabot:
+        description: >
+          OR'd into the computed is_dependabot expression - set true for a
+          repo whose main.yml pre-creates check-runs for its own CalVer
+          version-bump PR (opened by github-actions[bot]).
+        type: boolean
+        required: false
+        default: false
+      lint_path:
+        description: Path (relative to working-directory) passed to `ruff check`.
+        type: string
+        required: false
+        default: '.'
+      enable_test:
+        description: Run `test_command`.
+        type: boolean
+        default: true
+      test_command:
+        description: Command used to run the test suite.
+        type: string
+        required: false
+        default: 'python3 -m pytest'
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file.
+        type: string
+        required: false
+        default: ''
+      enable_dependency_audit:
+        description: Run `pip-audit` against `requirements_file`. Off by default.
+        type: boolean
+        default: false
+      requirements_file:
+        description: Path (relative to working-directory) to a requirements.txt for pip-audit.
+        type: string
+        required: false
+        default: 'requirements.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.repository }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    if: github.event.action != 'closed'
+    uses: PeterChauYEG/labone-actions/.github/workflows/develop-python-ci.yml@main
+    secrets: inherit
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.pull_request.user.login == 'github-actions[bot]') }}
+      lint_path: ${{ inputs.lint_path }}
+      enable_test: ${{ inputs.enable_test }}
+      test_command: ${{ inputs.test_command }}
+      enable_security_scan: ${{ inputs.enable_security_scan }}
+      security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
+      enable_dependency_audit: ${{ inputs.enable_dependency_audit }}
+      requirements_file: ${{ inputs.requirements_file }}
+
+  actionlint:
+    if: github.event.action != 'closed'
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      pr_url: ${{ github.event.pull_request.html_url }}

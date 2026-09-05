@@ -4,35 +4,23 @@ run-name: PR CI
 
 on:
   pull_request:
-    types: [opened, synchronize]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.repository }}-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+    types: [opened, synchronize, closed]
 
 jobs:
   ci:
-    uses: PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/node-pr.yml@main
     secrets: inherit
-    with:
-      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
-      # Uncomment if this repo uses pnpm instead of yarn (LAB-1268) - e.g.
-      # a packageManager: pnpm@... + pnpm-lock.yaml repo:
-      # package_manager: pnpm
-      # Turn off any job your repo doesn't have a matching script for, e.g.:
-      # enable_build: false
-      # enable_test: false
-      # enable_dependency_audit: false   # mandatory false if this repo is Yarn Classic, not Berry
-
-  actionlint:
-    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
-    secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}
+    # with:
+    #   Uncomment if this repo uses pnpm instead of yarn (LAB-1268) - e.g.
+    #   a packageManager: pnpm@... + pnpm-lock.yaml repo:
+    #   package_manager: pnpm
+    #   Turn off any job your repo doesn't have a matching script for, e.g.:
+    #   enable_build: false
+    #   enable_test: false
+    #   enable_dependency_audit: false   # mandatory false if this repo is Yarn Classic, not Berry
+    #   Also fold in github-actions[bot] here if this repo's main.yml
+    #   pre-creates check-runs for its own CalVer version-bump PR:
+    #   also_treat_actions_bot_as_dependabot: true
 
   # Add repo-specific bespoke jobs below as needed - none of these are
   # standardized in develop-node-ci.yml (no shared-workflow equivalent

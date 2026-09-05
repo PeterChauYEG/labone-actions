@@ -15,6 +15,11 @@ name: Version Bump
 # deliberately NOT centralized here: it's repo-specific (which files carry a
 # version string varies per repo), so every caller must have its own copy at
 # that exact path.
+#
+# IMPORTANT — every caller repo MUST have a `GH_PAT` secret (a PAT with at
+# least Contents: read/write and Pull requests: read/write on that repo).
+# See the "Verify GH_PAT is configured" step below for why this is required
+# and what breaks without it (LAB-2087).
 
 run-name: Version Bump (CalVer)
 
@@ -32,19 +37,49 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  checks: write
-  actions: read
 
 jobs:
   version-bump:
     name: version-bump
     runs-on: [self-hosted, catfood]
     steps:
+      - name: Verify GH_PAT is configured
+        # Every git-writing step below (checkout's push credentials, the
+        # bump-branch push, and the PR creation) must run as a real PAT, not
+        # secrets.GITHUB_TOKEN. GitHub's documented anti-recursion rule
+        # suppresses `pull_request`/`push` events for anything authored by
+        # GITHUB_TOKEN itself, and this is not a theoretical concern here:
+        # across every current caller of this workflow (laboratory-one-web,
+        # budget, and others), the automated bot-authored bump commit has
+        # NEVER once triggered real CI in its own run history — the job
+        # opens the PR, enables auto_merge, and the PR then sits blocked
+        # forever until a human happens to push a follow-up commit to the
+        # branch (which does trigger CI, because it's human-authored). That
+        # backlog of stuck-open bump PRs going back weeks is what this check
+        # prevents from recurring silently. (A sibling repo, mangalab,
+        # previously concluded GITHUB_TOKEN was fine here and cited a real
+        # `pull_request` run as proof — but that run's triggering commit was
+        # also human-authored, not the bot's own commit; the underlying bug
+        # was misdiagnosed as a non-issue there.)
+        #
+        # Fail loudly here instead of letting `Checkout code` below either
+        # silently fall back to GITHUB_TOKEN or fail with an opaque auth
+        # error. To fix: create a PAT scoped to this repo with at least
+        # Contents: read/write and Pull requests: read/write, then add it as
+        # this repo's `GH_PAT` secret.
+        run: |
+          if [ -z "$GH_PAT" ]; then
+            echo "::error::secrets.GH_PAT is not set on this repository. version-bump.yml requires a real PAT (not GITHUB_TOKEN) to push the bump commit and open its PR, otherwise GitHub's anti-recursion rule silently drops the pull_request event, real CI never runs, and the bump PR never auto-merges (see LAB-2087). Create a PAT (Contents: read/write, Pull requests: read/write) and add it as this repo's GH_PAT secret."
+            exit 1
+          fi
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
 
       - name: Check for new commits since last bump
         id: check
@@ -69,9 +104,16 @@ jobs:
         id: calver
         run: |
           YEAR=$(date +%y)
-          MONTH=$(date +%-m)
-          DAY=$(date +%-d)
-          CALVER_BASE="${YEAR}.${MONTH}${DAY}"
+          # %j is the day of year, already zero-padded to 3 digits (001-366)
+          # by GNU/BSD date. Do NOT switch this to the non-padded `%-j` -
+          # that drops the format down to 1-2 digits for the first ~99 days
+          # of the year (e.g. day 91 -> "91" instead of "091"), which both
+          # breaks the intended 2-digit-year.3-digit-day-of-year CalVer
+          # shape and, because the resulting CALVER_BASE then never matches
+          # a previously-stored zero-padded value, silently resets PATCH to
+          # 0 on every run instead of incrementing same-day bumps.
+          DAY_OF_YEAR=$(date +%j)
+          CALVER_BASE="${YEAR}.${DAY_OF_YEAR}"
 
           CURRENT_VERSION=$(node -p "require('./package.json').version")
 
@@ -117,10 +159,11 @@ jobs:
                 fi
               done
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Commit version bump via PR
         if: steps.check.outputs.bumped == 'true'
+        id: pr
         run: |
           NEW_VERSION="${{ steps.calver.outputs.new_version }}"
           BRANCH="ci/calver-${NEW_VERSION}"
@@ -132,82 +175,166 @@ jobs:
           git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           git add package.json
-          git commit -m "chore: bump version to ${NEW_VERSION} [skip ci]"
+          git commit -m "chore: bump version to ${NEW_VERSION}"
           git push origin "$BRANCH"
 
-          HEAD_SHA=$(git rev-parse HEAD)
-
-          # Skip every branch-protection-required status check for this
-          # automated, package.json-only commit, rather than a hardcoded
-          # guess at check names. The hardcoded list ("lint ls-lint
-          # typecheck build test") used to match, but drifted the moment any
-          # caller repo renamed jobs or added a new required check (e.g. the
-          # "ci / " reusable-workflow namespace prefix, or a newly-required
-          # trivy scan) — silently wedging every future bump PR open forever
-          # since a required check that never posts blocks merge
-          # indefinitely. Reading the actual required contexts back from the
-          # branch's own protection settings keeps this self-synced no
-          # matter what the caller repo's CI is named.
-          BASE_BRANCH="${{ github.event.repository.default_branch }}"
-          REQUIRED_CONTEXTS=$(curl -sf \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "${API}/repos/${REPO}/branches/${BASE_BRANCH}/protection/required_status_checks" \
-            | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try { (JSON.parse(d).contexts || []).forEach(c => console.log(c)); } catch (e) {} })" \
-            || true)
-
-          while IFS= read -r CHECK_NAME; do
-            [ -z "$CHECK_NAME" ] && continue
-            BODY=$(node -e "console.log(JSON.stringify({name: process.argv[1], head_sha: process.argv[2], status: 'completed', conclusion: 'success', output: {title: 'Skipped for automated version bump', summary: 'This check is skipped for automated CalVer version bump commits which only modify package.json.'}}))" "$CHECK_NAME" "$HEAD_SHA")
-            curl -sf -X POST \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/check-runs" \
-              -d "${BODY}" \
-              > /dev/null || true
-          done <<< "$REQUIRED_CONTEXTS"
-
+          # No fabricated check-runs here (LAB-2087). The push and the PR
+          # creation below both authenticate as GH_TOKEN=secrets.GH_PAT (a
+          # real user PAT, not GITHUB_TOKEN), so this branch's push and its
+          # PR both raise genuine push/pull_request events — the caller
+          # repo's real CI runs against HEAD_SHA and posts its own real
+          # check-runs for whatever contexts are actually required, so
+          # there's nothing left to fabricate. (A required check that
+          # legitimately no-ops for a package.json-only commit — e.g. via a
+          # path filter — still reports conclusion "skipped", which GitHub's
+          # branch protection treats as satisfying a required status check,
+          # same as "success".) Auto-merge below simply queues the PR to
+          # merge once those real checks pass, exactly like any other PR.
+          #
+          # LAB-2103: the commit message (and PR title) below used to end in
+          # "[skip ci]". That's GitHub Actions' own documented skip-ci
+          # convention — ANY commit whose message contains `[skip ci]`/
+          # `[ci skip]` (etc.) has its `push`/`pull_request` triggers
+          # suppressed entirely by GitHub itself, regardless of which
+          # identity authored it. That's a completely separate mechanism
+          # from the GITHUB_TOKEN-vs-PAT anti-recursion rule this same
+          # comment block is about (LAB-2087/LAB-2090/LAB-2102) - using a
+          # real PAT here fixes the anti-recursion suppression, but
+          # `[skip ci]` in the message was independently suppressing the
+          # caller repo's real `pull_request` CI (`pr.yml` ->
+          # `develop-node-ci.yml`/`develop-ci.yml`, whose jobs are the
+          # actual required status checks) on every single bump PR, so it
+          # sat `BLOCKED` on branch protection forever with zero check-runs
+          # (confirmed live against PeterChauYEG/budget PRs #242/#243/#244/
+          # #245/#247 and PeterChauYEG/mangalab PR #222). The paragraph
+          # above ("the caller repo's real CI runs against HEAD_SHA...") is
+          # only actually true with `[skip ci]` removed - it was aspirational
+          # documentation describing intended behavior, not what was
+          # actually happening. Removed here so the bump commit is a normal,
+          # CI-triggering commit like any other.
           PR_RESPONSE=$(curl -sf -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "${API}/repos/${REPO}/pulls" \
-            -d "{\"title\":\"chore: bump version to ${NEW_VERSION} [skip ci]\",\"body\":\"Automated CalVer version bump to ${NEW_VERSION}.\",\"head\":\"${BRANCH}\",\"base\":\"main\"}")
+            -d "{\"title\":\"chore: bump version to ${NEW_VERSION}\",\"body\":\"Automated CalVer version bump to ${NEW_VERSION}.\",\"head\":\"${BRANCH}\",\"base\":\"main\"}")
 
           PR_NUMBER=$(echo "$PR_RESPONSE" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).number))")
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
-          if ! curl -sf -X PUT \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/pulls/${PR_NUMBER}/auto_merge" \
-              -d '{"merge_method":"squash"}' \
-              > /dev/null 2>&1; then
-            curl -sf -X PUT \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/pulls/${PR_NUMBER}/merge" \
-              -d "{\"merge_method\":\"squash\",\"commit_title\":\"chore: bump version to ${NEW_VERSION} [skip ci]\"}" \
-              > /dev/null
-            curl -sf -X DELETE \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${API}/repos/${REPO}/git/refs/heads/${BRANCH}" \
-              > /dev/null || true
+          # `PUT /repos/{owner}/{repo}/pulls/{pull_number}/auto_merge` (a raw
+          # REST call) is NOT a real GitHub API route — it 404s
+          # unconditionally regardless of PR number (confirmed via direct
+          # probe: a route-not-found 404, not a PR-not-found 404). GitHub
+          # only exposes auto-merge enablement via the GraphQL
+          # `enablePullRequestAutoMerge` mutation, which `gh pr merge --auto`
+          # wraps. Because the old REST call always failed, this step always
+          # fell into its "curl failed" fallback branch below and did an
+          # immediate, unconditional squash merge — bypassing every required
+          # status check with zero wait, silently reintroducing the exact bug
+          # class LAB-2087/LAB-2090 were meant to fix (verified live against
+          # mangalab: bump PR #221 merged 2 seconds after creation with zero
+          # check-runs and zero workflow runs against its head commit).
+          #
+          # Fixed by using `gh pr merge --auto` (GraphQL under the hood)
+          # instead. If auto-merge isn't allowed on this repo at all, that's
+          # a real configuration gap — fail loudly rather than silently
+          # falling back to an unconditional bypass merge.
+          if [ "$(gh api "repos/${REPO}" --jq .allow_auto_merge)" != "true" ]; then
+            echo "::error::Auto-merge is not enabled on ${REPO}, so this workflow cannot safely wait for required status checks before merging the version-bump PR (#${PR_NUMBER}). Enable 'Allow auto-merge' in this repo's Settings > General > Pull Requests, then re-run this workflow. Refusing to fall back to an unconditional merge that would bypass required checks (see LAB-2087/LAB-2090/LAB-2102)."
+            exit 1
+          fi
+
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch --auto
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Wait for version-bump PR to merge
+        if: steps.check.outputs.bumped == 'true'
+        id: wait-merge
+        # LAB-2104: `gh pr merge --auto` above only *queues* the merge — it
+        # returns as soon as auto-merge is enabled, not once the PR has
+        # actually landed on main. At the point this job would previously
+        # have tagged, the real bump commit only exists on the (possibly
+        # still-open) PR branch; `github.sha` is main's HEAD from BEFORE
+        # this run started, i.e. the commit the bump PR is based on, not the
+        # bump commit itself.
+        #
+        # Poll for up to ~2 minutes (mirroring ai-harness-cli's main.yml
+        # check-bump job, which polls the same class of problem from the
+        # caller side) for the PR to actually merge, then capture the real
+        # post-merge SHA that landed on main. If it hasn't merged within the
+        # timeout, do not report merged — the next step fails loudly instead
+        # of tagging nothing (which previously caused every subsequent run's
+        # "new commits since last tag" check to find nothing and silently
+        # no-op forever, permanently masking a stalled bump).
+        run: |
+          PR_NUMBER="${{ steps.pr.outputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          DEADLINE=$((SECONDS + 120))
+          STATE=""
+          MERGE_SHA=""
+
+          while [[ "$SECONDS" -lt "$DEADLINE" ]]; do
+            PR_JSON=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,mergeCommit)
+            STATE=$(echo "$PR_JSON" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>console.log(JSON.parse(d).state))")
+            if [[ "$STATE" == "MERGED" ]]; then
+              MERGE_SHA=$(echo "$PR_JSON" | node -e "let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{const p=JSON.parse(d); console.log(p.mergeCommit ? p.mergeCommit.oid : '')})")
+              break
+            fi
+            if [[ "$STATE" == "CLOSED" ]]; then
+              echo "::error::version-bump PR #${PR_NUMBER} was closed without merging. Refusing to tag."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          if [[ "$STATE" == "MERGED" && -n "$MERGE_SHA" ]]; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+            echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
+            echo "PR #${PR_NUMBER} merged, real bump commit is $MERGE_SHA"
+          else
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            echo "::error::version-bump PR #${PR_NUMBER} did not merge within ~120s (last observed state: '${STATE:-unknown}'). Refusing to tag against a speculative commit — this is the exact bug LAB-2104 fixed (tagging github.sha, main's pre-bump HEAD, made every later run's 'new commits since last tag' check silently find nothing and no-op forever). Check the PR for stuck required checks or branch-protection issues; the tag will be created on a future run once it actually merges."
+            exit 1
           fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Create Git Tag
-        if: steps.check.outputs.bumped == 'true'
-        uses: pkgdeps/git-tag-action@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          github_repo: ${{ github.repository }}
-          version: ${{ steps.calver.outputs.new_version }}
-          git_commit_sha: ${{ github.sha }}
-          git_tag_prefix: 'v'
+        # LAB-2104: previously used pkgdeps/git-tag-action@v3 with
+        # `git_commit_sha: ${{ github.sha }}`, which tagged main's HEAD as
+        # of when this workflow run *started* — the commit BEFORE the bump
+        # PR merged, not the bump commit itself (that commit only exists on
+        # the PR branch at the time the old tagging step ran, since it was
+        # unconditional right after enabling auto-merge with no wait for
+        # the merge to land). Confirmed live on PeterChauYEG/mangalab: tag
+        # v26.831.1 pointed at main's pre-bump tip, identical to `main`,
+        # while the real bump commit sat on PR #222's still-open branch.
+        # Once that happens, every later run's `git log ${LAST_TAG}..HEAD`
+        # "new commits since last bump" check finds nothing (from git's
+        # perspective nothing happened since that tag) and the workflow
+        # silently no-ops forever with a clean "success" — permanently
+        # masking a stalled bump with no visible error.
+        #
+        # Fixed by only ever reaching this step once "Wait for version-bump
+        # PR to merge" above has confirmed the PR actually landed on main
+        # and captured the real post-merge SHA. Also switched from the
+        # third-party action to a plain `git tag` + `git push` against that
+        # confirmed SHA — simpler, avoids trusting the action's own
+        # ref-resolution behavior for a case (tagging a commit that isn't
+        # the checkout's current HEAD) it wasn't obviously designed for,
+        # and keeps the "which exact commit gets tagged" logic fully
+        # visible in this file.
+        if: steps.check.outputs.bumped == 'true' && steps.wait-merge.outputs.merged == 'true'
+        run: |
+          VERSION="${{ steps.calver.outputs.new_version }}"
+          SHA="${{ steps.wait-merge.outputs.merge_sha }}"
+          TAG="v${VERSION}"
+
+          git fetch origin main
+          git tag "$TAG" "$SHA"
+          git push origin "$TAG"
+          echo "Tagged $SHA as $TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}

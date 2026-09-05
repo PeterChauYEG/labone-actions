@@ -163,6 +163,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Scoped per repo+PR so callers don't cancel each other.
 # pr_number must be passed explicitly because github.event.pull_request
 # is not populated in the called workflow context.
@@ -352,6 +356,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: a11y
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/a11y-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: a11y-scan
@@ -360,6 +365,11 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - matches
+          # design-system/dead-code/duplicate-code below: still runs and
+          # still files a sticky comment/ticket on a finding, but never
+          # fails this job or blocks merge.
+          blocking: 'false'
 
   design-system:
     name: design-system
@@ -380,6 +390,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: design-system
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: design-system-scan
@@ -387,6 +398,7 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   dead-code:
     name: dead-code
@@ -407,6 +419,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: dead-code
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/dead-code-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: dead-code-scan
@@ -414,6 +427,7 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   duplicate-code:
     name: duplicate-code
@@ -437,6 +451,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: duplicate-code
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: duplicate-code-scan
@@ -444,6 +459,7 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   run-e2e-tests:
     name: run-e2e-tests
@@ -453,6 +469,17 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # NEXT_PUBLIC_API_URL (LAB-2100): job-level env, not a scan-with-report
+    # input — that composite action is shared across every scan type
+    # (a11y/dead-code/etc), not e2e-specific, so this stays here instead.
+    # Composite-action `run:` steps inherit the calling job's env, so this
+    # reaches `yarn run-e2e-scan` without scan-with-report needing to know
+    # about it. `vars.*` resolves against whichever repo actually calls
+    # this reusable workflow — repos with no NEXT_PUBLIC_API_URL variable
+    # set just get an empty string here (no behavior change for them; the
+    # app's own code-level fallback, if any, still applies).
+    env:
+      NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -464,6 +491,7 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: run-e2e-scan
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/e2e-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: e2e-scan
@@ -492,13 +520,15 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: react-tech-debt
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: react-tech-debt-scan
           job-name: react-tech-debt
-          file-ticket: 'false'
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   max-lines:
     name: max-lines
@@ -519,13 +549,15 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
         with:
           script: max-lines
+          gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/max-lines-report.md
           working-directory: ${{ inputs.working-directory }}
           sticky-header: max-lines-scan
           job-name: max-lines
-          file-ticket: 'false'
           pr-number: ${{ inputs.pr_number }}
           pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
 
   tech-debt:
     name: tech-debt
@@ -545,3 +577,38 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
+
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts - see
+  # develop-node-ci.yml's identical job comment for the general rationale.
+  #
+  # `needs:` lists this file's REAL (blocking) gates: `lint`, `ls-lint`,
+  # `typecheck`, `build`, `test`, `run-e2e-tests`. Per this file's own
+  # "Blocking vs advisory" precedent (nextjs-ci v1.0.3, 2026-08-20 - see
+  # README.md), `run-e2e-tests` is the only scan job that's still a hard
+  # pass/fail gate (`scan-with-report`'s `blocking` input defaults to
+  # `'true'` and this job's call doesn't override it) - deliberately
+  # excludes the 6 explicitly-advisory scan jobs, each of which sets
+  # `blocking: 'false'` on its own `scan-with-report` call: `a11y`,
+  # `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+  # `max-lines`. Also excludes `tech-debt` - a metrics report, not a gate,
+  # per this file's own header comment ("it never fails the job"). Also
+  # excludes `setup` - infra, not a gate itself.
+  #
+  # `if: always()` for the same reason as develop-node-ci.yml's identical
+  # job: without it, GitHub's default scheduling would skip this job
+  # outright whenever any `needs:` entry is `skipped` (e.g. `ls-lint` when
+  # `enable_ls_lint: false`, or any of the four `enable_*`-gated jobs above
+  # when disabled, or every job when `is_dependabot`), which is the
+  # opposite of what an aggregator gate needs to do. A `skipped` result
+  # must NOT fail this job - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs: [lint, ls-lint, typecheck, build, test, run-e2e-tests]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

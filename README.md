@@ -13,9 +13,9 @@ these workflows.
 | Workflow | Trigger it's meant for | Purpose |
 |---|---|---|
 | `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. For yarn/Next.js-ish **web** repos. |
-| `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks, plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
-| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
-| `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. For yarn/Node/NestJS **backend service** repos. |
+| `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks (`a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/`max-lines` are all advisory-only, nextjs-ci v1.0.3 — see below), plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
+| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks, optional dead-code (`enable_dead_code`, LAB-1866, sticky PR comment + Linear ticket filing, yarn-only) opt-in and advisory-only. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
+| `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. Optional dead-code (`enable_dead_code`, LAB-1866, plain pass/fail, yarn-only) opt-in. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
 | `.github/workflows/develop-rust-ci.yml` | `pull_request` | fmt/clippy/test as Linear-ticket-filing gates, optional build/dead-code (cargo-machete)/duplicate-code (cargo-dupes)/file-size/security-scan/dependency-audit (cargo-audit). For **Rust CLI/tool** repos. |
@@ -24,6 +24,50 @@ these workflows.
 | `.github/workflows/actionlint.yml` | `pull_request` | Lints the caller's own `.github/workflows/*.yml` with actionlint. Stack-agnostic — any repo with a `.github/workflows/` directory can call it. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
+
+## Orchestrator workflows (LAB-2096) — prefer these over calling `develop-*-ci.yml`/`main-*-ci.yml` directly
+
+For each `develop-*-ci.yml`/`main-*-ci.yml` pair that has a PR-time and/or push-to-main
+counterpart, this repo also ships a thin, type-specific **orchestrator** `workflow_call`
+workflow one level up: `mobile-pr.yml`, `node-pr.yml`, `web-pr.yml`, `python-pr.yml`,
+`rust-pr.yml`, `godot-pr.yml`, `node-main.yml`, `web-main.yml`. A consumer repo's own
+`develop.yml`/`main.yml` calls the orchestrator, the orchestrator calls the underlying
+`develop-*-ci.yml`/`main-*-ci.yml` (GitHub supports up to 4 levels of nested `workflow_call`, so
+this 3-level chain — caller repo → orchestrator → develop-/main-*-ci.yml — is safely within
+budget).
+
+The orchestrator bakes in every piece of boilerplate every caller of a given type repeats today:
+computing `pr_number`/`pr_url`/`is_dependabot` from `github.event` (still available transitively
+through the whole call chain, since the outermost trigger — the calling repo's own
+`develop.yml`/`main.yml` — is still `pull_request`/`push`), the `if: github.event.action !=
+'closed'` guard, the per-PR `concurrency:` group, the `actionlint` sibling job, and — most
+importantly — the exact `permissions:` block the underlying workflow's own jobs need for their
+sticky-PR-comment/Linear-ticket-filing features (`pull-requests: write`, sometimes `id-token:
+write`). Getting that grant wrong or omitting it entirely doesn't just disable the affected
+job — it fails the caller's **entire** CI run with `startup_failure` and 0 jobs recorded, because
+GitHub validates a reusable workflow's whole callee permission graph before dispatching a single
+job, regardless of which `enable_*` flags are set. That's exactly the failure mode that hit 7
+caller repos independently before `develop-node-ci.yml`'s caller contract got documented (see
+gateway-service PR #164) — and `templates/web-pr.yml` shipped with no `permissions:` block at
+all for years before this orchestrator layer existed. Baking the grant into one file that every
+caller of that type shares means it can't drift or get silently dropped per-repo again.
+
+**Prefer the type-specific orchestrator** (`templates/mobile-pr.yml`, `templates/node-pr.yml`,
+etc. now point at it) over calling `develop-*-ci.yml`/`main-*-ci.yml` directly — a caller repo's
+own workflow file becomes a near-empty `uses:` block, most repos need zero `with:` keys, and it
+stays in sync automatically as the orchestrator's own definition evolves. Call the underlying
+`develop-*-ci.yml`/`main-*-ci.yml` directly only if a repo's needs are too unusual to fit the
+orchestrator's input surface (e.g. a bespoke input the orchestrator doesn't pass through) —
+in that case, copy that repo's own `permissions:`/`concurrency:`/`pr_number`/`pr_url`/
+`is_dependabot` wiring from the orchestrator's source as a reference rather than
+hand-rolling it from scratch.
+
+One genuinely repo-specific case the orchestrator can't fully collapse: a caller whose own
+`main.yml` pre-creates check-runs for its own CalVer version-bump PR (opened by
+`github-actions[bot]`, see `version-bump.yml` below) wants those version-bump PRs treated like a
+dependabot PR too. Rather than baking that org-wide (most repos don't have this), every
+orchestrator exposes it as an opt-in boolean input, `also_treat_actions_bot_as_dependabot`
+(default `false`), that ORs into the computed `is_dependabot` expression.
 
 ### `templates/` — canonical caller files, one per repo type
 
@@ -34,7 +78,10 @@ a code block in this README. **Copy the template file verbatim** into the consum
 `develop.yml`/`pr.yml`, matching whatever the repo already calls its PR-CI file) rather than
 hand-authoring a new wrapper from scratch — hand-authored wrappers drift (different job names
 across repos of the same type, different file names, missing the `actionlint` sibling job,
-etc.), which is exactly what this whole repo exists to prevent.
+etc.), which is exactly what this whole repo exists to prevent. As of LAB-2096, every `*-pr.yml`/
+`*-main.yml` template `uses:` its type's orchestrator workflow (see "Orchestrator workflows"
+above) rather than `develop-*-ci.yml`/`main-*-ci.yml` directly, so a fresh caller repo gets the
+correct `permissions:`/`concurrency:` wiring with zero hand-authoring.
 
 | Template | Type | Job name it uses |
 |---|---|---|
@@ -147,6 +194,9 @@ on:
 
 jobs:
   ci:
+    permissions:
+      contents: read
+      pull-requests: write
     uses: PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main
     secrets: inherit
     with:
@@ -154,6 +204,24 @@ jobs:
       # Turn off any job your repo doesn't have a yarn script for, e.g.:
       # enable_security_scan: false
 ```
+
+**The `ci` job's `permissions: {contents: read, pull-requests: write}` block
+above is REQUIRED, not optional** — `develop-node-ci.yml`'s `dead-code` job
+(and, on the mobile sibling below, `dead-code`/`duplicate-code`/`a11y`/
+`design-system`) declares its own job-level `permissions:
+pull-requests: write` for its sticky-PR-comment feature, and GitHub
+validates a reusable workflow's *entire* permission graph up front, before
+dispatching a single job — it can never grant the callee more scope than
+the caller's own job holds. A caller `ci` job with no `permissions:`
+override (or one that omits `pull-requests: write`) makes the **whole PR
+CI run** fail with `startup_failure` and 0 jobs recorded, even if
+`enable_dead_code`/`enable_duplicate_code`/`enable_a11y`/
+`enable_design_system` are all left off — the permission-graph check
+happens before any job's `if:` is evaluated, so the `enable_*` flag never
+gets a chance to skip it. See gateway-service PR #164 for the incident
+this pattern was found from (7 caller repos hit it independently before
+each added this block); if you suspect a caller repo is missing it, check
+`gh run list --event pull_request` for `startup_failure` conclusions.
 
 And `main.yml`:
 
@@ -267,6 +335,40 @@ per-repo behavior. Internally, each of these 7 jobs is just a
 `.github/actions/scan-with-report` composite action — see "Scan job
 dedup" below.
 
+**Blocking vs advisory (nextjs-ci v1.0.3, 2026-08-20):** `run-e2e-tests` is
+the only remaining hard pass/fail scan gate — a failure fails the job.
+`a11y`, `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+and `max-lines` are all advisory (`scan-with-report`'s `blocking: 'false'`
+input) — they still run, still post their sticky comment/report, and
+`duplicate-code` still files a Linear ticket on failure, but a finding
+never fails the job. `design-system`/`dead-code`/`duplicate-code`/
+`react-tech-debt`/`max-lines` were already advisory here; `a11y` was the
+last holdout in `develop-ci.yml` and moved to advisory in this v1.0.3 pass
+(nextjs-ci v1.0.2, 2026-08-20, PR #68 covered `duplicate-code`/`max-lines`
+in `main-ci.yml`'s equivalent pass/fail-to-advisory move — same rationale
+applies here: all of these are repo-wide scans that can trip on a
+pre-existing finding unrelated to the PR's own diff, which is too brittle
+to gate a merge/deploy on). See `main-ci.yml`'s equivalent note below for
+the push-to-main side of this same change.
+
+**`required-checks` (LAB-2103):** a final aggregator job that `needs:` every
+REAL (blocking) gate job above - `lint`, `ls-lint`, `typecheck`, `build`,
+`test`, `run-e2e-tests` - and fails if any of them resolves to `failure` or
+`cancelled` (`if: always()`, so it still runs and reports even when an
+upstream gate didn't). The 6 explicitly-advisory scan jobs (`a11y`,
+`design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+`max-lines`) and the opt-in `tech-debt` metrics report are deliberately
+**not** dependencies - see the job's own comment in the workflow file.
+**Caller repos' branch protection should require ONLY this one context
+(`required-checks`) going forward, not the individual per-job contexts** -
+that's what prevents required-check drift when a job inside this shared
+workflow is renamed/added/removed, which previously desynced every caller's
+branch protection silently (no visible error - just permanently blocked
+merges). This PR does **not** change branch protection on any caller repo
+itself - that's a separate follow-up once this merges (the
+`required-checks` context doesn't exist until then, so requiring it now
+would immediately and permanently block every caller).
+
 ### `main-ci.yml` — inputs and jobs
 
 Same `working-directory`/`enable_*`/`is_dependabot` inputs as
@@ -284,6 +386,38 @@ gates (no sticky comments, no ticket filing), plus `deploy` (pushes to
 `SLACK_WEBHOOK_URL`). `deploy` runs only if every enabled gate job actually
 passed — jobs skipped via `enable_*: false` don't block it (skipped isn't a
 failure), but any real failure or cancellation does.
+
+**`a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/
+`max-lines` are advisory, not pass/fail (nextjs-ci v1.0.3, 2026-08-20):**
+unlike the other gate jobs here, their `run: yarn <script>` steps all set
+`continue-on-error: true`, so a finding never fails the job (and therefore
+never blocks `deploy` via the `needs.*.result` check) — the step still
+runs and still exits non-zero internally on a finding, only the workflow's
+treatment of that exit code changed. This is push-to-main, so there's no
+PR to post a sticky comment on; check the job's own log for output.
+`duplicate-code`/`max-lines` got this treatment first (nextjs-ci v1.0.2,
+2026-08-20, PR #68) — confirmed root cause of a stalled ai-harness-web
+deploy on 2026-08-20, where an unrelated PR merged fine but push-to-main
+deploy silently never ran because `duplicate-code` failed on a
+pre-existing repo-wide jscpd finding unrelated to that PR's diff. `a11y`,
+`design-system`, `dead-code`, and `react-tech-debt` followed the same
+pattern in this v1.0.3 pass, for the same reason. `typecheck`, `build`,
+`lint`, `test`, `run-e2e-tests`, and `ls-lint` are unchanged and still
+block `deploy` on failure.
+
+**`required-checks` (LAB-2103):** same aggregator pattern as
+`develop-ci.yml`'s job (see that section for the full rationale), scoped to
+this file's actual job list - `needs: [lint, typecheck, build, test,
+run-e2e-tests]` (no `ls-lint` job exists here). `a11y`/`design-system`/
+`duplicate-code`/`react-tech-debt`/`max-lines` are excluded (their
+`continue-on-error: true` steps already keep them out of the failure path -
+see above), as are `deploy`/`slack-notification` (redundant with `deploy`'s
+own `needs.*.result` check). Since this workflow only runs on `push` to
+`main`, not `pull_request`, branch protection's required-status-checks
+mechanism never actually gates it - this job exists here for parity with
+`develop-ci.yml` and as a single visible pass/fail signal on the run
+summary, not because any caller repo's branch protection currently (or
+will) point at it.
 
 **These names are load-bearing**: a follow-on task migrates
 `laboratory-one-web` to call these exact workflows, so treat the
@@ -316,6 +450,18 @@ Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
 - `enable_build`, `enable_test`, `enable_security_scan`,
   `enable_dependency_audit` (boolean) — turn a job off if your repo has no
   matching yarn script.
+- `enable_dead_code` (boolean, default **`false`** — opt-in, unlike the
+  `enable_*` inputs above, LAB-1866) — runs `yarn dead-code` via the shared
+  `scan-with-report` composite action (same one `develop-ci.yml`'s
+  `dead-code` job uses), posting a sticky PR comment and filing a Linear
+  ticket on failure, but `blocking: 'false'` so it never fails the job
+  itself. `scan-with-report` always runs `yarn <script>` regardless of
+  `package_manager`, so this only works for `package_manager: yarn`
+  callers — a `pnpm` caller enabling it would fail. `pr_number`/`pr_url`
+  (below) feed the sticky comment/ticket link.
+- `pr_number` (number, default `0`) / `pr_url` (string, default `''`) —
+  same role as `develop-ci.yml`'s identical inputs; only consumed by the
+  `dead-code` job above when `enable_dead_code` is true.
 - `security_scan_trivyignores` (string, default `''`) — passed straight
   through to the `security-scan` job's `trivy-action` call. Empty by
   default: this shared workflow ships **no default `.trivyignore`
@@ -330,11 +476,35 @@ No `secrets:` are declared here either — every caller uses
 set to the same `labone-eslint-plugin` package for backend services,
 consumed the same way via a private git dependency).
 
-Jobs: `setup`, `lint`, `typecheck`, `build`, `test`, `security-scan`,
-`dependency-audit`. All plain pass/fail gates — no sticky PR comments, no
-Linear ticket filing (unlike `develop-ci.yml`'s scan jobs). Two gates are
+Jobs: `changes`, `setup`, `lint`, `typecheck`, `build`, `test`,
+`security-scan`, `dependency-audit`, plus optional `dead-code`
+(`enable_dead_code`, off by default). Every job except `dead-code` is a
+plain pass/fail gate — no sticky PR comments, no Linear ticket filing
+(unlike `develop-ci.yml`'s scan jobs); `dead-code` is the one exception,
+matching `develop-ci.yml`'s identical job (sticky comment + Linear ticket
+filing on failure, but advisory-only — never fails the job). Two gates are
 worth calling out explicitly because this shared workflow can't fully
 enforce them on its own:
+
+- **`changes` (LAB-2097)** runs `dorny/paths-filter@v3` against the caller
+  repo's changed files first (no dependencies, overlaps with `setup`) and
+  produces a `node` output. `lint`/`typecheck`/`build`/`test` each AND
+  `needs.changes.outputs.node == 'true'` onto their existing `if:`
+  condition, so a PR that only touches docs/unrelated files skips all four
+  as `skipped` (which satisfies branch-protection required checks
+  identically to `success`) instead of re-running them for nothing. A
+  `ls_lint` output is also produced for parity, but is currently unused —
+  neither this workflow nor `main-node-ci.yml` runs an `ls-lint` job today.
+  `security-scan`/`dependency-audit`/`dead-code` are intentionally NOT
+  gated by `changes` (out of scope for LAB-2097). The `node`/`ls_lint`
+  filter glob lists were derived from what `lint`/`typecheck`/`build`/
+  `test`'s own steps consume (TS/JS source, `package.json`,
+  `yarn.lock`/`pnpm-lock.yaml`, `tsconfig*.json`, eslint/jest/vitest
+  config) but are **not confirmed exhaustive** for every caller — a repo
+  whose custom script depends on an unusual extra file (surfaced via
+  `extra_deps_cache_key_glob_1`/`_2`, which are caller-specific and can't
+  be folded into this static filter) could still see a stale skip. Report
+  a miss if you hit one.
 
 - **`lint` is zero-tolerance**, but only if the caller's own `lint` script
   passes `--max-warnings=0` to eslint (e.g. `"lint": "eslint .
@@ -354,6 +524,23 @@ enforce them on its own:
 yarn-based Node/NestJS callers are on Yarn Berry) or `pnpm audit`
 (`package_manager: pnpm` callers) as a hard gate with no severity floor —
 any known vulnerability fails the job.
+
+**`required-checks` (LAB-2103):** a final aggregator job that `needs:`
+every REAL (blocking) gate job above - `lint`, `typecheck`, `build`, `test`,
+`security-scan`, `dependency-audit` - and fails (`exit 1`) if any of them
+resolves to `failure` or `cancelled` (`if: always()`, so it still runs even
+when an upstream gate didn't). `changes`/`setup` (infra, not gates) and the
+opt-in, explicitly advisory-only `dead-code` job (`blocking: 'false'`) are
+deliberately **not** dependencies - see the job's own comment in the
+workflow file. **Caller repos' branch protection should require ONLY this
+one context (`required-checks`) going forward, not the individual per-job
+contexts** - that's what prevents required-check drift when a job inside
+this shared workflow is renamed/added/removed, which previously desynced
+every caller's branch protection silently (no visible error - just
+permanently blocked merges). This PR does **not** change branch protection
+on any caller repo itself - that's a separate follow-up once this merges
+(the `required-checks` context doesn't exist until then, so requiring it
+now would immediately and permanently block every caller).
 
 For a pnpm-based backend service (e.g. a repo with `packageManager:
 pnpm@...`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`), just add
@@ -380,15 +567,49 @@ push-to-main time), plus:
 - `dokku_remote_url` (string) — required if `enable_deploy` is true.
 - `enable_slack_notification` (boolean, default `true`)
 
-Jobs: the same `setup`/`lint`/`typecheck`/`build`/`test`/`security-scan`/
-`dependency-audit` set as plain pass/fail gates, plus `deploy` (pushes to
-`dokku_remote_url` using secret `DOKKU_DEPLOY_SSH_KEY`) and
-`slack-notification` (posts the deploy result using secret
-`SLACK_WEBHOOK_URL`), identical semantics to `main-ci.yml`'s `deploy`/
-`slack-notification` — `deploy` runs only if every enabled gate job
-actually passed (skipped-via-`enable_*: false` doesn't block it, but any
-real failure or cancellation does) and is skipped entirely for
-`is_dependabot`.
+This workflow also has `enable_dead_code` (boolean, default **`false`**,
+LAB-1866), but unlike `develop-node-ci.yml`'s version it's a plain
+pass/fail gate — no sticky comment/Linear ticket filing, no `pr_number`/
+`pr_url` inputs, since there's no PR to comment on at push-to-main time
+(matching `main-ci.yml`'s `dead-code` job, which runs `yarn dead-code`
+directly instead of going through `scan-with-report`). Yarn-only, same
+caveat as `develop-node-ci.yml`'s `enable_dead_code`.
+
+Jobs: `changes` (LAB-2097, same `dorny/paths-filter@v3` pattern as
+`develop-node-ci.yml`'s `changes` job — see that section for the full
+`node`/`ls_lint` filter rationale and its "not confirmed exhaustive"
+caveat; this one diffs against `github.event.before` since this workflow
+triggers on `push`, not `pull_request`, so it needs `contents: read` only,
+no `pull-requests: read`), then `setup`/`lint`/`typecheck`/`build`/`test`
+as plain pass/fail gates (`lint`/`typecheck`/`build`/`test` additionally
+gated on `needs.changes.outputs.node == 'true'`), plus optional
+`dead-code` (off by default) and `deploy` (pushes to `dokku_remote_url`
+using secret `DOKKU_DEPLOY_SSH_KEY`) and `slack-notification` (posts the
+deploy result using secret `SLACK_WEBHOOK_URL`), identical semantics to
+`main-ci.yml`'s `deploy`/`slack-notification` — `deploy` runs only if
+every enabled gate job actually passed (skipped-via-`enable_*: false` or
+skipped-via-`changes` doesn't block it, but any real failure or
+cancellation does) and is skipped entirely for `is_dependabot`. Note:
+unlike `main-ci.yml`'s `deploy` job (whose `needs:` list includes
+`dead-code`), this workflow's `deploy` job's `needs:` list was
+deliberately left unchanged (LAB-1866 scope) — `dead-code` is not a
+dependency of `deploy` here, so a caller that enables it should be aware
+`deploy` doesn't wait on it.
+
+**`required-checks` (LAB-2103):** same aggregator pattern as
+`develop-node-ci.yml`'s job (see that section for the full rationale),
+scoped to this file's actual job list - `needs: [lint, typecheck, build,
+test]` (this file has no `security-scan`/`dependency-audit` jobs at all,
+unlike `develop-node-ci.yml`, so there's nothing advisory to exclude
+besides `changes`/`setup`). `deploy`/`slack-notification` are also
+excluded - `deploy` already has its own well-established
+`needs.*.result` failure/cancelled check (see that job's own comment
+above), so folding it into `required-checks` too would be redundant.
+Since this workflow only runs on `push` to `main`, not `pull_request`,
+branch protection's required-status-checks mechanism never actually gates
+it - this job exists here for parity with `develop-node-ci.yml` and as a
+single visible pass/fail signal on the run summary, not because any caller
+repo's branch protection currently (or will) point at it.
 
 ## Caching strategy
 
@@ -665,10 +886,10 @@ here — don't confuse them:
 `duplicate-code`, `run-e2e-tests`, `react-tech-debt`, `max-lines`) all
 follow the same shape: run a yarn script that writes a markdown report,
 post/update a sticky PR comment with that report regardless of outcome,
-optionally file/comment-on a Linear ticket on failure, then fail the job if
-the script failed. That's factored into
-`.github/actions/scan-with-report/action.yml`, a composite action with
-inputs:
+optionally file/comment-on a Linear ticket on failure, then fail the job
+if the script failed *and the job is configured as blocking*. That's
+factored into `.github/actions/scan-with-report/action.yml`, a composite
+action with inputs:
 
 - `script` (required) — yarn script to run.
 - `report-file` (required) — markdown report path the script writes.
@@ -684,6 +905,15 @@ inputs:
 - `linear-api-key` (string, default `''`) — composite actions can't see the
   caller's `secrets` context directly, so each job passes
   `secrets.LINEAR_API_KEY` in explicitly.
+- `blocking` (boolean-as-string, default `'true'`) — set `'false'` for
+  `a11y`, `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+  and `max-lines` (`design-system`/`dead-code`/`duplicate-code`/
+  `react-tech-debt`/`max-lines` in nextjs-ci v1.0.2, 2026-08-20; `a11y`
+  followed in nextjs-ci v1.0.3, 2026-08-20): the scan still runs, still
+  posts its sticky comment, and `duplicate-code`/`dead-code` still file a
+  Linear ticket on failure, but the composite action's final `exit 1` is
+  skipped, so a finding never fails the containing job. `run-e2e-tests`
+  leaves this at the default `'true'` and stays a hard pass/fail gate.
 
 Each of the 7 scan jobs in `develop-ci.yml` now shrinks to its
 `needs`/`runs-on`/`if`/`permissions` header, a `setup-node-yarn` call, and
@@ -1106,6 +1336,9 @@ on:
 
 jobs:
   ci:
+    permissions:
+      contents: read
+      pull-requests: write
     uses: PeterChauYEG/labone-actions/.github/workflows/develop-mobile-ci.yml@main
     secrets: inherit
     with:
@@ -1113,6 +1346,19 @@ jobs:
       pr_url: ${{ github.event.pull_request.html_url }}
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
 ```
+
+**The `ci` job's `permissions: {contents: read, pull-requests: write}`
+block above is REQUIRED, not optional** — see the identical callout under
+`develop-node-ci.yml`'s caller example above for the full explanation.
+This repo's own `templates/mobile-pr.yml` already carries this block
+correctly; `templates/node-pr.yml` does not yet, so copy the block above
+by hand for now if you're wiring up a Node/NestJS caller from that
+template. `main-node-ci.yml` does **not** need this
+block — its `dead-code` job has no sticky-PR-comment feature (plain
+pass/fail, no `permissions:` override), and `main-mobile-ci.yml` doesn't
+exist in this repo (see "`develop-mobile-ci.yml` has no `main-*-ci.yml`
+counterpart" above), so there's nothing to document for either of those
+two push-to-main paths.
 
 ## `dependabot-automerge.yml`
 
@@ -1133,11 +1379,27 @@ above.
 Now a `workflow_call` reusable workflow, converged from
 laboratory-one-web's and ai-harness-web's byte-identical
 `.github/workflows/version-bump.yml`. CalVer-bumps the caller repo on a
-schedule (or `workflow_dispatch`), opens+auto-merges a PR, tags a release,
-and fakes `lint`/`ls-lint`/`typecheck`/`build`/`test` check-runs as skipped
-(hardcoded — both existing callers use exactly this same 5-name set, so an
-input wasn't added for it; add one later if a caller ever needs a different
-set). **Depends on the caller repo providing its own
+schedule (or `workflow_dispatch`), opens a PR, waits on that caller repo's
+own real CI, and auto-merges + tags a release once it's green.
+
+**Requires a `GH_PAT` secret on every caller repo** (a PAT with at least
+Contents: read/write and Pull requests: read/write on that repo) — the
+bump-branch push and PR creation must authenticate as a real user, not
+`secrets.GITHUB_TOKEN`. GitHub's anti-recursion rule silently drops
+`pull_request`/`push` events for anything authored by `GITHUB_TOKEN`
+itself, and this used to bite every caller in practice: the bot-authored
+bump commit never triggered real CI, so the job used to paper over it by
+POSTing fabricated `completed`/`success` check-runs for the base branch's
+required-status-check contexts before merging — bypassing real CI review
+of the bump commit entirely (LAB-2087). That fabrication is gone; with a
+real PAT, the push and PR both raise genuine events, real CI runs and
+posts its own real check-runs, and `auto_merge` simply waits on those like
+it would for any other PR. The "Verify GH_PAT is configured" step fails
+fast with a pointer here if the secret is missing, rather than the job
+either silently falling back to `GITHUB_TOKEN` or failing with an opaque
+checkout auth error.
+
+**Depends on the caller repo providing its own
 `./scripts/bump-version.sh <new-version>`** — that script actually rewrites
 version strings in the repo's files, which varies per repo, so it is
 deliberately not centralized here. Call it with `secrets: inherit`; see the

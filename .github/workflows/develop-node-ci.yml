@@ -6,6 +6,15 @@ name: Develop Node CI
 # PeterChauYEG/labone-actions/.github/workflows/develop-node-ci.yml@main`
 # with `secrets: inherit`. See README.md for the full caller example.
 #
+# CALLER'S `ci` JOB MUST ALSO SET `permissions: {contents: read,
+# pull-requests: write}` — the `dead-code` job below (see its own
+# `permissions:` block) needs `pull-requests: write` for its sticky-PR-
+# comment feature, and GitHub validates the full callee permission graph
+# before dispatching any job, so a caller missing this fails its ENTIRE PR
+# CI run with `startup_failure`/0 jobs, even with `enable_dead_code` off.
+# See README.md's "`develop-node-ci.yml` — inputs and jobs" caller example
+# for the full explanation.
+#
 # This is the backend-service sibling of develop-ci.yml (which targets
 # Next.js/React web repos) - same `setup` + artifact-restore caching
 # strategy and the same `enable_*`/`is_dependabot` input conventions, but a
@@ -96,6 +105,25 @@ on:
         type: boolean
         required: false
         default: false
+      pr_number:
+        description: >
+          github.event.pull_request.number from the caller. Only used by
+          the `dead-code` job (when `enable_dead_code` is true) for its
+          sticky PR comment and Linear ticket-filing link - see
+          develop-ci.yml's identical input for the pattern this was copied
+          from. Harmless to leave at its default (0) for every caller that
+          doesn't enable `enable_dead_code`.
+        type: number
+        required: false
+        default: 0
+      pr_url:
+        description: >
+          github.event.pull_request.html_url from the caller. Only used by
+          the `dead-code` job (when `enable_dead_code` is true) - see
+          `pr_number` above.
+        type: string
+        required: false
+        default: ''
       enable_build:
         description: Run `yarn build`.
         type: boolean
@@ -112,6 +140,20 @@ on:
         description: Run `yarn npm audit` (fails on any known vulnerability).
         type: boolean
         default: true
+      enable_dead_code:
+        description: >
+          Run a dead-code scan (`yarn dead-code`) with a sticky PR comment +
+          Linear ticket filing on failure, advisory-only (never blocks the
+          job - see `scan-with-report`'s `blocking` input). Opt-in, unlike
+          most other `enable_*` inputs above - defaults false since no
+          consumer repo of this workflow has this today (LAB-1866). Mirrors
+          develop-ci.yml's `dead-code` job. Note: the underlying
+          `scan-with-report` action always runs `yarn <script>` regardless
+          of `package_manager`, so this only works for `package_manager:
+          yarn` callers today - a `pnpm` caller enabling this would fail.
+        type: boolean
+        required: false
+        default: false
       security_scan_trivyignores:
         description: >
           Comma-separated list of relative paths to .trivyignore file(s), or
@@ -163,8 +205,88 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # LAB-2097: path-filters that skip lint/typecheck/build/test below when
+  # the PR touches nothing they'd actually re-check. Runs first, no
+  # dependencies, so it overlaps with `setup` instead of gating it -
+  # `setup` (dep install/cache restore) still runs unconditionally since
+  # `dead-code`/`security-scan`/`dependency-audit` below are NOT gated by
+  # this job's outputs (out of scope for LAB-2097 - only
+  # lint/typecheck/build/test/ls-lint are). Checkout here runs against the
+  # CALLER repo (this reusable workflow's checkout context is whichever
+  # repo invoked it via workflow_call), which is exactly what needs
+  # filtering - not this labone-actions repo itself.
+  #
+  # `node` covers everything lint/typecheck/build/test actually consume
+  # today (checked against each job's own cached-script `script`/
+  # `cache-key-extra-glob-*` inputs above): TS/JS source, package.json,
+  # both supported lockfiles (package_manager: yarn vs pnpm, LAB-1268),
+  # eslint/tsconfig/jest/vitest config. Not confident this list is
+  # exhaustive for every one of the ~20 current callers - a repo with an
+  # unusual extra config file consumed by a custom lint/build script
+  # (surfaced via extra_deps_cache_key_glob_1/2, which are caller-specific
+  # and can't be folded into a static filter list here) could still see a
+  # stale skip. Erring toward a broader match (more false "changed"
+  # positives, i.e. running when not strictly needed) rather than a
+  # narrower one, since a wrong filter that skips real work is a
+  # correctness bug across every caller.
+  #
+  # `ls_lint` is added per LAB-2097's spec for output-shape parity with the
+  # `node`/`ls_lint` pair used elsewhere, but neither develop-node-ci.yml
+  # nor main-node-ci.yml actually run an `ls-lint` job today (confirmed:
+  # no such job exists in either file, unlike develop-ci.yml/
+  # develop-mobile-ci.yml's `enable_ls_lint` gate) - this output is
+  # currently unused by any job below. Left in so a future `ls-lint` job
+  # added to this workflow can gate on it immediately, and conservatively
+  # scoped to the same source-file patterns `node` uses (ls-lint polices
+  # filenames of source files, not their content) plus `.ls-lint.yml`
+  # itself, since no caller's actual `.ls-lint.yml` was read to confirm an
+  # exact pattern - see this job's PR description for the explicit
+  # "unconfirmed" callout.
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      node: ${{ steps.filter.outputs.node }}
+      ls_lint: ${{ steps.filter.outputs.ls_lint }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            node:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '**/package.json'
+              - '**/yarn.lock'
+              - '**/pnpm-lock.yaml'
+              - '**/.yarnrc.yml'
+              - '**/tsconfig*.json'
+              - '**/.eslintrc*'
+              - '**/eslint.config.*'
+              - '**/jest.config.*'
+              - '**/vitest.config.*'
+            ls_lint:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '.ls-lint.yml'
+
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
@@ -225,8 +347,17 @@ jobs:
 
   lint:
     name: lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See the `changes` job's precedent comment (this file's `build`/`test`
+    # jobs already skip via `if:` on `enable_*`/`is_dependabot` today, and
+    # that `skipped` result is already relied upon by branch protection -
+    # see this file's `build`/`test` `if:` below) - a `skipped` required
+    # check satisfies branch protection identically to `success` (GitHub
+    # docs: "Require status checks to pass" treats neutral/skipped the same
+    # as passing). LAB-2097 only adds a second, independent condition
+    # (`needs.changes.outputs.node`) ANDed onto that same mechanism.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       # Zero-tolerance gate: this just runs `<package manager> lint` and
       # fails on any non-zero exit. Whether that actually means "zero
@@ -253,8 +384,11 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    # See the `lint` job's comment above - identical skipped-satisfies-
+    # branch-protection precedent applies here.
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -274,9 +408,14 @@ jobs:
 
   build:
     name: build
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build }}
+    # `inputs.enable_build` is the existing `enable_*`-gated `if:`-skip
+    # precedent this file already relies on for branch protection (a
+    # caller setting enable_build: false already produces a `skipped`
+    # required check today, and that's accepted) - LAB-2097 ANDs in the new
+    # path-filter condition alongside it, unchanged otherwise.
+    if: ${{ inputs.enable_build && needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -291,9 +430,13 @@ jobs:
 
   test:
     name: test
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    # `inputs.enable_test && !inputs.is_dependabot` is the existing
+    # `enable_*`/`is_dependabot`-gated `if:`-skip precedent this file
+    # already relies on for branch protection - LAB-2097 ANDs in the new
+    # path-filter condition alongside it, unchanged otherwise.
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.node == 'true' }}
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
@@ -370,3 +513,80 @@ jobs:
       - if: inputs.package_manager == 'pnpm'
         run: pnpm audit
         working-directory: ${{ inputs.working-directory }}
+
+  dead-code:
+    name: dead-code
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # scan-with-report below always runs `yarn <script>` (not
+      # package-manager-aware, unlike cached-script) - see this job's
+      # enable_dead_code input description - so this restores deps via
+      # setup-node-yarn unconditionally rather than branching on
+      # inputs.package_manager like the `setup` job does.
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: dead-code
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/dead-code-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: dead-code-scan
+          job-name: dead-code
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
+
+  # LAB-2103: single aggregator job so caller repos' branch protection can
+  # require ONE context (`required-checks`) instead of a hand-maintained
+  # list of this workflow's individual job-name contexts. Without this, any
+  # rename/add/remove of a job in this shared workflow silently desyncs
+  # every caller's branch protection required-status-check list -
+  # permanently blocking merges with no visible error until someone thinks
+  # to compare the two lists by hand. See README.md's "required-checks"
+  # section for the full rationale and the caller-side branch-protection
+  # follow-up this unblocks.
+  #
+  # `needs:` lists every job in this file that's currently a REAL
+  # (blocking) gate: `lint`, `typecheck`, `build`, `test`, `security-scan`,
+  # `dependency-audit`. Deliberately excludes:
+  #   - `changes`/`setup` - infra/plumbing jobs, not gates themselves.
+  #   - `dead-code` - explicitly advisory-only (`blocking: 'false'` on its
+  #     `scan-with-report` call above), never fails on its own even when
+  #     `enable_dead_code` is on. Making it a `needs:` dependency of a
+  #     REQUIRED job would make a design-advisory scan block merges, which
+  #     is exactly the failure mode `blocking: 'false'` exists to prevent.
+  #
+  # `if: always()` so this job still runs (and can report a real result)
+  # even when an upstream gate job fails/is cancelled - without it, GitHub's
+  # default scheduling would skip this job outright whenever any `needs:`
+  # entry didn't succeed, which is the opposite of what an aggregator gate
+  # needs to do. A `skipped` result on any needed job (from `enable_*:
+  # false`, `is_dependabot`, or LAB-2097's `needs.changes.outputs.node ==
+  # 'false'` path-filter gating) must NOT fail this job - that's the same
+  # "skipped satisfies the requirement" precedent every `if:` in this file
+  # already relies on for branch protection (see the `lint` job's comment
+  # above) - only `failure`/`cancelled` should.
+  required-checks:
+    name: required-checks
+    needs:
+      [lint, typecheck, build, test, security-scan, dependency-audit]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

@@ -4,37 +4,24 @@ run-name: PR CI
 
 on:
   pull_request:
-    types: [opened, synchronize]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.repository }}-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+    types: [opened, synchronize, closed]
 
 jobs:
   rust-ci:
-    uses: PeterChauYEG/labone-actions/.github/workflows/develop-rust-ci.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/rust-pr.yml@main
     secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}
-      is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
-      # Arbitrary shell run before fmt/clippy/test/build's own cargo command
-      # - e.g. installing private-git SDK dependencies cargo needs to
-      # resolve the dependency graph:
-      # pre_build_command: |
-      #   bash scripts/install-some-sdk.sh
-      #
-      # Turn on optional jobs your repo actually has scripts for:
-      # enable_build: true
-      # enable_duplicate_code: true
-      # enable_file_size: true
-
-  actionlint:
-    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
-    secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}
+    # with:
+    #   Arbitrary shell run before fmt/clippy/test/build's own cargo command
+    #   - e.g. installing private-git SDK dependencies cargo needs to
+    #   resolve the dependency graph:
+    #   pre_build_command: |
+    #     bash scripts/install-some-sdk.sh
+    #
+    #   Turn on optional jobs your repo actually has scripts for:
+    #   enable_build: true
+    #   enable_duplicate_code: true
+    #   enable_file_size: true
+    #
+    #   Also fold in github-actions[bot] here if this repo's main.yml
+    #   pre-creates check-runs for its own CalVer version-bump PR:
+    #   also_treat_actions_bot_as_dependabot: true
