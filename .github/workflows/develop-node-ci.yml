@@ -330,9 +330,16 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: ${{ inputs.working-directory }}/package.json
+      # Advisory-only, like dead-code/duplicate-code above (see this file's
+      # required-checks comment): a peer dependency conflict is real signal
+      # worth surfacing, but blocking merges on it with no fix-forward path
+      # (e.g. a transitive dependency's own peer range, not something the
+      # repo controls) is exactly the failure mode `continue-on-error`
+      # exists to prevent here.
       - name: Check for peer dependency conflicts (yarn)
         if: ${{ inputs.package_manager == 'yarn' }}
         working-directory: ${{ inputs.working-directory }}
+        continue-on-error: true
         run: |
           yarn install --immutable 2>&1 | tee /tmp/yarn-install.log
           if grep -q "YN0060" /tmp/yarn-install.log; then
@@ -343,6 +350,7 @@ jobs:
       - name: Check for peer dependency conflicts (pnpm)
         if: ${{ inputs.package_manager == 'pnpm' }}
         working-directory: ${{ inputs.working-directory }}
+        continue-on-error: true
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
   lint:
@@ -569,6 +577,10 @@ jobs:
   #     `enable_dead_code` is on. Making it a `needs:` dependency of a
   #     REQUIRED job would make a design-advisory scan block merges, which
   #     is exactly the failure mode `blocking: 'false'` exists to prevent.
+  #   - `peer-deps` - advisory-only (`continue-on-error: true` on both its
+  #     conflict-check steps), same rationale as `dead-code`: a peer range
+  #     conflict is often outside the repo's own control (a transitive
+  #     dependency's peer range), so it's surfaced but never blocks merges.
   #
   # `if: always()` so this job still runs (and can report a real result)
   # even when an upstream gate job fails/is cancelled - without it, GitHub's
