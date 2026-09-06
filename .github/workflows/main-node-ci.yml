@@ -216,6 +216,16 @@ jobs:
           # labone-eslint-plugin package for backend services, consumed the
           # same way, so this needs to be wired up here too.
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # This job runs the one real network `yarn install` (cache-write:
+          # 'true' below) - lint/typecheck/build/test mostly just restore the
+          # node_modules cache this job writes, so gh-token was previously
+          # only wired on those read-mostly jobs and never on the job that
+          # actually needs it for a repo whose postinstall/registry resolves
+          # a scoped package from a different private repo (e.g.
+          # @peterchauyeg/api-components from GitHub Packages). Without it,
+          # this job's install fails "Invalid authentication (as an
+          # anonymous user)" on any such scope.
+          gh-token: ${{ secrets.GH_PAT }}
           # Only push-to-main writes a fresh node_modules cache entry - PR
           # runs (develop-node-ci.yml) only read it. See setup-node-yarn's
           # cache-write input description and README.md "Caching strategy".
