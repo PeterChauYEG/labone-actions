@@ -304,6 +304,13 @@ jobs:
           # labone-eslint-plugin package for backend services, consumed the
           # same way, so this needs to be wired up here too.
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # A cache-write: 'false' job still runs a real network install on
+          # a cache miss (e.g. this PR's own yarn.lock change) - the
+          # cache-hit-only path was the reason gh-token was previously
+          # missing here, but a miss needs it exactly like main-node-ci.yml's
+          # setup job. See that file's identical comment for the failure
+          # mode this prevents.
+          gh-token: ${{ secrets.GH_PAT }}
           # PR runs only read the node_modules cache written by
           # main-node-ci.yml. See setup-node-yarn's cache-write input
           # description and README.md "Caching strategy".
@@ -316,6 +323,7 @@ jobs:
           extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
           extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
           # PR runs only read the node_modules cache written by
           # main-node-ci.yml. See setup-node-pnpm's cache-write input
           # description and README.md "Caching strategy".
