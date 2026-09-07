@@ -11,9 +11,19 @@ on:
         type: boolean
         required: false
         default: false
+      enable_deploy:
+        description: Set false for a repo with no confirmed deploy target yet.
+        type: boolean
+        required: false
+        default: true
       dokku_remote_url:
         type: string
-        required: true
+        required: false
+        default: ''
+      enable_slack_notification:
+        type: boolean
+        required: false
+        default: true
       extra_deps_paths:
         type: string
         required: false
@@ -36,8 +46,8 @@ jobs:
       is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.head_commit.author.name == 'github-actions[bot]') }}
       enable_build: true
       enable_test: true
-      enable_deploy: true
-      enable_slack_notification: true
+      enable_deploy: ${{ inputs.enable_deploy }}
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
       dokku_remote_url: ${{ inputs.dokku_remote_url }}
       extra_deps_paths: ${{ inputs.extra_deps_paths }}
       test_script_args: ${{ inputs.test_script_args }}
