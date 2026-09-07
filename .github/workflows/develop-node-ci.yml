@@ -512,6 +512,16 @@ jobs:
     needs: setup
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    # `yarn npm audit`/`pnpm audit` resolve advisory data against the real
+    # registry, including for scoped packages published to GitHub Packages
+    # (e.g. @peterchauyeg/api-components) - .yarnrc.yml's npmAuthToken:
+    # "${GH_TOKEN:-}" falls back to empty without this, and yarn fails the
+    # whole job with "Invalid authentication (as an anonymous user)" even
+    # when there's nothing to actually audit. Every other job here restores
+    # GH_TOKEN via setup-node-yarn/cached-script; this job checks out fresh
+    # instead, so it needs its own job-level env.
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       # `yarn npm audit`/`pnpm audit` resolve entirely from the lockfile
       # against the registry - no installed node_modules tree needed, just
