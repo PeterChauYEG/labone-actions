@@ -20,6 +20,11 @@ on:
         type: string
         required: false
         default: ''
+      enable_build:
+        description: Run `cargo build --release`. Off by default for CLIs.
+        type: boolean
+        required: false
+        default: false
       dead_code_script:
         type: string
         required: false
@@ -75,7 +80,7 @@ jobs:
       pr_url: ${{ github.event.pull_request.html_url }}
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.pull_request.user.login == 'github-actions[bot]') }}
       pre_build_command: ${{ inputs.pre_build_command }}
-      enable_build: false
+      enable_build: ${{ inputs.enable_build }}
       enable_dead_code: true
       dead_code_script: ${{ inputs.dead_code_script }}
       cargo_machete_version: ${{ inputs.cargo_machete_version }}
