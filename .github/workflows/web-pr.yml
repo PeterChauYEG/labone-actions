@@ -56,7 +56,7 @@ jobs:
       enable_e2e: true
       enable_react_tech_debt: true
       enable_max_lines: true
-      enable_tech_debt: false
+      enable_tech_debt: true
       extra_deps_paths: ${{ inputs.extra_deps_paths }}
       test_script_args: ${{ inputs.test_script_args }}
 
