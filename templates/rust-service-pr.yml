@@ -8,5 +8,5 @@ on:
 
 jobs:
   ci:
-    uses: PeterChauYEG/labone-actions/.github/workflows/web-pr.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/rust-service-pr.yml@main
     secrets: inherit

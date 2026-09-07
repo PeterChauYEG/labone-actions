@@ -47,16 +47,21 @@ on:
           Run `yarn a11y` (accessibility scan). Advisory only (nextjs-ci
           v1.0.3, 2026-08-20) - same rationale/mechanism as
           `enable_duplicate_code` below: still runs, never fails the job or
-          blocks `deploy`.
+          blocks `deploy`. Defaults off on push-to-main (unlike
+          develop-ci.yml's identical input): every one of these advisory
+          scans posts its findings via a sticky PR comment on the PR path,
+          and there's no PR to comment on at push-to-main time - it would
+          just burn CI minutes for no visible output.
         type: boolean
-        default: true
+        default: false
       enable_design_system:
         description: >
           Run `yarn design-system`. Advisory only (nextjs-ci v1.0.3,
           2026-08-20) - same rationale/mechanism as `enable_duplicate_code`
           below: still runs, never fails the job or blocks `deploy`.
+          Defaults off on push-to-main - see `enable_a11y` above.
         type: boolean
-        default: true
+        default: false
       enable_duplicate_code:
         description: >
           Run `yarn duplicate-code`. Advisory only (nextjs-ci v1.0.2,
@@ -65,9 +70,10 @@ on:
           or blocks `deploy` — it's a repo-wide scan that can trip on
           pre-existing findings unrelated to the commit that triggered the
           run. See `continue-on-error` on the job's `run: yarn
-          duplicate-code` step below.
+          duplicate-code` step below. Defaults off on push-to-main - see
+          `enable_a11y` above.
         type: boolean
-        default: true
+        default: false
       enable_e2e:
         description: Run `yarn run-e2e-scan` (Playwright e2e) as a pass/fail gate.
         type: boolean
@@ -77,15 +83,17 @@ on:
           Run `yarn react-tech-debt`. Advisory only (nextjs-ci v1.0.3,
           2026-08-20) - same rationale/mechanism as `enable_duplicate_code`
           below: still runs, never fails the job or blocks `deploy`.
+          Defaults off on push-to-main - see `enable_a11y` above.
         type: boolean
-        default: true
+        default: false
       enable_max_lines:
         description: >
           Run `yarn max-lines`. Advisory only (nextjs-ci v1.0.2,
           2026-08-20) — same rationale/mechanism as `enable_duplicate_code`
           above: still runs, never fails the job or blocks `deploy`.
+          Defaults off on push-to-main - see `enable_a11y` above.
         type: boolean
-        default: true
+        default: false
       enable_deploy:
         description: Push to the dokku remote after all gates pass.
         type: boolean

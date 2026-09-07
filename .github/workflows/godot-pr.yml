@@ -1,22 +1,5 @@
 name: Godot PR Orchestrator
 
-# Thin orchestrator layer between a Godot 4/GDScript repo's own develop.yml
-# and godot-develop-ci.yml (LAB-2096). Bakes in what every existing godot
-# caller repeats today - pr_number/pr_url/is_dependabot computation, the
-# `if: github.event.action != 'closed'` guard, the PR concurrency group,
-# the actionlint sibling job, and the `pull-requests: write` grant
-# godot-develop-ci.yml's format/lint/duplicate-code/test jobs all need
-# (every one of them declares its own job-level `permissions:
-# pull-requests: write` for sticky-PR-comment/Linear-ticket-filing - a
-# caller missing this fails the ENTIRE run with `startup_failure`, 0 jobs -
-# see templates/godot-pr.yml's prior comment, now baked in here instead).
-# A caller repo `develop.yml` now only needs `uses: .../godot-pr.yml@main`
-# with zero `with:` keys for the common case.
-#
-# github.event.pull_request is available here because the outermost
-# trigger (the calling repo's own develop.yml) is still `pull_request` -
-# that context flows transitively through the whole `workflow_call` chain.
-
 on:
   workflow_call:
     inputs:
@@ -26,10 +9,6 @@ on:
         required: false
         default: '.'
       also_treat_actions_bot_as_dependabot:
-        description: >
-          OR'd into the computed is_dependabot expression - set true for a
-          repo whose main.yml pre-creates check-runs for its own CalVer
-          version-bump PR (opened by github-actions[bot]).
         type: boolean
         required: false
         default: false
@@ -79,7 +58,3 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       pr_url: ${{ github.event.pull_request.html_url }}
-
-  # Add repo-specific bespoke jobs below as needed (e.g. dead-code,
-  # a project-specific smoke test) - none of these are standardized in
-  # godot-develop-ci.yml.
