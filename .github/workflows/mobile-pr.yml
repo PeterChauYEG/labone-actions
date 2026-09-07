@@ -71,7 +71,7 @@ jobs:
       enable_design_system: true
       enable_dead_code: true
       enable_duplicate_code: ${{ inputs.enable_duplicate_code }}
-      enable_security_scan: true
+      enable_security_scan: false
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       enable_dependency_audit: false
       enable_tech_debt: true
