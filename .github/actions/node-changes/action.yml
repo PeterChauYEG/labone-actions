@@ -1,0 +1,83 @@
+name: Node changes
+description: Shared path-filter outputs for Node/NestJS backend service repos, used by both develop-node-ci.yml and main-node-ci.yml.
+
+outputs:
+  workflows:
+    description: .github/workflows/** changed.
+    value: ${{ steps.filter.outputs.workflows }}
+  node_source:
+    description: Any TS/JS source file changed.
+    value: ${{ steps.filter.outputs.node_source }}
+  node_deps:
+    description: package.json/lockfile changed.
+    value: ${{ steps.filter.outputs.node_deps }}
+  tsconfig:
+    description: tsconfig*.json changed.
+    value: ${{ steps.filter.outputs.tsconfig }}
+  eslint_config:
+    description: .eslintrc*/eslint.config.* changed.
+    value: ${{ steps.filter.outputs.eslint_config }}
+  jest_config:
+    description: jest.config.*/vitest.config.* changed.
+    value: ${{ steps.filter.outputs.jest_config }}
+  node:
+    description: Full union - anything build/setup would care about.
+    value: ${{ steps.filter.outputs.node }}
+  ls_lint:
+    description: Source or .ls-lint.yml changed.
+    value: ${{ steps.filter.outputs.ls_lint }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v4
+      id: filter
+      with:
+        filters: |
+          workflows:
+            - '.github/workflows/**'
+          node_source:
+            - '**/*.ts'
+            - '**/*.tsx'
+            - '**/*.js'
+            - '**/*.jsx'
+            - '**/*.mjs'
+            - '**/*.cjs'
+          node_deps:
+            - '**/package.json'
+            - '**/yarn.lock'
+            - '**/pnpm-lock.yaml'
+            - '**/.yarnrc.yml'
+          tsconfig:
+            - '**/tsconfig*.json'
+          eslint_config:
+            - '**/.eslintrc*'
+            - '**/eslint.config.*'
+          jest_config:
+            - '**/jest.config.*'
+            - '**/vitest.config.*'
+          node:
+            - '**/*.ts'
+            - '**/*.tsx'
+            - '**/*.js'
+            - '**/*.jsx'
+            - '**/*.mjs'
+            - '**/*.cjs'
+            - '**/package.json'
+            - '**/yarn.lock'
+            - '**/pnpm-lock.yaml'
+            - '**/.yarnrc.yml'
+            - '**/tsconfig*.json'
+            - '**/.eslintrc*'
+            - '**/eslint.config.*'
+            - '**/jest.config.*'
+            - '**/vitest.config.*'
+          ls_lint:
+            - '**/*.ts'
+            - '**/*.tsx'
+            - '**/*.js'
+            - '**/*.jsx'
+            - '**/*.mjs'
+            - '**/*.cjs'
+            - '.ls-lint.yml'

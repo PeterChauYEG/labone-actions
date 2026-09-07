@@ -63,22 +63,17 @@ jobs:
       contents: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      rust_source: ${{ steps.filter.outputs.rust_source }}
+      rust_deps: ${{ steps.filter.outputs.rust_deps }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: PeterChauYEG/labone-actions/.github/actions/rust-changes@main
         id: filter
-        with:
-          filters: |
-            rust:
-              - '**/*.rs'
-              - '**/Cargo.toml'
-              - '**/Cargo.lock'
 
   fmt:
     name: fmt
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.rust == 'true' }}
+    if: ${{ needs.changes.outputs.rust_source == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -95,7 +90,7 @@ jobs:
     name: clippy
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.rust == 'true' }}
+    if: ${{ needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -150,10 +145,11 @@ jobs:
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]
-    needs: [required-checks]
+    needs: [required-checks, changes]
     if: >-
       always() && inputs.enable_deploy && !inputs.is_dependabot &&
-      needs.required-checks.result == 'success'
+      needs.required-checks.result == 'success' &&
+      needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7
         with:

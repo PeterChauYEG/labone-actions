@@ -161,19 +161,17 @@ jobs:
       contents: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      rust_source: ${{ steps.filter.outputs.rust_source }}
+      rust_deps: ${{ steps.filter.outputs.rust_deps }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: PeterChauYEG/labone-actions/.github/actions/rust-changes@main
         id: filter
-        with:
-          filters: |
-            rust:
-              - '**/*.rs'
-              - '**/Cargo.toml'
-              - '**/Cargo.lock'
 
   actionlint:
     name: actionlint
+    needs: changes
+    if: ${{ needs.changes.outputs.workflows == 'true' }}
     secrets: inherit
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     with:
@@ -184,7 +182,7 @@ jobs:
     name: fmt
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.rust == 'true' }}
+    if: ${{ needs.changes.outputs.rust_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -218,7 +216,7 @@ jobs:
     name: clippy
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.rust == 'true' }}
+    if: ${{ needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -310,8 +308,9 @@ jobs:
 
   dead-code:
     name: dead-code
+    needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && (needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true') }}
     permissions:
       contents: read
       pull-requests: write
@@ -348,8 +347,9 @@ jobs:
 
   duplicate-code:
     name: duplicate-code
+    needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -392,8 +392,9 @@ jobs:
 
   file-size:
     name: file-size
+    needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_file_size && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_file_size && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write

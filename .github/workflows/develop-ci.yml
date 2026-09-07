@@ -179,46 +179,22 @@ jobs:
       contents: read
     outputs:
       web: ${{ steps.filter.outputs.web }}
+      web_source: ${{ steps.filter.outputs.web_source }}
+      web_deps: ${{ steps.filter.outputs.web_deps }}
+      tsconfig: ${{ steps.filter.outputs.tsconfig }}
+      eslint_config: ${{ steps.filter.outputs.eslint_config }}
+      jest_config: ${{ steps.filter.outputs.jest_config }}
+      react_ui: ${{ steps.filter.outputs.react_ui }}
       ls_lint: ${{ steps.filter.outputs.ls_lint }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: PeterChauYEG/labone-actions/.github/actions/web-changes@main
         id: filter
-        with:
-          filters: |
-            web:
-              - '**/*.ts'
-              - '**/*.tsx'
-              - '**/*.js'
-              - '**/*.jsx'
-              - '**/*.mjs'
-              - '**/*.cjs'
-              - '**/package.json'
-              - '**/yarn.lock'
-              - '**/pnpm-lock.yaml'
-              - '**/.yarnrc.yml'
-              - '**/tsconfig*.json'
-              - '**/.eslintrc*'
-              - '**/eslint.config.*'
-              - '**/jest.config.*'
-              - '**/vitest.config.*'
-              - '**/next.config.*'
-              - '**/tailwind.config.*'
-              - '**/postcss.config.*'
-              - '**/*.css'
-              - '**/*.scss'
-              - '**/public/**'
-            ls_lint:
-              - '**/*.ts'
-              - '**/*.tsx'
-              - '**/*.js'
-              - '**/*.jsx'
-              - '**/*.mjs'
-              - '**/*.cjs'
-              - '.ls-lint.yml'
 
   actionlint:
     name: actionlint
+    needs: changes
+    if: ${{ needs.changes.outputs.workflows == 'true' }}
     secrets: inherit
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     with:
@@ -227,7 +203,9 @@ jobs:
 
   setup:
     name: setup
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.web == 'true' }}
     # Deliberately narrower than (and independent of) the caller's own
     # workflow-level `concurrency:` group (grouped per PR number, see
     # templates/*-pr.yml and README.md "Concurrency" point 1) — this one is
@@ -271,7 +249,9 @@ jobs:
 
   peer-deps:
     name: peer-deps
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.web_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
       - run: corepack enable
@@ -292,7 +272,7 @@ jobs:
     name: lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.web == 'true' }}
+    if: ${{ needs.changes.outputs.web_source == 'true' || needs.changes.outputs.web_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # --cache/--cache-location are passed through to the caller's `lint`
       # script (yarn forwards extra CLI args to the underlying command) —
@@ -334,7 +314,7 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.web == 'true' }}
+    if: ${{ needs.changes.outputs.web_source == 'true' || needs.changes.outputs.web_deps == 'true' || needs.changes.outputs.tsconfig == 'true' }}
     steps:
       # --incremental/--tsBuildInfoFile are passed through to the caller's
       # `typecheck` script (yarn forwards extra CLI args) — assumes that
@@ -372,7 +352,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.web == 'true' }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && (needs.changes.outputs.web_source == 'true' || needs.changes.outputs.web_deps == 'true' || needs.changes.outputs.tsconfig == 'true' || needs.changes.outputs.jest_config == 'true') }}
     steps:
       # test_script_args (default Jest's cache flags) is passed through to
       # the caller's `test:coverage` script (yarn forwards extra CLI args) —
@@ -394,9 +374,9 @@ jobs:
 
   a11y:
     name: a11y
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_a11y && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -428,9 +408,9 @@ jobs:
 
   design-system:
     name: design-system
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_design_system && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -457,9 +437,9 @@ jobs:
 
   dead-code:
     name: dead-code
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -486,9 +466,9 @@ jobs:
 
   duplicate-code:
     name: duplicate-code
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -518,9 +498,9 @@ jobs:
 
   run-e2e-tests:
     name: run-e2e-tests
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_e2e && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_e2e && !inputs.is_dependabot && needs.changes.outputs.web == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -558,9 +538,9 @@ jobs:
 
   react-tech-debt:
     name: react-tech-debt
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -587,9 +567,9 @@ jobs:
 
   max-lines:
     name: max-lines
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_max_lines && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -616,9 +596,9 @@ jobs:
 
   tech-debt:
     name: tech-debt
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write

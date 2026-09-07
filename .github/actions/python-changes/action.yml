@@ -1,0 +1,27 @@
+name: Python changes
+description: Shared path-filter outputs for Python repos, used by develop-python-ci.yml.
+
+outputs:
+  workflows:
+    description: .github/workflows/** changed.
+    value: ${{ steps.filter.outputs.workflows }}
+  python:
+    description: Python source or dependency-declaration file changed.
+    value: ${{ steps.filter.outputs.python }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          workflows:
+            - '.github/workflows/**'
+          python:
+            - '**/*.py'
+            - '**/requirements*.txt'
+            - '**/pyproject.toml'
+            - '**/setup.cfg'
+            - '**/setup.py'

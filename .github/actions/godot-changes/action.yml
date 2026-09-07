@@ -1,0 +1,32 @@
+name: Godot changes
+description: Shared path-filter outputs for Godot 4/GDScript repos, used by godot-develop-ci.yml.
+
+outputs:
+  workflows:
+    description: .github/workflows/** changed.
+    value: ${{ steps.filter.outputs.workflows }}
+  godot_source:
+    description: Any .gd script changed.
+    value: ${{ steps.filter.outputs.godot_source }}
+  godot:
+    description: Full union - script, scene, resource, or project file changed (what test needs).
+    value: ${{ steps.filter.outputs.godot }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          workflows:
+            - '.github/workflows/**'
+          godot_source:
+            - '**/*.gd'
+          godot:
+            - '**/*.gd'
+            - '**/*.tscn'
+            - '**/*.tres'
+            - '**/project.godot'
+            - '**/*.import'

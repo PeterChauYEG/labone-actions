@@ -1,0 +1,36 @@
+name: Rust changes
+description: Shared path-filter outputs for Rust repos, used by develop-rust-ci.yml/main-rust-ci.yml and the rust-service/rust-cli PR orchestrators.
+
+outputs:
+  workflows:
+    description: .github/workflows/** changed.
+    value: ${{ steps.filter.outputs.workflows }}
+  rust_source:
+    description: Any .rs file changed.
+    value: ${{ steps.filter.outputs.rust_source }}
+  rust_deps:
+    description: Cargo.toml/Cargo.lock changed.
+    value: ${{ steps.filter.outputs.rust_deps }}
+  rust:
+    description: Full union - anything build/test would care about.
+    value: ${{ steps.filter.outputs.rust }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          workflows:
+            - '.github/workflows/**'
+          rust_source:
+            - '**/*.rs'
+          rust_deps:
+            - '**/Cargo.toml'
+            - '**/Cargo.lock'
+          rust:
+            - '**/*.rs'
+            - '**/Cargo.toml'
+            - '**/Cargo.lock'
