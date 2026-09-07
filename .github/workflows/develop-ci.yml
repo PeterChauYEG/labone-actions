@@ -159,6 +159,14 @@ on:
         type: string
         required: false
         default: '--cache --cacheDirectory .jestcache'
+      enable_security_scan:
+        description: Run the Trivy filesystem vulnerability scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -268,6 +276,41 @@ jobs:
             grep "YN0060" /tmp/yarn-install.log
             exit 1
           fi
+
+  security-scan:
+    name: security-scan
+    needs: changes
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.web_deps == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (vulnerabilities)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  secret-scan:
+    name: secret-scan
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (secrets)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
 
   lint:
     name: lint
@@ -616,7 +659,7 @@ jobs:
 
   required-checks:
     name: required-checks
-    needs: [lint, ls-lint, typecheck, build, test, run-e2e-tests, actionlint]
+    needs: [lint, ls-lint, typecheck, build, test, run-e2e-tests, actionlint, security-scan, secret-scan]
     runs-on: [self-hosted, catfood]
     if: always()
     steps:

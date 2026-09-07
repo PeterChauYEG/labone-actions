@@ -60,7 +60,7 @@ jobs:
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.pull_request.user.login == 'github-actions[bot]') }}
       enable_build: true
       enable_test: true
-      enable_security_scan: false
+      enable_security_scan: true
       enable_dependency_audit: ${{ inputs.enable_dependency_audit }}
       enable_dead_code: false
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
