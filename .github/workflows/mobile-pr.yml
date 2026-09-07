@@ -74,7 +74,7 @@ jobs:
       enable_security_scan: true
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       enable_dependency_audit: false
-      enable_tech_debt: false
+      enable_tech_debt: true
       extra_deps_paths: ${{ inputs.extra_deps_paths }}
 
   actionlint:
