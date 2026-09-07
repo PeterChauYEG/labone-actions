@@ -1,0 +1,67 @@
+name: Cache GC
+
+# Scheduled cross-repo Actions cache garbage collection. GitHub only
+# auto-evicts a cache after 7 days idle or a 10 GiB per-repo cap, whichever
+# comes first - a short-lived PR-branch cache (see README.md "Cache-to-main:
+# read/write split") is dead weight the moment its PR merges/closes, long
+# before either of those kick in. This walks every repo the account owns
+# (gh repo list - never a hardcoded list, so a newly-created repo is covered
+# automatically) and deletes any cache idle past its threshold - a shorter
+# one for PR-branch caches, a longer one (still under GitHub's own 7 days)
+# for refs/heads/main caches, since those are the canonical entries every
+# job's restore-keys fallback depends on (README.md "Per-job cache
+# scoping"). See scripts/cache-gc.sh for the actual delete logic.
+#
+# GH_PAT (same PAT version-bump.yml/setup-node-yarn's gh-token input already
+# use for cross-repo `gh` calls) is required here for the same reason: the
+# ephemeral per-run GITHUB_TOKEN is scoped only to this repo, and cache
+# list/delete needs repo-scoped access across every repo on the account.
+
+on:
+  schedule:
+    # Daily, off-peak UTC - cache staleness doesn't need faster-than-daily
+    # cleanup, and running once a day keeps this well clear of any repo's
+    # own CI traffic.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      main_max_idle_days:
+        description: >
+          Idle-days threshold for refs/heads/main caches before deletion -
+          longer than other_max_idle_days since these are the canonical
+          entries every job's cache restore-keys fallback depends on, but
+          still shorter than GitHub's own 7-day default eviction.
+        type: number
+        required: false
+        default: 2
+      other_max_idle_days:
+        description: >
+          Idle-days threshold for every non-main-branch (PR-branch) cache
+          before deletion.
+        type: number
+        required: false
+        default: 1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-gc
+  cancel-in-progress: false
+
+jobs:
+  cache-gc:
+    name: cache-gc
+    runs-on: [self-hosted, catfood]
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Delete idle Actions caches account-wide
+        run: |
+          ./scripts/cache-gc.sh \
+            --owner PeterChauYEG \
+            --main-max-idle-days "${{ inputs.main_max_idle_days || 2 }}" \
+            --other-max-idle-days "${{ inputs.other_max_idle_days || 1 }}"
+        shell: bash

@@ -619,6 +619,26 @@ strategy one-for-one — a repo-local pnpm store cache (`.pnpm-store`, in
 place of `.yarn/cache`) plus a `node_modules` cache keyed on
 `pnpm-lock.yaml`'s hash instead of `yarn.lock`'s.
 
+**Per-job cache scoping.** Every cache key described in this section is
+prefixed with a job/purpose identifier (`cache-key-prefix` on
+`setup-node-yarn`/`setup-node-pnpm`/`setup-rust`, `deps-cache-key-prefix` on
+`cached-script`, both required inputs) — e.g. `os-node-modules-lint-<hash>`
+for the `lint` job vs. `os-node-modules-test-<hash>` for the `test` job.
+This is deliberate, not incidental: a job restores/writes only the cache
+entry it itself created, never one shared with a different job in the same
+workflow, even when every job builds from the exact same lockfile/
+`Cargo.lock`. Every caller in this repo sets the prefix to its own job name
+(`setup`, `lint`, `typecheck`, `build`, `test`, `dead-code`, `fmt`,
+`clippy`, ...) — a new job added to any workflow here must do the same.
+
+Every prefixed key still falls back on a miss via `restore-keys` to the
+same prefix with no hash suffix (e.g. `os-node-modules-lint-`, not a bare
+`os-node-modules-`) — GitHub Actions' own cross-branch cache scoping
+(a PR branch can restore its base/default branch's cache via an exact key
+match or `restore-keys`) does the rest: a PR run for the `lint` job falls
+back to whatever `main`'s own `lint` job last wrote under that same prefix,
+never to a different job's cache.
+
 Every job used to do its own checkout + `setup-node` + cache-restore +
 full `yarn install --frozen-lockfile` — up to ~12 redundant installs per PR
 across the full job set, on top of two repos using incompatible cache key
@@ -640,11 +660,12 @@ was repeatedly blowing the account-wide Actions artifact storage quota
 the 1-day artifact retention plus GitHub's 6–12h usage-recalculation delay
 could drain it.
 
-**Generation 2 (current): cache-only, keyed on the lockfile, not the run.**
-`setup-node-yarn` (called directly by every job that needs deps — no
-artifact fan-out) restores `node_modules` from an `actions/cache` entry
-keyed on `${{ runner.os }}-node-modules-${{ hashFiles('yarn.lock') }}` and
-only runs `yarn install --frozen-lockfile` itself on a miss:
+**Generation 2 (current): cache-only, keyed on the lockfile and the job, not
+the run.** `setup-node-yarn` (called directly by every job that needs deps —
+no artifact fan-out) restores `node_modules` from an `actions/cache` entry
+keyed on `${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{
+hashFiles('yarn.lock') }}` and only runs `yarn install --frozen-lockfile`
+itself on a miss:
 
 1. `setup` runs first: checkout, enable Corepack, `actions/setup-node`,
    restore the Yarn cache (standardized on the Yarn Berry paths), restore
@@ -653,19 +674,21 @@ only runs `yarn install --frozen-lockfile` itself on a miss:
    detection, the Yarn/node_modules cache dirs, the `yarn.lock` hash key)
    are qualified with the `working-directory` input, defaulting to `.` so
    this is a no-op for every existing root-level caller.
-2. Every other job `needs: setup` (so the cache is already warm by the
-   time they read it) and calls `setup-node-yarn` itself — directly for
-   plain jobs (`ls-lint`, `a11y`, `design-system`, ...), or via
-   `cached-script` for jobs that also wrap a script-specific incremental
-   cache (`lint`, `typecheck`, `test`) — always with `cache-write: 'false'`,
-   since only `setup`'s write should ever create a fresh entry.
+2. Every other job `needs: setup` (so `setup`'s own `os-node-modules-setup-
+   <hash>` entry is warm, in case a job needs it as a `restore-keys`
+   fallback) and calls `setup-node-yarn` itself, with its own
+   `cache-key-prefix` — directly for plain jobs (`ls-lint`, `a11y`,
+   `design-system`, ...), or via `cached-script` for jobs that also wrap a
+   script-specific incremental cache (`lint`, `typecheck`, `test`).
 
-Cache-write is deliberately split the same way it already was for the
-script-specific caches: only the push-to-main workflow's `setup` job passes
-`cache-write: 'true'`; every PR job, and every non-`setup` job even on
-main, only ever reads. This means the *cache* is written once per actual
-`yarn.lock` change (main only), not once per run — the fix the user asked
-for directly.
+Cache-write is split per push-vs-PR the same way it already was for the
+script-specific caches: `main-*-ci.yml`'s jobs pass `cache-write: 'true'`,
+writing their own job-scoped `node_modules` entry (`os-node-modules-lint-
+<hash>`, `os-node-modules-test-<hash>`, ...); every PR job (`develop-*-
+ci.yml`) passes `'false'` and only ever reads what that same job on `main`
+last wrote. This means each job's own cache entry is written once per
+actual lockfile change on `main`, not once per run — the fix the user
+originally asked for, now scoped per job rather than shared across jobs.
 
 **Known tradeoff, and it's intentional:** on a genuine cache miss (a
 `yarn.lock` this account has never cached before — e.g. the very first run
@@ -686,8 +709,10 @@ they're the only way to get dependencies in place.
 
 `setup-node-yarn` caches `node_modules` (+ `.next/cache` if present, + any
 `extra-paths`; path list qualified with `working-directory`), keyed on
-`${{ runner.os }}-node-modules-${{ hashFiles('yarn.lock') }}` with
-`restore-keys` falling back to the nearest older entry for that OS. This is
+`${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{
+hashFiles('yarn.lock') }}` with `restore-keys` falling back to the nearest
+older entry for that OS *and that same job prefix* — never another job's
+entry (see "Per-job cache scoping" above). This is
 the highest-value cache in this repo: even with a warm Yarn package cache,
 `yarn install --frozen-lockfile` previously still paid the full
 resolve/link cost on *every single run*, regardless of whether `yarn.lock`
@@ -763,19 +788,20 @@ split below exists to avoid — so it's disabled here (`cache: false`) in
 favor of explicit `actions/cache`/`actions/cache/restore` steps pointed at
 the same cache dir.
 
-### Cargo cache convergence (`develop-rust-ci.yml`)
+### Cargo cache scoping (`develop-rust-ci.yml`/`main-rust-ci.yml`)
 
-`develop-rust-ci.yml` has no shared `setup` job or `main-*-ci.yml`
-counterpart (see that workflow's own README section), so its `clippy`,
-`test`, and `build` jobs' `actions/cache` blocks (`~/.cargo/registry` +
-`~/.cargo/git` + `target`) now all share one key, `${{ runner.os }}-cargo-
-${{ hashFiles('Cargo.lock') }}`, instead of three separate `cargo-clippy-`/
-`cargo-test-`/`cargo-build-` namespaces. Those three jobs still run in
-parallel and can't share a cache *within* the same run (GitHub only saves
-a cache at job end, and only the first job to finish actually wins the
-save — the rest no-op), but every subsequent run for an unchanged
-`Cargo.lock` now hits one warm, shared cache instead of rebuilding
-`target` from scratch in up to three separate jobs.
+`develop-rust-ci.yml` has no shared `setup` job (see that workflow's own
+README section), so its `fmt`, `clippy`, `test`, `build`, `dead-code`,
+`duplicate-code`, and `dependency-audit` jobs each call `setup-rust` with
+their own `cache-key-prefix` (`fmt`, `clippy`, `test`, `build`, ...),
+giving each job its own `${{ runner.os }}-cargo-<prefix>-${{
+hashFiles('Cargo.lock') }}` cache entry — `cargo-fmt-`, `cargo-clippy-`,
+`cargo-test-`, `cargo-build-`, etc. — instead of one entry shared across
+every job (see "Per-job cache scoping" above). `main-rust-ci.yml`'s
+`fmt`/`clippy`/`test`/`build` jobs use the identical prefixes, so they
+populate the canonical per-job entry a PR-branch job on `develop-rust-ci.yml`
+falls back to via `restore-keys` on its own first run for a given
+`Cargo.lock`.
 
 ### Cache-to-main: read/write split
 
@@ -804,14 +830,48 @@ Only the push-to-main workflows write:
   (including its `node_modules` cache, via `cache-write: 'true'` to
   `setup-node-yarn`) stays a plain restore+save `actions/cache`, same as
   before this change.
-- `develop-rust-ci.yml`'s converged cargo caches (above) are also exempt —
-  no `main-*-ci.yml` exists for Rust in this repo at all, so there's no
-  push-to-main run to designate as the writer.
+- `develop-rust-ci.yml`'s per-job cargo caches (above) are exempt from the
+  explicit `cache-write` gate — `setup-rust` has no such input; its
+  `actions/cache` step always restores+saves, on both `main-rust-ci.yml`
+  and `develop-rust-ci.yml`. This still fits the overall policy: a
+  PR-branch job's own save is scoped to that PR branch (`actions/cache`'s
+  default per-`github.ref` save behavior), never overwriting/clobbering
+  `main`'s entry, and a PR job with no branch-scoped entry yet still
+  restore-falls-back to whatever `main`'s same-job-scoped entry last
+  wrote.
 
 Rationale: avoids cache-storage churn/eviction from every PR branch
 writing its own short-lived copy of a cache that's about to be discarded
 when the branch merges or closes, while still giving PR runs a warm cache
 (populated only by `main`) instead of a cold one.
+
+### Scheduled cache GC (`cache-gc.yml`)
+
+PR-branch cache entries (see the read/write split above) are still real
+`actions/cache` writes — GitHub only auto-evicts a cache after **7 days**
+idle or when the 10 GiB per-repo cap is hit, whichever comes first, and a
+short-lived PR branch's own entry is dead weight the moment its PR merges
+or closes. `cache-gc.yml` is a scheduled reusable workflow (daily
+`schedule:` cron, plus `workflow_dispatch:` for a manual run) that walks
+every repo on the `PeterChauYEG` account (`gh repo list`, not a hardcoded
+list) and deletes any Actions cache whose `last_accessed_at` is older than
+a threshold:
+
+- `main`-branch (`refs/heads/main`) caches — the canonical entries every
+  job's `restore-keys` fallback above depends on — get the longer
+  `main_max_idle_days` threshold (default **2** days idle), still well
+  inside GitHub's own 7-day eviction window.
+- Every other ref (PR branches) gets the shorter `other_max_idle_days`
+  threshold (default **1** day idle).
+
+Both thresholds are `workflow_dispatch`/`workflow_call` inputs, not
+hardcoded, so a one-off run can override either without editing the
+workflow. Uses the same PAT every other cross-repo workflow in this repo
+already relies on (see `mirror-to-mecha-industries.yml`/
+`version-bump.yml`/`dependabot-automerge.yml`) — cache list/delete is a
+repo-scoped `gh` permission that the ephemeral per-run `GITHUB_TOKEN` can't
+reach for any repo but the one currently running. Logs a per-repo summary
+(caches deleted, bytes reclaimed) to `$GITHUB_STEP_SUMMARY`.
 
 ## Concurrency
 
@@ -1188,9 +1248,9 @@ Unlike `develop-node-ci.yml`, there's no shared `setup` + cache-restore
 stage — cargo's own registry/git/target caching (via
 `actions/cache`, keyed on `Cargo.lock`'s hash) already avoids redundant
 network fetches per job without needing a single upstream install step to
-fan out from. The `clippy`/`test`/`build` jobs' cache blocks share one
-converged key rather than three separate namespaces — see "Caching
-strategy" → "Cargo cache convergence" above. `workflow_call` inputs:
+fan out from. The `fmt`/`clippy`/`test`/`build` jobs' cache blocks each use
+their own job-scoped key rather than one shared across jobs — see "Caching
+strategy" → "Cargo cache scoping" above. `workflow_call` inputs:
 
 - `working-directory` (string, default `.`) — directory the Cargo project
   lives in, for monorepo callers.
