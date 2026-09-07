@@ -367,22 +367,10 @@ jobs:
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]
-    needs: [lint, typecheck, build, test]
-    # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
-    # only actual failures/cancellations should - hence checking
-    # needs.*.result instead of relying on the default all-must-succeed job
-    # dependency semantics, which treats "skipped" the same as "failed" for
-    # a needs chain. That intent only actually works with always() here:
-    # without it, GitHub's own default scheduling skips this job outright
-    # whenever ANY needs entry is skipped (e.g. test, which is skipped for
-    # dependabot commits via is_dependabot) before this custom expression is
-    # ever evaluated - confirmed live, deploy silently no-op'd on every run
-    # triggered by a dependabot commit. always() forces evaluation of the
-    # expression below instead of GitHub's implicit success()-only default.
+    needs: [required-checks]
     if: >-
       always() &&
-      !contains(needs.*.result, 'failure') &&
-      !contains(needs.*.result, 'cancelled') &&
+      needs.required-checks.result == 'success' &&
       !inputs.is_dependabot && inputs.enable_deploy
     steps:
       - uses: actions/checkout@v7

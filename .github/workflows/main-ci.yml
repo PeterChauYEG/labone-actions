@@ -456,52 +456,16 @@ jobs:
     runs-on: [self-hosted, catfood]
     needs:
       [
-        lint,
-        typecheck,
-        build,
-        test,
+        required-checks,
         a11y,
         design-system,
         duplicate-code,
-        run-e2e-tests,
         react-tech-debt,
         max-lines,
       ]
-    # `a11y`/`design-system`/`duplicate-code`/`react-tech-debt`/`max-lines`
-    # all stay in this list for ordering (deploy waits for them to finish)
-    # but none of them block deploy on a finding: every one of those jobs'
-    # `run: yarn <script>` steps sets `continue-on-error: true` (nextjs-ci
-    # v1.0.3, 2026-08-20 - duplicate-code/max-lines got this first in PR
-    # #68/v1.0.2, the other three followed in this round), which keeps the
-    # job's own conclusion 'success' even when the script exits non-zero -
-    # GitHub Actions never counts a continue-on-error step's failure toward
-    # the containing job's conclusion. So `needs.a11y.result` /
-    # `needs.design-system.result` / `needs.duplicate-code.result` /
-    # `needs.react-tech-debt.result` / `needs.max-lines.result` all read
-    # 'success' below regardless of scan outcome, and the
-    # `!contains(needs.*.result, 'failure')` check further down doesn't need
-    # to change. `typecheck`/`build`/`lint`/`test`/`run-e2e-tests` remain
-    # hard gates - their steps have no `continue-on-error`, so a real
-    # failure there still shows up as 'failure' in `needs.*.result` and
-    # blocks deploy as before.
-    #
-    # Skipped-but-not-run gate jobs (enable_* false) must not block deploy,
-    # only actual failures/cancellations should - hence checking needs.*.result
-    # instead of relying on the default all-must-succeed job dependency
-    # semantics, which treats "skipped" the same as "failed" for a needs chain.
-    #
-    # This *requires* always() up front: GitHub silently ANDs a bare
-    # success() onto any if: that doesn't already reference one of
-    # always()/success()/failure()/cancelled(). Without it, this condition
-    # never actually overrides the default all-must-succeed behavior it's
-    # trying to replace - any disabled (skipped) optional gate above still
-    # auto-skips deploy, which is exactly what this comment says shouldn't
-    # happen. Caught via landing-lab's main-ci run 2026-08-07: every
-    # enable_* gate but ls-lint/build/test was false, so deploy silently
-    # skipped every push to main despite all real jobs passing.
     if: >-
       always() && inputs.enable_deploy && !inputs.is_dependabot &&
-      !contains(needs.*.result, 'failure') &&
+      needs.required-checks.result == 'success' &&
       !contains(needs.*.result, 'cancelled')
     steps:
       - uses: actions/checkout@v7
