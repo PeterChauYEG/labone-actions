@@ -198,6 +198,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       mobile: ${{ steps.filter.outputs.mobile }}
       mobile_source: ${{ steps.filter.outputs.mobile_source }}

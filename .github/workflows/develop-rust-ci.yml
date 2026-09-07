@@ -159,6 +159,7 @@ jobs:
     runs-on: [self-hosted, catfood]
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       rust_source: ${{ steps.filter.outputs.rust_source }}
