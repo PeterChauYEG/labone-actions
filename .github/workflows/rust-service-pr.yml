@@ -84,6 +84,6 @@ jobs:
       cargo_dupes_version: ${{ inputs.cargo_dupes_version }}
       enable_file_size: ${{ inputs.enable_file_size }}
       file_size_script: ${{ inputs.file_size_script }}
-      enable_security_scan: false
+      enable_security_scan: true
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       enable_dependency_audit: false

@@ -18,6 +18,10 @@ on:
       dokku_remote_url:
         type: string
         required: true
+      security_scan_trivyignores:
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -35,4 +39,6 @@ jobs:
       enable_test: true
       enable_deploy: true
       enable_slack_notification: true
+      enable_security_scan: true
+      security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       dokku_remote_url: ${{ inputs.dokku_remote_url }}
