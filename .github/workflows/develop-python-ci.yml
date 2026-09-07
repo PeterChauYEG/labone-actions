@@ -103,6 +103,7 @@ jobs:
       pull-requests: read
     outputs:
       python: ${{ steps.filter.outputs.python }}
+      python_deps: ${{ steps.filter.outputs.python_deps }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/python-changes@main
@@ -138,20 +139,34 @@ jobs:
 
   security-scan:
     name: security-scan
+    needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.python_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
-      # Same severity/exit-code/no-default-ignore contract as
-      # security-scan.yml's own `trivy` job - reimplemented inline (rather
-      # than a nested `uses: security-scan.yml` call) for parity with
-      # develop-node-ci.yml.
-      - name: Run Trivy
+      - name: Run Trivy (vulnerabilities)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: ${{ inputs.working-directory }}
-          scanners: vuln,secret
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  secret-scan:
+    name: secret-scan
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (secrets)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: secret
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table

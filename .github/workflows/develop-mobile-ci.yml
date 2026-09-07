@@ -503,21 +503,35 @@ jobs:
 
   security-scan:
     name: security-scan
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.mobile_deps == 'true' }}
     steps:
-      # Trivy's fs scanner resolves vulnerable packages straight from
-      # yarn.lock - it doesn't need an installed node_modules tree, so this
-      # job checks out source only instead of paying to download/untar the
-      # setup job's full deps artifact like every other job here.
       - uses: actions/checkout@v7
-      - name: Run Trivy
+      - name: Run Trivy (vulnerabilities)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: ${{ inputs.working-directory }}
-          scanners: vuln,secret
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  secret-scan:
+    name: secret-scan
+    needs: setup
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (secrets)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: secret
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table

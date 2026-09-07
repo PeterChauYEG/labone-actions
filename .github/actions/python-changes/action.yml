@@ -8,6 +8,9 @@ outputs:
   python:
     description: Python source or dependency-declaration file changed.
     value: ${{ steps.filter.outputs.python }}
+  python_deps:
+    description: Dependency-declaration file changed.
+    value: ${{ steps.filter.outputs.python_deps }}
 
 runs:
   using: composite
@@ -19,6 +22,11 @@ runs:
         filters: |
           workflows:
             - '.github/workflows/**'
+          python_deps:
+            - '**/requirements*.txt'
+            - '**/pyproject.toml'
+            - '**/setup.cfg'
+            - '**/setup.py'
           python:
             - '**/*.py'
             - '**/requirements*.txt'
