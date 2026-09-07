@@ -419,6 +419,19 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
+    # setup-node-yarn only exposes GH_TOKEN as an env var scoped to its own
+    # internal "Install dependencies" step (see that action's `gh-token`
+    # input) - it is not re-exposed to this job's own subsequent steps. That
+    # matters here because a consumer's .yarnrc.yml can set `npmAuthToken:
+    # "${GH_TOKEN:-}"` for a GitHub-Packages scope, and yarn parses
+    # .yarnrc.yml eagerly on EVERY invocation, not just `yarn install` - so
+    # `yarn lint:ls` below would otherwise fail with "Usage Error:
+    # Environment variable not found (GH_TOKEN)" once setup-node-yarn's own
+    # install step finishes. Same failure mode and same fix as the
+    # `dependency-audit` job's job-level env above; harmless no-op for every
+    # other caller with no such .yarnrc.yml entry.
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
