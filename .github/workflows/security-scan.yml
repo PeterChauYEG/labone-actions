@@ -35,18 +35,44 @@ permissions:
   contents: read
 
 jobs:
-  trivy:
-    name: Trivy vulnerability & secret scan
-    # GitHub-hosted runners (ubuntu-latest) are blocked account-wide (billing).
-    # Every consumer repo must have a catfood-runner registered (see
-    # ops/scripts/gha-runner/add-runner.sh) before calling this workflow.
+  changes:
+    name: changes
+    if: github.event_name != 'schedule'
     runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      deps: ${{ steps.filter.outputs.deps }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            deps:
+              - '**/package.json'
+              - '**/yarn.lock'
+              - '**/pnpm-lock.yaml'
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - '**/requirements*.txt'
+              - '**/pyproject.toml'
+              - '**/Gemfile'
+              - '**/Gemfile.lock'
+              - '**/go.mod'
+              - '**/go.sum'
+
+  trivy-vuln:
+    name: Trivy vulnerability scan
+    needs: changes
+    runs-on: [self-hosted, catfood]
+    if: >-
+      always() &&
+      (github.event_name == 'schedule' || needs.changes.outputs.deps == 'true')
     steps:
       - uses: actions/checkout@v7
       - name: Compute Trivy DB cache date
-        # The DB updates roughly daily - a date-based key (with restore-keys
-        # falling back to the nearest older entry) keeps the cache fresh
-        # without writing a brand new entry on every single run.
         id: trivy-date
         shell: bash
         run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
@@ -66,22 +92,31 @@ jobs:
           key: trivy-db-${{ steps.trivy-date.outputs.date }}
           restore-keys: |
             trivy-db-
-      - name: Run Trivy
+      - name: Run Trivy (vulnerabilities)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: ${{ inputs.scan-ref }}
-          scanners: vuln,secret
+          scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
           trivyignores: ${{ inputs.trivyignores }}
-          # trivy-action ships its own built-in DB caching (via
-          # actions/cache internally), but always both restores AND saves
-          # every run with no read-only mode - exactly the per-PR-branch
-          # write churn this cache-write split exists to avoid. Disabled
-          # here in favor of the explicit restore/cache steps above, which
-          # point at the same default cache-dir so Trivy still finds the
-          # restored DB.
           cache: false
           cache-dir: .cache/trivy
+
+  trivy-secret:
+    name: Trivy secret scan
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (secrets)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.scan-ref }}
+          scanners: secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.trivyignores }}
