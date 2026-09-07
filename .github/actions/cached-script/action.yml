@@ -14,6 +14,16 @@ description: >
   read-vs-write split on the node_modules cache).
 
 inputs:
+  deps-cache-key-prefix:
+    description: >
+      Job/purpose identifier (e.g. 'lint', 'typecheck', 'test', 'build')
+      passed straight through to setup-node-yarn/setup-node-pnpm's
+      cache-key-prefix input, scoping the node_modules/yarn/pnpm-store
+      cache this job restores to this job alone - see that input's own
+      description for the full rationale. Required, distinct from
+      cache-key-prefix below (which scopes only this action's own
+      script-specific cache, e.g. .eslintcache).
+    required: true
   working-directory:
     required: false
     default: '.'
@@ -103,6 +113,7 @@ runs:
     - if: inputs.package-manager == 'yarn'
       uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
       with:
+        cache-key-prefix: ${{ inputs.deps-cache-key-prefix }}
         working-directory: ${{ inputs.working-directory }}
         extra-paths: ${{ inputs.extra-paths }}
         extra-cache-key-glob-1: ${{ inputs.extra-deps-cache-key-glob-1 }}
@@ -114,6 +125,7 @@ runs:
     - if: inputs.package-manager == 'pnpm'
       uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
       with:
+        cache-key-prefix: ${{ inputs.deps-cache-key-prefix }}
         working-directory: ${{ inputs.working-directory }}
         extra-paths: ${{ inputs.extra-paths }}
         extra-cache-key-glob-1: ${{ inputs.extra-deps-cache-key-glob-1 }}

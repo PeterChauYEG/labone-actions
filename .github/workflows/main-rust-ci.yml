@@ -77,6 +77,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: fmt
           working-directory: ${{ inputs.working-directory }}
           components: rustfmt
           cache: 'false'
@@ -94,6 +95,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: clippy
           working-directory: ${{ inputs.working-directory }}
           components: clippy
       - if: inputs.pre_build_command != ''
@@ -110,6 +112,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: build
           working-directory: ${{ inputs.working-directory }}
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
@@ -125,6 +128,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: test
           working-directory: ${{ inputs.working-directory }}
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}

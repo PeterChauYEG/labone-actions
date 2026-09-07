@@ -9,6 +9,15 @@ description: >
   one key already, just not one action.
 
 inputs:
+  cache-key-prefix:
+    description: >
+      Job/purpose identifier (e.g. 'fmt', 'clippy', 'test', 'build')
+      folded into the cargo cache key so a job only ever restores/writes
+      the cache entry it itself created, never one shared with a different
+      job in the same workflow - even when every job builds from the exact
+      same Cargo.lock. Required - see setup-node-yarn's identical input for
+      the full rationale.
+    required: true
   working-directory:
     description: Directory (relative to the repo root) the Cargo project lives in.
     required: false
@@ -49,6 +58,6 @@ runs:
           ~/.cargo/registry
           ~/.cargo/git
           ${{ inputs.working-directory }}/target
-        key: ${{ runner.os }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+        key: ${{ runner.os }}-cargo-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
         restore-keys: |
-          ${{ runner.os }}-cargo-
+          ${{ runner.os }}-cargo-${{ inputs.cache-key-prefix }}-

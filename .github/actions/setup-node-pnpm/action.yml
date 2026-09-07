@@ -12,6 +12,15 @@ description: >
   artifact storage quota).
 
 inputs:
+  cache-key-prefix:
+    description: >
+      Job/purpose identifier (e.g. 'setup', 'lint', 'test', 'dead-code')
+      folded into both the pnpm store cache and node_modules cache keys so
+      a job only ever restores/writes the cache entry it itself created,
+      never one shared with a different job in the same workflow - even
+      when every job builds from the exact same pnpm-lock.yaml. Required -
+      see setup-node-yarn's identical input for the full rationale.
+    required: true
   working-directory:
     description: >
       Directory (relative to the repo root) the pnpm app lives in. Defaults
@@ -104,9 +113,9 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ inputs.working-directory }}/.pnpm-store
-        key: ${{ runner.os }}-pnpm-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
+        key: ${{ runner.os }}-pnpm-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
         restore-keys: |
-          ${{ runner.os }}-pnpm-
+          ${{ runner.os }}-pnpm-${{ inputs.cache-key-prefix }}-
 
     - name: Compute node_modules cache paths
       # Same rationale as setup-node-yarn's identical step: extra-paths is a
@@ -141,9 +150,9 @@ runs:
         # extra-cache-key-glob-1/-2 are optional (default '') - guarded the
         # same way as setup-node-yarn's identical key - see that action's
         # comment.
-        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
+        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
         restore-keys: |
-          ${{ runner.os }}-node-modules-
+          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
 
     - name: Restore node_modules (read-only)
       id: node-modules-restore
@@ -151,9 +160,9 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.cache-paths.outputs.paths }}
-        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
+        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
         restore-keys: |
-          ${{ runner.os }}-node-modules-
+          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
 
     - name: Load SSH deploy key for private git dependencies
       if: inputs.ssh-deploy-key != ''

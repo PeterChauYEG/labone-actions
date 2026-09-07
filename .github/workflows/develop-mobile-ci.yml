@@ -231,6 +231,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: setup
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -269,6 +270,7 @@ jobs:
       # description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
+          deps-cache-key-prefix: lint
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -289,6 +291,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: ls-lint
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -307,6 +310,7 @@ jobs:
       # a plain restore+save cache (cache-write: 'true').
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
+          deps-cache-key-prefix: typecheck
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -329,6 +333,7 @@ jobs:
       # lint/typecheck above (LAB-1333).
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
+          deps-cache-key-prefix: test
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -356,6 +361,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: a11y
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -395,6 +401,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: design-system
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -434,6 +441,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: dead-code
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
@@ -473,6 +481,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: duplicate-code
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}

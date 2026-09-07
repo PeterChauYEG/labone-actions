@@ -190,6 +190,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: fmt
           working-directory: ${{ inputs.working-directory }}
           components: rustfmt
           cache: 'false'
@@ -222,18 +223,16 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      # Shares one cargo-${Cargo.lock hash} key with the test/build jobs
-      # below via the same setup-rust action, instead of each job
-      # maintaining its own cargo-clippy-/cargo-test-/cargo-build-
-      # namespace - previously `target` got compiled from scratch up to 3x
-      # per PR (once per job) even though all three build the exact same
-      # dependency graph. Concurrent jobs still can't share a live cache
-      # mid-run (GitHub only saves a cache at job end, and only the first
-      # job to finish wins the save - the others no-op), but every
-      # subsequent run for the same Cargo.lock now hits one shared, warm
-      # cache instead of three separate cold ones.
+      # cache-key-prefix scopes this job's own cargo-clippy-${Cargo.lock
+      # hash} entry, separate from the test/build jobs' cargo-test-/
+      # cargo-build- entries below - each job restores/writes only what it
+      # itself created (see README.md "Caching"), never another job's
+      # entry, even though all three build the same dependency graph.
+      # Restore-keys still fall back to main's same-job-scoped entry (e.g.
+      # cargo-clippy-) on a miss, so a cold PR-branch cache is still rare.
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: clippy
           working-directory: ${{ inputs.working-directory }}
           components: clippy
       - if: inputs.pre_build_command != ''
@@ -265,10 +264,12 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      # Same converged cargo-${Cargo.lock hash} key as clippy/build - see
+      # cache-key-prefix scopes this job's own cargo-test-${Cargo.lock
+      # hash} entry, separate from clippy/build's own entries - see
       # clippy's setup-rust step comment above.
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: test
           working-directory: ${{ inputs.working-directory }}
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
@@ -296,10 +297,12 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_build && !inputs.is_dependabot && needs.changes.outputs.rust == 'true' }}
     steps:
-      # Same converged cargo-${Cargo.lock hash} key as clippy/test - see
+      # cache-key-prefix scopes this job's own cargo-build-${Cargo.lock
+      # hash} entry, separate from clippy/test's own entries - see
       # clippy's setup-rust step comment above.
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: build
           working-directory: ${{ inputs.working-directory }}
       - if: inputs.pre_build_command != ''
         working-directory: ${{ inputs.working-directory }}
@@ -318,6 +321,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: dead-code
           working-directory: ${{ inputs.working-directory }}
           cache: 'false'
       # cargo-machete (pinned version: cargo_machete_version input) is baked
@@ -357,6 +361,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: duplicate-code
           working-directory: ${{ inputs.working-directory }}
           cache: 'false'
       # Unlike cargo-machete (baked into the `rust` runner image), cargo-dupes
@@ -456,6 +461,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
+          cache-key-prefix: dependency-audit
           working-directory: ${{ inputs.working-directory }}
           cache: 'false'
       - run: cargo install cargo-audit --locked

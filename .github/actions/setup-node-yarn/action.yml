@@ -17,6 +17,16 @@ description: >
   and rare since most runs hit an already-warm cache entry.
 
 inputs:
+  cache-key-prefix:
+    description: >
+      Job/purpose identifier (e.g. 'setup', 'lint', 'test', 'dead-code')
+      folded into both the Yarn cache and node_modules cache keys so a job
+      only ever restores/writes the cache entry it itself created, never
+      one shared with a different job in the same workflow - even when
+      every job builds from the exact same yarn.lock. Required: a shared,
+      un-prefixed key let one job's cache-write silently clobber or get
+      restored by an unrelated job's cache-write.
+    required: true
   working-directory:
     description: >
       Directory (relative to the repo root) the Next.js/yarn app lives in.
@@ -108,9 +118,9 @@ runs:
         path: |
           ${{ inputs.working-directory }}/.yarn/cache
           ${{ inputs.working-directory }}/.yarn/install-state.gz
-        key: ${{ runner.os }}-yarn-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
+        key: ${{ runner.os }}-yarn-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
         restore-keys: |
-          ${{ runner.os }}-yarn-
+          ${{ runner.os }}-yarn-${{ inputs.cache-key-prefix }}-
 
     - name: Compute node_modules cache paths
       # extra-paths is a dynamic, space-separated list - actions/cache's
@@ -152,9 +162,9 @@ runs:
         # skip the empty pattern (same guard cached-script's own
         # extra-glob hashFiles already applies - see that action's
         # comment). Only fold each glob in when actually set.
-        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
+        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
         restore-keys: |
-          ${{ runner.os }}-node-modules-
+          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
 
     - name: Restore node_modules (read-only)
       id: node-modules-restore
@@ -162,9 +172,9 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.cache-paths.outputs.paths }}
-        key: ${{ runner.os }}-node-modules-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
+        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
         restore-keys: |
-          ${{ runner.os }}-node-modules-
+          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
 
     - name: Load SSH deploy key for private git dependencies
       if: inputs.ssh-deploy-key != ''

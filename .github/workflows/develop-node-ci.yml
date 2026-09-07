@@ -285,6 +285,7 @@ jobs:
       - if: inputs.package_manager == 'yarn'
         uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: setup
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
@@ -309,6 +310,7 @@ jobs:
       - if: inputs.package_manager == 'pnpm'
         uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
         with:
+          cache-key-prefix: setup
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
@@ -368,6 +370,7 @@ jobs:
       # .eslintcache entry - see cached-script's cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
+          deps-cache-key-prefix: lint
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
@@ -391,6 +394,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
+          deps-cache-key-prefix: typecheck
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
@@ -413,6 +417,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
+          deps-cache-key-prefix: build
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
@@ -433,6 +438,7 @@ jobs:
       # (recommended default: 90% lines/branches). See README.md.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
+          deps-cache-key-prefix: test
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           extra-deps-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
@@ -540,6 +546,7 @@ jobs:
       # inputs.package_manager like the `setup` job does.
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
+          cache-key-prefix: dead-code
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
