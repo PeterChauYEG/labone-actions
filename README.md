@@ -14,7 +14,7 @@ these workflows.
 |---|---|---|
 | `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. For yarn/Next.js-ish **web** repos. |
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks (`a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/`max-lines` are all advisory-only, nextjs-ci v1.0.3 — see below), plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
-| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks, optional dead-code (`enable_dead_code`, LAB-1866, sticky PR comment + Linear ticket filing, yarn-only) opt-in and advisory-only. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
+| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks, optional ls-lint (`enable_ls_lint`), dead-code (`enable_dead_code`, LAB-1866) and duplicate-code (`enable_duplicate_code`) - the latter two with sticky PR comment + Linear ticket filing, yarn-only, opt-in and advisory-only. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. Optional dead-code (`enable_dead_code`, LAB-1866, plain pass/fail, yarn-only) opt-in. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
@@ -450,6 +450,12 @@ Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
 - `enable_build`, `enable_test`, `enable_security_scan`,
   `enable_dependency_audit` (boolean) — turn a job off if your repo has no
   matching yarn script.
+- `enable_ls_lint` (boolean, default **`false`** — opt-in, unlike
+  `develop-ci.yml`'s identical input, which defaults `true`) — runs the
+  `ls-lint` job (`yarn lint:ls`), gated on the `changes` job's `ls_lint`
+  output. Brand-new capability for backend repos with no existing caller
+  migrated to it yet, so each repo opts in explicitly as it migrates —
+  same rationale as `enable_dead_code` below.
 - `enable_dead_code` (boolean, default **`false`** — opt-in, unlike the
   `enable_*` inputs above, LAB-1866) — runs `yarn dead-code` via the shared
   `scan-with-report` composite action (same one `develop-ci.yml`'s
@@ -459,9 +465,15 @@ Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
   `package_manager`, so this only works for `package_manager: yarn`
   callers — a `pnpm` caller enabling it would fail. `pr_number`/`pr_url`
   (below) feed the sticky comment/ticket link.
+- `enable_duplicate_code` (boolean, default **`false`**, same opt-in
+  rationale as `enable_dead_code`) — runs `yarn duplicate-code` via the
+  same `scan-with-report` composite action, same sticky-PR-comment/
+  Linear-ticket/`blocking: 'false'`/yarn-only behavior as `enable_dead_code`.
+  Mirrors `develop-ci.yml`'s `duplicate-code` job.
 - `pr_number` (number, default `0`) / `pr_url` (string, default `''`) —
   same role as `develop-ci.yml`'s identical inputs; only consumed by the
-  `dead-code` job above when `enable_dead_code` is true.
+  `dead-code`/`duplicate-code` jobs above when `enable_dead_code`/
+  `enable_duplicate_code` is true.
 - `security_scan_trivyignores` (string, default `''`) — passed straight
   through to the `security-scan` job's `trivy-action` call. Empty by
   default: this shared workflow ships **no default `.trivyignore`
@@ -477,14 +489,15 @@ set to the same `labone-eslint-plugin` package for backend services,
 consumed the same way via a private git dependency).
 
 Jobs: `changes`, `setup`, `lint`, `typecheck`, `build`, `test`,
-`security-scan`, `dependency-audit`, plus optional `dead-code`
-(`enable_dead_code`, off by default). Every job except `dead-code` is a
-plain pass/fail gate — no sticky PR comments, no Linear ticket filing
-(unlike `develop-ci.yml`'s scan jobs); `dead-code` is the one exception,
-matching `develop-ci.yml`'s identical job (sticky comment + Linear ticket
-filing on failure, but advisory-only — never fails the job). Two gates are
-worth calling out explicitly because this shared workflow can't fully
-enforce them on its own:
+`security-scan`, `dependency-audit`, plus optional `ls-lint`
+(`enable_ls_lint`, off by default), `dead-code` (`enable_dead_code`, off by
+default) and `duplicate-code` (`enable_duplicate_code`, off by default).
+Every job except `dead-code`/`duplicate-code` is a plain pass/fail gate —
+no sticky PR comments, no Linear ticket filing; `dead-code` and
+`duplicate-code` are the exception, matching `develop-ci.yml`'s identical
+jobs (sticky comment + Linear ticket filing on failure, but advisory-only —
+never fails the job). Two gates are worth calling out explicitly because
+this shared workflow can't fully enforce them on its own:
 
 - **`changes` (LAB-2097)** runs `dorny/paths-filter@v3` against the caller
   repo's changed files first (no dependencies, overlaps with `setup`) and
@@ -493,10 +506,11 @@ enforce them on its own:
   condition, so a PR that only touches docs/unrelated files skips all four
   as `skipped` (which satisfies branch-protection required checks
   identically to `success`) instead of re-running them for nothing. A
-  `ls_lint` output is also produced for parity, but is currently unused —
-  neither this workflow nor `main-node-ci.yml` runs an `ls-lint` job today.
-  `security-scan`/`dependency-audit`/`dead-code` are intentionally NOT
-  gated by `changes` (out of scope for LAB-2097). The `node`/`ls_lint`
+  `ls_lint` output is also produced, gating the optional `ls-lint` job
+  (`enable_ls_lint`) below — `main-node-ci.yml` still doesn't run an
+  `ls-lint` job. `security-scan`/`dependency-audit`/`dead-code`/
+  `duplicate-code` are intentionally NOT gated by `changes` (out of scope
+  for LAB-2097). The `node`/`ls_lint`
   filter glob lists were derived from what `lint`/`typecheck`/`build`/
   `test`'s own steps consume (TS/JS source, `package.json`,
   `yarn.lock`/`pnpm-lock.yaml`, `tsconfig*.json`, eslint/jest/vitest

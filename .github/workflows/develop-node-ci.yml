@@ -7,22 +7,26 @@ name: Develop Node CI
 # with `secrets: inherit`. See README.md for the full caller example.
 #
 # CALLER'S `ci` JOB MUST ALSO SET `permissions: {contents: read,
-# pull-requests: write}` — the `dead-code` job below (see its own
-# `permissions:` block) needs `pull-requests: write` for its sticky-PR-
-# comment feature, and GitHub validates the full callee permission graph
-# before dispatching any job, so a caller missing this fails its ENTIRE PR
-# CI run with `startup_failure`/0 jobs, even with `enable_dead_code` off.
-# See README.md's "`develop-node-ci.yml` — inputs and jobs" caller example
-# for the full explanation.
+# pull-requests: write}` — the `dead-code`/`duplicate-code` jobs below (see
+# their own `permissions:` blocks) need `pull-requests: write` for their
+# sticky-PR-comment feature, and GitHub validates the full callee
+# permission graph before dispatching any job, so a caller missing this
+# fails its ENTIRE PR CI run with `startup_failure`/0 jobs, even with
+# `enable_dead_code`/`enable_duplicate_code` off. See README.md's
+# "`develop-node-ci.yml` — inputs and jobs" caller example for the full
+# explanation.
 #
 # This is the backend-service sibling of develop-ci.yml (which targets
 # Next.js/React web repos) - same `setup` + artifact-restore caching
 # strategy and the same `enable_*`/`is_dependabot` input conventions, but a
 # different, backend-appropriate job set: no a11y/design-system/e2e/
 # react-tech-debt/max-lines scans (those are web-specific and have no
-# NestJS equivalent yarn script), and no sticky PR comments or Linear
-# ticket filing - every job here is a plain pass/fail gate, matching how
-# main-ci.yml's jobs already behave.
+# NestJS equivalent yarn script). Most jobs here are still plain pass/fail
+# gates, matching how main-ci.yml's jobs already behave, but `dead-code`
+# and `duplicate-code` are the exception - like develop-ci.yml's identical
+# jobs, they post a sticky PR comment and file a Linear ticket on failure
+# (advisory-only, `blocking: 'false'`, so neither ever fails the job
+# itself).
 #
 # `lint` is a HARD, ZERO-TOLERANCE gate: this workflow only runs `<package
 # manager> lint` and fails the job on any non-zero exit. It CANNOT itself
@@ -108,22 +112,34 @@ on:
       pr_number:
         description: >
           github.event.pull_request.number from the caller. Only used by
-          the `dead-code` job (when `enable_dead_code` is true) for its
-          sticky PR comment and Linear ticket-filing link - see
-          develop-ci.yml's identical input for the pattern this was copied
-          from. Harmless to leave at its default (0) for every caller that
-          doesn't enable `enable_dead_code`.
+          the `dead-code` and `duplicate-code` jobs (when `enable_dead_code`/
+          `enable_duplicate_code` is true) for their sticky PR comment and
+          Linear ticket-filing link - see develop-ci.yml's identical input
+          for the pattern this was copied from. Harmless to leave at its
+          default (0) for every caller that doesn't enable either.
         type: number
         required: false
         default: 0
       pr_url:
         description: >
           github.event.pull_request.html_url from the caller. Only used by
-          the `dead-code` job (when `enable_dead_code` is true) - see
+          the `dead-code` and `duplicate-code` jobs (when
+          `enable_dead_code`/`enable_duplicate_code` is true) - see
           `pr_number` above.
         type: string
         required: false
         default: ''
+      enable_ls_lint:
+        description: >
+          Run the ls-lint file naming check (`yarn lint:ls`), gated on the
+          `changes` job's `ls_lint` output. Opt-in, unlike develop-ci.yml's
+          identical input (which defaults true) - this is a brand-new
+          capability for backend repos and no caller has migrated to it
+          yet, so each repo opts in explicitly as it migrates, same
+          rationale as `enable_dead_code` below.
+        type: boolean
+        required: false
+        default: false
       enable_build:
         description: Run `yarn build`.
         type: boolean
@@ -148,6 +164,21 @@ on:
           most other `enable_*` inputs above - defaults false since no
           consumer repo of this workflow has this today (LAB-1866). Mirrors
           develop-ci.yml's `dead-code` job. Note: the underlying
+          `scan-with-report` action always runs `yarn <script>` regardless
+          of `package_manager`, so this only works for `package_manager:
+          yarn` callers today - a `pnpm` caller enabling this would fail.
+        type: boolean
+        required: false
+        default: false
+      enable_duplicate_code:
+        description: >
+          Run a duplicate-code scan (`yarn duplicate-code`) with a sticky
+          PR comment + Linear ticket filing on failure, advisory-only
+          (never blocks the job - see `scan-with-report`'s `blocking`
+          input). Opt-in, unlike most other `enable_*` inputs above -
+          defaults false since no consumer repo of this workflow has this
+          today, same rationale as `enable_dead_code` above. Mirrors
+          develop-ci.yml's `duplicate-code` job. Note: the underlying
           `scan-with-report` action always runs `yarn <script>` regardless
           of `package_manager`, so this only works for `package_manager:
           yarn` callers today - a `pnpm` caller enabling this would fail.
@@ -235,13 +266,10 @@ jobs:
   # narrower one, since a wrong filter that skips real work is a
   # correctness bug across every caller.
   #
-  # `ls_lint` is added per LAB-2097's spec for output-shape parity with the
-  # `node`/`ls_lint` pair used elsewhere, but neither develop-node-ci.yml
-  # nor main-node-ci.yml actually run an `ls-lint` job today (confirmed:
-  # no such job exists in either file, unlike develop-ci.yml/
-  # develop-mobile-ci.yml's `enable_ls_lint` gate) - this output is
-  # currently unused by any job below. Left in so a future `ls-lint` job
-  # added to this workflow can gate on it immediately, and conservatively
+  # `ls_lint` was added per LAB-2097's spec for output-shape parity with the
+  # `node`/`ls_lint` pair used elsewhere, ahead of develop-node-ci.yml
+  # actually running an `ls-lint` job (main-node-ci.yml still doesn't).
+  # It now gates the `ls-lint` job below (`enable_ls_lint`), conservatively
   # scoped to the same source-file patterns `node` uses (ls-lint polices
   # filenames of source files, not their content) plus `.ls-lint.yml`
   # itself, since no caller's actual `.ls-lint.yml` was read to confirm an
@@ -385,6 +413,25 @@ jobs:
           cache-key-extra-glob-1: .eslintrc*
           cache-key-extra-glob-2: eslint.config.*
           cache-write: 'false'
+
+  ls-lint:
+    name: ls-lint
+    needs: [setup, changes]
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          cache-key-prefix: ls-lint
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - run: yarn lint:ls
+        working-directory: ${{ inputs.working-directory }}
 
   typecheck:
     name: typecheck
@@ -567,6 +614,43 @@ jobs:
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
+  duplicate-code:
+    name: duplicate-code
+    needs: [setup, changes]
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # scan-with-report below always runs `yarn <script>` (not
+      # package-manager-aware, unlike cached-script) - see this job's
+      # enable_duplicate_code input description - so this restores deps via
+      # setup-node-yarn unconditionally rather than branching on
+      # inputs.package_manager like the `setup` job does.
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          cache-key-prefix: duplicate-code
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        with:
+          script: duplicate-code
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
+          working-directory: ${{ inputs.working-directory }}
+          sticky-header: duplicate-code-scan
+          job-name: duplicate-code
+          pr-number: ${{ inputs.pr_number }}
+          pr-url: ${{ inputs.pr_url }}
+          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
+          blocking: 'false'
+
   # LAB-2103: single aggregator job so caller repos' branch protection can
   # require ONE context (`required-checks`) instead of a hand-maintained
   # list of this workflow's individual job-name contexts. Without this, any
@@ -578,18 +662,21 @@ jobs:
   # follow-up this unblocks.
   #
   # `needs:` lists every job in this file that's currently a REAL
-  # (blocking) gate: `lint`, `typecheck`, `build`, `test`, `security-scan`,
-  # `dependency-audit`. Deliberately excludes:
+  # (blocking) gate: `lint`, `ls-lint`, `typecheck`, `build`, `test`,
+  # `security-scan`, `dependency-audit`. Deliberately excludes:
   #   - `changes`/`setup` - infra/plumbing jobs, not gates themselves.
-  #   - `dead-code` - explicitly advisory-only (`blocking: 'false'` on its
-  #     `scan-with-report` call above), never fails on its own even when
-  #     `enable_dead_code` is on. Making it a `needs:` dependency of a
-  #     REQUIRED job would make a design-advisory scan block merges, which
-  #     is exactly the failure mode `blocking: 'false'` exists to prevent.
+  #   - `dead-code`/`duplicate-code` - explicitly advisory-only
+  #     (`blocking: 'false'` on their `scan-with-report` calls above),
+  #     never fail on their own even when `enable_dead_code`/
+  #     `enable_duplicate_code` is on. Making either a `needs:` dependency
+  #     of a REQUIRED job would make a design-advisory scan block merges,
+  #     which is exactly the failure mode `blocking: 'false'` exists to
+  #     prevent.
   #   - `peer-deps` - advisory-only (`continue-on-error: true` on both its
-  #     conflict-check steps), same rationale as `dead-code`: a peer range
-  #     conflict is often outside the repo's own control (a transitive
-  #     dependency's peer range), so it's surfaced but never blocks merges.
+  #     conflict-check steps), same rationale as `dead-code`/
+  #     `duplicate-code`: a peer range conflict is often outside the repo's
+  #     own control (a transitive dependency's peer range), so it's
+  #     surfaced but never blocks merges.
   #
   # `if: always()` so this job still runs (and can report a real result)
   # even when an upstream gate job fails/is cancelled - without it, GitHub's
@@ -604,7 +691,17 @@ jobs:
   required-checks:
     name: required-checks
     needs:
-      [lint, typecheck, build, test, security-scan, secret-scan, dependency-audit, actionlint]
+      [
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+        actionlint,
+      ]
     runs-on: [self-hosted, catfood]
     if: always()
     steps:
