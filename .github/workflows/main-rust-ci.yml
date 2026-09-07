@@ -1,0 +1,159 @@
+name: Main Rust CI
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Cargo project lives in.
+        type: string
+        required: false
+        default: '.'
+      is_dependabot:
+        type: boolean
+        required: false
+        default: false
+      pre_build_command:
+        description: >
+          Arbitrary shell run once per job (fmt/clippy/build/test), after
+          checkout and toolchain setup but before the job's actual cargo
+          command.
+        type: string
+        required: false
+        default: ''
+      enable_build:
+        description: Run `cargo build --release`.
+        type: boolean
+        default: true
+      enable_test:
+        description: Run `cargo test`.
+        type: boolean
+        default: true
+      enable_deploy:
+        description: Push to the dokku remote after all gates pass.
+        type: boolean
+        default: true
+      dokku_remote_url:
+        description: >
+          Dokku git remote URL to push to, e.g.
+          ssh://dokku@192.168.1.31:22/<app-name>. Required if enable_deploy
+          is true.
+        type: string
+        required: false
+        default: ''
+      enable_slack_notification:
+        description: Post the deploy result to Slack after `deploy` completes.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-rust-ci-${{ github.repository }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          components: rustfmt
+          cache: 'false'
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo fmt -- --check
+
+  clippy:
+    name: clippy
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          components: clippy
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo clippy -- -D warnings
+
+  build:
+    name: build
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo build --release
+
+  test:
+    name: test
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo test
+
+  required-checks:
+    name: required-checks
+    needs: [fmt, clippy, build, test]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
+  deploy:
+    name: deploy
+    runs-on: [self-hosted, catfood]
+    needs: [fmt, clippy, build, test]
+    if: >-
+      always() && inputs.enable_deploy && !inputs.is_dependabot &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Push to Dokku
+        uses: dokku/github-action@master
+        with:
+          git_remote_url: ${{ inputs.dokku_remote_url }}
+          ssh_private_key: ${{ secrets.DOKKU_DEPLOY_SSH_KEY }}
+          branch: main
+
+  slack-notification:
+    name: slack-notification
+    needs: [deploy]
+    if: ${{ always() && inputs.enable_slack_notification && needs.deploy.result == 'failure' }}
+    runs-on: [self-hosted, catfood]
+    steps:
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v4
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ github.repository }} deploy: ${{ needs.deploy.result }}"
+            }

@@ -10,16 +10,3 @@ jobs:
   godot-ci:
     uses: PeterChauYEG/labone-actions/.github/workflows/godot-pr.yml@main
     secrets: inherit
-    # with:
-    #   Set false only for repos that structurally can't run GUT standalone
-    #   (e.g. a plugin monorepo whose class_name symbols only resolve
-    #   inside a separate host project) - document why if you do:
-    #   enable_test: false
-    #
-    #   Also fold in github-actions[bot] here if this repo's main.yml
-    #   pre-creates check-runs for its own CalVer version-bump PR:
-    #   also_treat_actions_bot_as_dependabot: true
-
-  # Add repo-specific bespoke jobs below as needed (e.g. dead-code,
-  # a project-specific smoke test) - none of these are standardized in
-  # godot-develop-ci.yml.

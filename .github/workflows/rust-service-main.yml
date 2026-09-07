@@ -1,4 +1,4 @@
-name: Node Main Orchestrator
+name: Rust Service Main Orchestrator
 
 on:
   workflow_call:
@@ -11,25 +11,13 @@ on:
         type: boolean
         required: false
         default: false
+      pre_build_command:
+        type: string
+        required: false
+        default: ''
       dokku_remote_url:
         type: string
         required: true
-      extra_deps_paths:
-        type: string
-        required: false
-        default: ''
-      extra_deps_cache_key_glob_1:
-        type: string
-        required: false
-        default: ''
-      extra_deps_cache_key_glob_2:
-        type: string
-        required: false
-        default: ''
-      test_script_args:
-        type: string
-        required: false
-        default: '--cache --cacheDirectory .jestcache'
 
 permissions:
   contents: read
@@ -37,17 +25,14 @@ permissions:
 jobs:
   ci:
     name: ci
-    uses: PeterChauYEG/labone-actions/.github/workflows/main-node-ci.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/main-rust-ci.yml@main
     secrets: inherit
     with:
       working-directory: ${{ inputs.working-directory }}
       is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.head_commit.author.name == 'github-actions[bot]') }}
+      pre_build_command: ${{ inputs.pre_build_command }}
       enable_build: true
       enable_test: true
       enable_deploy: true
       enable_slack_notification: true
       dokku_remote_url: ${{ inputs.dokku_remote_url }}
-      extra_deps_paths: ${{ inputs.extra_deps_paths }}
-      extra_deps_cache_key_glob_1: ${{ inputs.extra_deps_cache_key_glob_1 }}
-      extra_deps_cache_key_glob_2: ${{ inputs.extra_deps_cache_key_glob_2 }}
-      test_script_args: ${{ inputs.test_script_args }}

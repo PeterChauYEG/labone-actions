@@ -6,7 +6,7 @@ on:
 
 jobs:
   ci:
-    uses: PeterChauYEG/labone-actions/.github/workflows/node-main.yml@main
+    uses: PeterChauYEG/labone-actions/.github/workflows/rust-service-main.yml@main
     secrets: inherit
     with:
       dokku_remote_url: 'ssh://dokku@192.168.1.31:22/<app-name>'
