@@ -50,11 +50,3 @@ jobs:
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.pull_request.user.login == 'github-actions[bot]') }}
       enable_test: ${{ inputs.enable_test }}
       tests-path: ${{ inputs.tests-path }}
-
-  actionlint:
-    if: github.event.action != 'closed'
-    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
-    secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}

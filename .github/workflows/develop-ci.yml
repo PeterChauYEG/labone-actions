@@ -172,6 +172,59 @@ concurrency:
 # is not populated in the called workflow context.
 
 jobs:
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      ls_lint: ${{ steps.filter.outputs.ls_lint }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '**/package.json'
+              - '**/yarn.lock'
+              - '**/pnpm-lock.yaml'
+              - '**/.yarnrc.yml'
+              - '**/tsconfig*.json'
+              - '**/.eslintrc*'
+              - '**/eslint.config.*'
+              - '**/jest.config.*'
+              - '**/vitest.config.*'
+              - '**/next.config.*'
+              - '**/tailwind.config.*'
+              - '**/postcss.config.*'
+              - '**/*.css'
+              - '**/*.scss'
+              - '**/public/**'
+            ls_lint:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '.ls-lint.yml'
+
+  actionlint:
+    name: actionlint
+    secrets: inherit
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      pr_url: ${{ inputs.pr_url }}
+
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
@@ -237,8 +290,9 @@ jobs:
 
   lint:
     name: lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.web == 'true' }}
     steps:
       # --cache/--cache-location are passed through to the caller's `lint`
       # script (yarn forwards extra CLI args to the underlying command) —
@@ -262,9 +316,9 @@ jobs:
 
   ls-lint:
     name: ls-lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -278,8 +332,9 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.web == 'true' }}
     steps:
       # --incremental/--tsBuildInfoFile are passed through to the caller's
       # `typecheck` script (yarn forwards extra CLI args) — assumes that
@@ -301,9 +356,9 @@ jobs:
 
   build:
     name: build
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build }}
+    if: ${{ inputs.enable_build && needs.changes.outputs.web == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -315,9 +370,9 @@ jobs:
 
   test:
     name: test
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.web == 'true' }}
     steps:
       # test_script_args (default Jest's cache flags) is passed through to
       # the caller's `test:coverage` script (yarn forwards extra CLI args) —
@@ -578,34 +633,9 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
 
-  # LAB-2103: single aggregator job so caller repos' branch protection can
-  # require ONE context (`required-checks`) instead of a hand-maintained
-  # list of this workflow's individual job-name contexts - see
-  # develop-node-ci.yml's identical job comment for the general rationale.
-  #
-  # `needs:` lists this file's REAL (blocking) gates: `lint`, `ls-lint`,
-  # `typecheck`, `build`, `test`, `run-e2e-tests`. Per this file's own
-  # "Blocking vs advisory" precedent (nextjs-ci v1.0.3, 2026-08-20 - see
-  # README.md), `run-e2e-tests` is the only scan job that's still a hard
-  # pass/fail gate (`scan-with-report`'s `blocking` input defaults to
-  # `'true'` and this job's call doesn't override it) - deliberately
-  # excludes the 6 explicitly-advisory scan jobs, each of which sets
-  # `blocking: 'false'` on its own `scan-with-report` call: `a11y`,
-  # `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
-  # `max-lines`. Also excludes `tech-debt` - a metrics report, not a gate,
-  # per this file's own header comment ("it never fails the job"). Also
-  # excludes `setup` - infra, not a gate itself.
-  #
-  # `if: always()` for the same reason as develop-node-ci.yml's identical
-  # job: without it, GitHub's default scheduling would skip this job
-  # outright whenever any `needs:` entry is `skipped` (e.g. `ls-lint` when
-  # `enable_ls_lint: false`, or any of the four `enable_*`-gated jobs above
-  # when disabled, or every job when `is_dependabot`), which is the
-  # opposite of what an aggregator gate needs to do. A `skipped` result
-  # must NOT fail this job - only `failure`/`cancelled` should.
   required-checks:
     name: required-checks
-    needs: [lint, ls-lint, typecheck, build, test, run-e2e-tests]
+    needs: [lint, ls-lint, typecheck, build, test, run-e2e-tests, actionlint]
     runs-on: [self-hosted, catfood]
     if: always()
     steps:

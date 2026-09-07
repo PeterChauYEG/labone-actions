@@ -57,10 +57,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+    outputs:
+      godot: ${{ steps.filter.outputs.godot }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            godot:
+              - '**/*.gd'
+              - '**/*.tscn'
+              - '**/*.tres'
+              - '**/project.godot'
+              - '**/*.import'
+
+  actionlint:
+    name: actionlint
+    secrets: inherit
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      pr_url: ${{ inputs.pr_url }}
+
   format:
     name: format
+    needs: changes
     runs-on: [self-hosted, catfood]
     timeout-minutes: 10
+    if: ${{ needs.changes.outputs.godot == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -91,8 +121,10 @@ jobs:
 
   lint:
     name: lint
+    needs: changes
     runs-on: [self-hosted, catfood]
     timeout-minutes: 10
+    if: ${{ needs.changes.outputs.godot == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -123,9 +155,10 @@ jobs:
 
   duplicate-code:
     name: duplicate-code
+    needs: changes
     runs-on: [self-hosted, catfood]
     timeout-minutes: 10
-    if: ${{ !inputs.is_dependabot }}
+    if: ${{ !inputs.is_dependabot && needs.changes.outputs.godot == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -160,9 +193,10 @@ jobs:
 
   test:
     name: test
+    needs: changes
     runs-on: [self-hosted, catfood]
     timeout-minutes: 30
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.godot == 'true' }}
     permissions:
       contents: read
       pull-requests: write

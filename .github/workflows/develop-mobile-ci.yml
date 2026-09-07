@@ -193,6 +193,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+      ls_lint: ${{ steps.filter.outputs.ls_lint }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            mobile:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '**/package.json'
+              - '**/yarn.lock'
+              - '**/.yarnrc.yml'
+              - '**/tsconfig*.json'
+              - '**/.eslintrc*'
+              - '**/eslint.config.*'
+              - '**/jest.config.*'
+              - '**/app.json'
+              - '**/app.config.*'
+              - '**/metro.config.*'
+            ls_lint:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '.ls-lint.yml'
+
+  actionlint:
+    name: actionlint
+    secrets: inherit
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      pr_url: ${{ inputs.pr_url }}
+
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
@@ -202,10 +250,6 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          # No main-*-ci.yml counterpart exists for mobile repos in this
-          # repo, so the node_modules cache stays a plain restore+save
-          # cache here too - no read/write split, matching every other
-          # cache in this workflow. See README.md "Caching strategy".
           cache-write: 'true'
 
   peer-deps:
@@ -229,8 +273,9 @@ jobs:
 
   lint:
     name: lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.mobile == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos in this repo,
       # so this stays a plain restore+save cache (cache-write: 'true') -
@@ -252,9 +297,9 @@ jobs:
 
   ls-lint:
     name: ls-lint
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -268,8 +313,9 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.mobile == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true').
@@ -288,9 +334,9 @@ jobs:
 
   test:
     name: test
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.mobile == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true'), same as

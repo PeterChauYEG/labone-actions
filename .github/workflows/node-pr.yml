@@ -67,11 +67,3 @@ jobs:
       extra_deps_paths: ${{ inputs.extra_deps_paths }}
       extra_deps_cache_key_glob_1: ${{ inputs.extra_deps_cache_key_glob_1 }}
       extra_deps_cache_key_glob_2: ${{ inputs.extra_deps_cache_key_glob_2 }}
-
-  actionlint:
-    if: github.event.action != 'closed'
-    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
-    secrets: inherit
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      pr_url: ${{ github.event.pull_request.html_url }}

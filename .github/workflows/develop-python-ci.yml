@@ -95,9 +95,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - '**/*.py'
+              - '**/requirements*.txt'
+              - '**/pyproject.toml'
+              - '**/setup.cfg'
+              - '**/setup.py'
+
+  actionlint:
+    name: actionlint
+    secrets: inherit
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+
   lint:
     name: lint
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.python == 'true' }}
     steps:
       - uses: actions/checkout@v7
       - run: pip install --quiet --break-system-packages ruff
@@ -106,8 +133,9 @@ jobs:
 
   test:
     name: test
+    needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.python == 'true' }}
     steps:
       - uses: actions/checkout@v7
       - run: ${{ inputs.test_command }}
