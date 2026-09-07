@@ -200,41 +200,22 @@ jobs:
       contents: read
     outputs:
       mobile: ${{ steps.filter.outputs.mobile }}
+      mobile_source: ${{ steps.filter.outputs.mobile_source }}
+      mobile_deps: ${{ steps.filter.outputs.mobile_deps }}
+      tsconfig: ${{ steps.filter.outputs.tsconfig }}
+      eslint_config: ${{ steps.filter.outputs.eslint_config }}
+      jest_config: ${{ steps.filter.outputs.jest_config }}
+      react_ui: ${{ steps.filter.outputs.react_ui }}
       ls_lint: ${{ steps.filter.outputs.ls_lint }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: PeterChauYEG/labone-actions/.github/actions/mobile-changes@main
         id: filter
-        with:
-          filters: |
-            mobile:
-              - '**/*.ts'
-              - '**/*.tsx'
-              - '**/*.js'
-              - '**/*.jsx'
-              - '**/*.mjs'
-              - '**/*.cjs'
-              - '**/package.json'
-              - '**/yarn.lock'
-              - '**/.yarnrc.yml'
-              - '**/tsconfig*.json'
-              - '**/.eslintrc*'
-              - '**/eslint.config.*'
-              - '**/jest.config.*'
-              - '**/app.json'
-              - '**/app.config.*'
-              - '**/metro.config.*'
-            ls_lint:
-              - '**/*.ts'
-              - '**/*.tsx'
-              - '**/*.js'
-              - '**/*.jsx'
-              - '**/*.mjs'
-              - '**/*.cjs'
-              - '.ls-lint.yml'
 
   actionlint:
     name: actionlint
+    needs: changes
+    if: ${{ needs.changes.outputs.workflows == 'true' }}
     secrets: inherit
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     with:
@@ -243,7 +224,9 @@ jobs:
 
   setup:
     name: setup
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.mobile == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -254,7 +237,9 @@ jobs:
 
   peer-deps:
     name: peer-deps
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.mobile_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
       - run: corepack enable
@@ -275,7 +260,7 @@ jobs:
     name: lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.mobile == 'true' }}
+    if: ${{ needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos in this repo,
       # so this stays a plain restore+save cache (cache-write: 'true') -
@@ -315,7 +300,7 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.mobile == 'true' }}
+    if: ${{ needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.tsconfig == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true').
@@ -336,7 +321,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.mobile == 'true' }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && (needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.tsconfig == 'true' || needs.changes.outputs.jest_config == 'true') }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true'), same as
@@ -361,9 +346,9 @@ jobs:
 
   a11y:
     name: a11y
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_a11y && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_a11y && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -400,9 +385,9 @@ jobs:
 
   design-system:
     name: design-system
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_design_system && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_design_system && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -439,9 +424,9 @@ jobs:
 
   dead-code:
     name: dead-code
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -478,9 +463,9 @@ jobs:
 
   duplicate-code:
     name: duplicate-code
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -558,9 +543,9 @@ jobs:
 
   tech-debt:
     name: tech-debt
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write

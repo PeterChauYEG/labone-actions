@@ -168,41 +168,22 @@ jobs:
       pull-requests: read
     outputs:
       node: ${{ steps.filter.outputs.node }}
+      node_source: ${{ steps.filter.outputs.node_source }}
+      node_deps: ${{ steps.filter.outputs.node_deps }}
+      tsconfig: ${{ steps.filter.outputs.tsconfig }}
+      eslint_config: ${{ steps.filter.outputs.eslint_config }}
+      jest_config: ${{ steps.filter.outputs.jest_config }}
       ls_lint: ${{ steps.filter.outputs.ls_lint }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - uses: PeterChauYEG/labone-actions/.github/actions/node-changes@main
         id: filter
-        with:
-          filters: |
-            node:
-              - '**/*.ts'
-              - '**/*.tsx'
-              - '**/*.js'
-              - '**/*.jsx'
-              - '**/*.mjs'
-              - '**/*.cjs'
-              - '**/package.json'
-              - '**/yarn.lock'
-              - '**/pnpm-lock.yaml'
-              - '**/.yarnrc.yml'
-              - '**/tsconfig*.json'
-              - '**/.eslintrc*'
-              - '**/eslint.config.*'
-              - '**/jest.config.*'
-              - '**/vitest.config.*'
-            ls_lint:
-              - '**/*.ts'
-              - '**/*.tsx'
-              - '**/*.js'
-              - '**/*.jsx'
-              - '**/*.mjs'
-              - '**/*.cjs'
-              - '.ls-lint.yml'
 
   setup:
     name: setup
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -235,11 +216,7 @@ jobs:
     name: lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    # See develop-node-ci.yml's `lint` job comment for the skipped-
-    # satisfies-branch-protection precedent (this file's own `build`/`test`
-    # jobs already skip via `if:` on `enable_*`/`is_dependabot` today, relied
-    # on by branch protection) that this new condition rides on.
-    if: ${{ needs.changes.outputs.node == 'true' }}
+    if: ${{ needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # Zero-tolerance gate: this just runs `yarn lint` and fails on any
       # non-zero exit. Whether that actually means "zero warnings" depends
@@ -267,8 +244,7 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    # See the `lint` job's comment above.
-    if: ${{ needs.changes.outputs.node == 'true' }}
+    if: ${{ needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.tsconfig == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -305,7 +281,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.node == 'true' }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && (needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.tsconfig == 'true' || needs.changes.outputs.jest_config == 'true') }}
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
@@ -367,10 +343,11 @@ jobs:
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]
-    needs: [required-checks]
+    needs: [required-checks, changes]
     if: >-
       always() &&
       needs.required-checks.result == 'success' &&
+      needs.changes.outputs.node == 'true' &&
       !inputs.is_dependabot && inputs.enable_deploy
     steps:
       - uses: actions/checkout@v7

@@ -64,21 +64,16 @@ jobs:
       contents: read
     outputs:
       godot: ${{ steps.filter.outputs.godot }}
+      godot_source: ${{ steps.filter.outputs.godot_source }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: PeterChauYEG/labone-actions/.github/actions/godot-changes@main
         id: filter
-        with:
-          filters: |
-            godot:
-              - '**/*.gd'
-              - '**/*.tscn'
-              - '**/*.tres'
-              - '**/project.godot'
-              - '**/*.import'
 
   actionlint:
     name: actionlint
+    needs: changes
+    if: ${{ needs.changes.outputs.workflows == 'true' }}
     secrets: inherit
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
     with:
@@ -90,7 +85,7 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood]
     timeout-minutes: 10
-    if: ${{ needs.changes.outputs.godot == 'true' }}
+    if: ${{ needs.changes.outputs.godot_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -124,7 +119,7 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood]
     timeout-minutes: 10
-    if: ${{ needs.changes.outputs.godot == 'true' }}
+    if: ${{ needs.changes.outputs.godot_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -158,7 +153,7 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood]
     timeout-minutes: 10
-    if: ${{ !inputs.is_dependabot && needs.changes.outputs.godot == 'true' }}
+    if: ${{ !inputs.is_dependabot && needs.changes.outputs.godot_source == 'true' }}
     permissions:
       contents: read
       pull-requests: write

@@ -1,0 +1,88 @@
+name: Mobile changes
+description: Shared path-filter outputs for Expo/React Native mobile repos, used by develop-mobile-ci.yml.
+
+outputs:
+  workflows:
+    description: .github/workflows/** changed.
+    value: ${{ steps.filter.outputs.workflows }}
+  react_ui:
+    description: .tsx/.jsx changed.
+    value: ${{ steps.filter.outputs.react_ui }}
+  mobile_source:
+    description: Any TS/JS source file changed.
+    value: ${{ steps.filter.outputs.mobile_source }}
+  mobile_deps:
+    description: package.json/lockfile changed.
+    value: ${{ steps.filter.outputs.mobile_deps }}
+  tsconfig:
+    description: tsconfig*.json changed.
+    value: ${{ steps.filter.outputs.tsconfig }}
+  eslint_config:
+    description: .eslintrc*/eslint.config.* changed.
+    value: ${{ steps.filter.outputs.eslint_config }}
+  jest_config:
+    description: jest.config.* changed.
+    value: ${{ steps.filter.outputs.jest_config }}
+  mobile:
+    description: Full union - anything setup/test would care about.
+    value: ${{ steps.filter.outputs.mobile }}
+  ls_lint:
+    description: Source or .ls-lint.yml changed.
+    value: ${{ steps.filter.outputs.ls_lint }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          workflows:
+            - '.github/workflows/**'
+          react_ui:
+            - '**/*.tsx'
+            - '**/*.jsx'
+          mobile_source:
+            - '**/*.ts'
+            - '**/*.tsx'
+            - '**/*.js'
+            - '**/*.jsx'
+            - '**/*.mjs'
+            - '**/*.cjs'
+          mobile_deps:
+            - '**/package.json'
+            - '**/yarn.lock'
+            - '**/.yarnrc.yml'
+          tsconfig:
+            - '**/tsconfig*.json'
+          eslint_config:
+            - '**/.eslintrc*'
+            - '**/eslint.config.*'
+          jest_config:
+            - '**/jest.config.*'
+          mobile:
+            - '**/*.ts'
+            - '**/*.tsx'
+            - '**/*.js'
+            - '**/*.jsx'
+            - '**/*.mjs'
+            - '**/*.cjs'
+            - '**/package.json'
+            - '**/yarn.lock'
+            - '**/.yarnrc.yml'
+            - '**/tsconfig*.json'
+            - '**/.eslintrc*'
+            - '**/eslint.config.*'
+            - '**/jest.config.*'
+            - '**/app.json'
+            - '**/app.config.*'
+            - '**/metro.config.*'
+          ls_lint:
+            - '**/*.ts'
+            - '**/*.tsx'
+            - '**/*.js'
+            - '**/*.jsx'
+            - '**/*.mjs'
+            - '**/*.cjs'
+            - '.ls-lint.yml'

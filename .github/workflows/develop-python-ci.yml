@@ -102,21 +102,15 @@ jobs:
       contents: read
     outputs:
       python: ${{ steps.filter.outputs.python }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: PeterChauYEG/labone-actions/.github/actions/python-changes@main
         id: filter
-        with:
-          filters: |
-            python:
-              - '**/*.py'
-              - '**/requirements*.txt'
-              - '**/pyproject.toml'
-              - '**/setup.cfg'
-              - '**/setup.py'
 
   actionlint:
     name: actionlint
+    needs: changes
+    if: ${{ needs.changes.outputs.workflows == 'true' }}
     secrets: inherit
     uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
 
