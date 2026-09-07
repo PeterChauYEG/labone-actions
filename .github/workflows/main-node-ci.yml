@@ -110,6 +110,14 @@ on:
         type: string
         required: false
         default: '--cache --cacheDirectory .jestcache'
+      enable_security_scan:
+        description: Run the Trivy filesystem vulnerability scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -306,38 +314,44 @@ jobs:
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'true'
 
-  # LAB-2103: single aggregator job so caller repos' branch protection can
-  # require ONE context (`required-checks`) instead of a hand-maintained
-  # list of this workflow's individual job-name contexts - see
-  # develop-node-ci.yml's identical job comment for the full rationale
-  # (job/input names are intentionally identical between the two files per
-  # this file's own header comment).
-  #
-  # `needs:` lists this file's REAL (blocking) gates: `lint`, `typecheck`,
-  # `build`, `test`. Deliberately excludes `changes`/`setup` (infra, not
-  # gates) - this file has no `security-scan`/`dependency-audit`/
-  # `dead-code` jobs (unlike `develop-node-ci.yml`), so there's nothing
-  # advisory to exclude here. Also deliberately excludes `deploy` and
-  # `slack-notification`: this workflow only runs on `push` to `main`, not
-  # `pull_request`, so branch protection's required-status-checks
-  # mechanism (what `required-checks` exists to aggregate for) never
-  # actually applies to it - `required-checks` here mirrors
-  # `develop-node-ci.yml`'s gate set 1:1 for consistency/parity rather than
-  # gating anything real. Kept to the same 4 jobs as a deliberate, callable
-  # judgment: `deploy` has its own well-established `needs.*.result`
-  # failure/cancelled check already (see that job's own comment below), so
-  # folding it into `required-checks` too would be redundant rather than
-  # additive.
-  #
-  # `if: always()` for the same reason as `deploy`'s own `if:` below -
-  # without it, GitHub's default scheduling skips this job outright
-  # whenever any `needs:` entry resolves to `skipped` (e.g. every gate job
-  # here when `needs.changes.outputs.node == 'false'`), which is the
-  # opposite of what an aggregator gate needs. A `skipped` result must NOT
-  # fail this job - only `failure`/`cancelled` should.
+  security-scan:
+    name: security-scan
+    needs: changes
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.node_deps == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (vulnerabilities)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  secret-scan:
+    name: secret-scan
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (secrets)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
   required-checks:
     name: required-checks
-    needs: [lint, typecheck, build, test]
+    needs: [lint, typecheck, build, test, security-scan, secret-scan]
     runs-on: [self-hosted, catfood]
     if: always()
     steps:
