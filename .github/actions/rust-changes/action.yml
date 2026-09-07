@@ -1,5 +1,5 @@
 name: Rust changes
-description: Shared path-filter outputs for Rust repos, used by develop-rust-ci.yml/main-rust-ci.yml and the rust-service/rust-cli PR orchestrators.
+description: Shared path-filter outputs for Rust repos, used by develop-rust-ci.yml and the rust-service/rust-cli PR orchestrators.
 
 outputs:
   workflows:
@@ -19,7 +19,7 @@ runs:
   using: composite
   steps:
     - uses: actions/checkout@v7
-    - uses: dorny/paths-filter@v3
+    - uses: dorny/paths-filter@v4
       id: filter
       with:
         filters: |
