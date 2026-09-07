@@ -56,9 +56,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    name: changes
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+
   fmt:
     name: fmt
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.rust == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -73,7 +93,9 @@ jobs:
 
   clippy:
     name: clippy
+    needs: changes
     runs-on: [self-hosted, catfood]
+    if: ${{ needs.changes.outputs.rust == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -87,8 +109,9 @@ jobs:
 
   build:
     name: build
+    needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build }}
+    if: ${{ inputs.enable_build && needs.changes.outputs.rust == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -101,8 +124,9 @@ jobs:
 
   test:
     name: test
+    needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.rust == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:

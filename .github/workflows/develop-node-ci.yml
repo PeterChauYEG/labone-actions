@@ -287,6 +287,14 @@ jobs:
               - '**/*.cjs'
               - '.ls-lint.yml'
 
+  actionlint:
+    name: actionlint
+    secrets: inherit
+    uses: PeterChauYEG/labone-actions/.github/workflows/actionlint.yml@main
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      pr_url: ${{ inputs.pr_url }}
+
   setup:
     name: setup
     runs-on: [self-hosted, catfood]
@@ -603,7 +611,7 @@ jobs:
   required-checks:
     name: required-checks
     needs:
-      [lint, typecheck, build, test, security-scan, dependency-audit]
+      [lint, typecheck, build, test, security-scan, dependency-audit, actionlint]
     runs-on: [self-hosted, catfood]
     if: always()
     steps:
