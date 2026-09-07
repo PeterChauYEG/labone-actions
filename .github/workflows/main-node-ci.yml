@@ -183,6 +183,7 @@ jobs:
       jest_config: ${{ steps.filter.outputs.jest_config }}
       ls_lint: ${{ steps.filter.outputs.ls_lint }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      any: ${{ steps.filter.outputs.any }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/node-changes@main
         id: filter
@@ -366,7 +367,7 @@ jobs:
     if: >-
       always() &&
       needs.required-checks.result == 'success' &&
-      needs.changes.outputs.node == 'true' &&
+      needs.changes.outputs.any == 'true' &&
       !inputs.is_dependabot && inputs.enable_deploy
     steps:
       - uses: actions/checkout@v7

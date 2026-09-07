@@ -94,6 +94,7 @@ jobs:
     outputs:
       web: ${{ steps.filter.outputs.web }}
       web_deps: ${{ steps.filter.outputs.web_deps }}
+      any: ${{ steps.filter.outputs.any }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/web-changes@main
         id: filter
@@ -241,7 +242,7 @@ jobs:
     if: >-
       always() && inputs.enable_deploy && !inputs.is_dependabot &&
       needs.required-checks.result == 'success' &&
-      needs.changes.outputs.web == 'true' &&
+      needs.changes.outputs.any == 'true' &&
       !contains(needs.*.result, 'cancelled')
     steps:
       - uses: actions/checkout@v7
