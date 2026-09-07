@@ -17,6 +17,13 @@ on:
         type: string
         required: false
         default: '.'
+      enable_test:
+        description: >
+          Run test_command. Set false for a repo without a matching
+          pytest-shaped test setup (bespoke test job handles it instead).
+        type: boolean
+        required: false
+        default: true
       test_command:
         description: Command used to run the test suite.
         type: string
@@ -49,7 +56,7 @@ jobs:
       working-directory: ${{ inputs.working-directory }}
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.pull_request.user.login == 'github-actions[bot]') }}
       lint_path: ${{ inputs.lint_path }}
-      enable_test: true
+      enable_test: ${{ inputs.enable_test }}
       test_command: ${{ inputs.test_command }}
       enable_security_scan: false
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
