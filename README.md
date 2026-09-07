@@ -788,7 +788,7 @@ split below exists to avoid — so it's disabled here (`cache: false`) in
 favor of explicit `actions/cache`/`actions/cache/restore` steps pointed at
 the same cache dir.
 
-### Cargo cache scoping (`develop-rust-ci.yml`/`main-rust-ci.yml`)
+### Cargo cache scoping (`develop-rust-ci.yml`)
 
 `develop-rust-ci.yml` has no shared `setup` job (see that workflow's own
 README section), so its `fmt`, `clippy`, `test`, `build`, `dead-code`,
@@ -797,11 +797,7 @@ their own `cache-key-prefix` (`fmt`, `clippy`, `test`, `build`, ...),
 giving each job its own `${{ runner.os }}-cargo-<prefix>-${{
 hashFiles('Cargo.lock') }}` cache entry — `cargo-fmt-`, `cargo-clippy-`,
 `cargo-test-`, `cargo-build-`, etc. — instead of one entry shared across
-every job (see "Per-job cache scoping" above). `main-rust-ci.yml`'s
-`fmt`/`clippy`/`test`/`build` jobs use the identical prefixes, so they
-populate the canonical per-job entry a PR-branch job on `develop-rust-ci.yml`
-falls back to via `restore-keys` on its own first run for a given
-`Cargo.lock`.
+every job (see "Per-job cache scoping" above).
 
 ### Cache-to-main: read/write split
 
@@ -832,8 +828,8 @@ Only the push-to-main workflows write:
   before this change.
 - `develop-rust-ci.yml`'s per-job cargo caches (above) are exempt from the
   explicit `cache-write` gate — `setup-rust` has no such input; its
-  `actions/cache` step always restores+saves, on both `main-rust-ci.yml`
-  and `develop-rust-ci.yml`. This still fits the overall policy: a
+  `actions/cache` step always restores+saves. This still fits the overall
+  policy: a
   PR-branch job's own save is scoped to that PR branch (`actions/cache`'s
   default per-`github.ref` save behavior), never overwriting/clobbering
   `main`'s entry, and a PR job with no branch-scoped entry yet still
