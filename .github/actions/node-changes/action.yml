@@ -26,6 +26,14 @@ outputs:
   ls_lint:
     description: Source or .ls-lint.yml changed.
     value: ${{ steps.filter.outputs.ls_lint }}
+  any:
+    description: >
+      Any file at all changed. Deploy must gate on this, not `node` - `node`
+      only matches known code/config extensions, so a real change to
+      something outside that list (Dockerfile, .env.example, a Prisma
+      schema, a JSON data file, etc.) would otherwise leave `node` false
+      and silently skip deploy despite main genuinely changing.
+    value: ${{ steps.filter.outputs.any }}
 
 runs:
   using: composite
@@ -81,3 +89,5 @@ runs:
             - '**/*.mjs'
             - '**/*.cjs'
             - '.ls-lint.yml'
+          any:
+            - '**'
