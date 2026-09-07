@@ -126,11 +126,10 @@ jobs:
   deploy:
     name: deploy
     runs-on: [self-hosted, catfood]
-    needs: [fmt, clippy, build, test]
+    needs: [required-checks]
     if: >-
       always() && inputs.enable_deploy && !inputs.is_dependabot &&
-      !contains(needs.*.result, 'failure') &&
-      !contains(needs.*.result, 'cancelled')
+      needs.required-checks.result == 'success'
     steps:
       - uses: actions/checkout@v7
         with:
