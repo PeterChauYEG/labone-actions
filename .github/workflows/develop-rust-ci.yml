@@ -259,7 +259,7 @@ jobs:
     name: test
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ !inputs.is_dependabot && needs.changes.outputs.rust == 'true' }}
+    if: ${{ !inputs.is_dependabot }}
     permissions:
       contents: read
       pull-requests: write
@@ -295,7 +295,7 @@ jobs:
     name: build
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build && !inputs.is_dependabot && needs.changes.outputs.rust == 'true' }}
+    if: ${{ inputs.enable_build && !inputs.is_dependabot }}
     steps:
       # cache-key-prefix scopes this job's own cargo-build-${Cargo.lock
       # hash} entry, separate from clippy/test's own entries - see

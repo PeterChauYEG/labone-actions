@@ -308,7 +308,6 @@ jobs:
     name: setup
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.node == 'true' }}
     steps:
       - if: inputs.package_manager == 'yarn'
         uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -450,7 +449,6 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.tsconfig == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -473,7 +471,7 @@ jobs:
     name: build
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build && needs.changes.outputs.node == 'true' }}
+    if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -491,7 +489,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && (needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.tsconfig == 'true' || needs.changes.outputs.jest_config == 'true') }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config

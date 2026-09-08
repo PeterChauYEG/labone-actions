@@ -227,7 +227,6 @@ jobs:
     name: setup
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.mobile == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -304,7 +303,6 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.tsconfig == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true').
@@ -326,7 +324,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && (needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.tsconfig == 'true' || needs.changes.outputs.jest_config == 'true') }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so this stays
       # a plain restore+save cache (cache-write: 'true'), same as
