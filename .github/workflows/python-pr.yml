@@ -41,6 +41,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.repository }}-pr-${{ github.event.pull_request.number }}
