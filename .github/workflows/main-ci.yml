@@ -103,7 +103,6 @@ jobs:
     name: setup
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.web == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -159,7 +158,7 @@ jobs:
     name: build
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build && needs.changes.outputs.web == 'true' }}
+    if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -174,7 +173,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.web == 'true' }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
