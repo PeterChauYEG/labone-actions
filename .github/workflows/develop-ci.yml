@@ -214,7 +214,6 @@ jobs:
     name: setup
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.web == 'true' }}
     # Deliberately narrower than (and independent of) the caller's own
     # workflow-level `concurrency:` group (grouped per PR number, see
     # templates/*-pr.yml and README.md "Concurrency" point 1) — this one is
@@ -361,7 +360,6 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.web_source == 'true' || needs.changes.outputs.web_deps == 'true' || needs.changes.outputs.tsconfig == 'true' }}
     steps:
       # --incremental/--tsBuildInfoFile are passed through to the caller's
       # `typecheck` script (yarn forwards extra CLI args) — assumes that
@@ -386,7 +384,7 @@ jobs:
     name: build
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_build && needs.changes.outputs.web == 'true' }}
+    if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -401,7 +399,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && (needs.changes.outputs.web_source == 'true' || needs.changes.outputs.web_deps == 'true' || needs.changes.outputs.tsconfig == 'true' || needs.changes.outputs.jest_config == 'true') }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       # test_script_args (default Jest's cache flags) is passed through to
       # the caller's `test:coverage` script (yarn forwards extra CLI args) —

@@ -131,7 +131,7 @@ jobs:
     name: test
     needs: changes
     runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_test && !inputs.is_dependabot && needs.changes.outputs.python == 'true' }}
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
       - run: ${{ inputs.test_command }}
