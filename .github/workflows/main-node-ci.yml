@@ -253,7 +253,6 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.tsconfig == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
