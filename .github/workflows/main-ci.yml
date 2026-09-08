@@ -138,7 +138,6 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.web == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
