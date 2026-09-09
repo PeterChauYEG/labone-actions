@@ -210,13 +210,25 @@ runs:
           # from the working directory into the given (already-complete)
           # bundle. Safe to call from any number of concurrent readers -
           # the bundle is never mutated after its .complete marker exists.
+          #
+          # .last-used is touched FIRST, before any symlink is created: this
+          # is what gha-cleanup-daily.sh's 7-day prune reads to decide
+          # whether a bundle is still in use, so a reader must claim it
+          # before starting to depend on it, not after - touching it last
+          # left a narrow window where a bundle could be pruned out from
+          # under a job that had just started reading it (the reader's own
+          # touch hadn't landed yet). Still not airtight against a prune
+          # running in the few milliseconds between this touch and the
+          # first symlink, but that's an unavoidable TOCTOU inherent to any
+          # mtime-based "still in use" signal on a cron cadence measured in
+          # days, not a design gap worth adding real locking for.
           local bundle="$1"
+          touch "$bundle/.last-used"
           while IFS= read -r rel; do
             [[ -z "$rel" ]] && continue
             mkdir -p "$(dirname "$rel")" "$(dirname "$bundle/$rel")"
             ln -sfn "$bundle/$rel" "$rel"
           done <<< "$REL_PATHS"
-          touch "$bundle/.last-used"
         }
 
         if [[ -f "$BUNDLE/.complete" ]]; then

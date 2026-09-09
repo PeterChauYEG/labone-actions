@@ -147,13 +147,16 @@ runs:
         pnpm config set store-dir "$PNPM_STORE"
 
         link_bundle() {
+          # .last-used touched FIRST, before any symlink - see
+          # setup-node-yarn's identical function for why (gha-cleanup-
+          # daily.sh's 7-day prune reads this to decide "still in use").
           local bundle="$1"
+          touch "$bundle/.last-used"
           while IFS= read -r rel; do
             [[ -z "$rel" ]] && continue
             mkdir -p "$(dirname "$rel")" "$(dirname "$bundle/$rel")"
             ln -sfn "$bundle/$rel" "$rel"
           done <<< "$REL_PATHS"
-          touch "$bundle/.last-used"
         }
 
         if [[ -f "$BUNDLE/.complete" ]]; then
