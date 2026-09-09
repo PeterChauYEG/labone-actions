@@ -1,6 +1,8 @@
 name: Setup gdtoolkit
 description: >
-  Install gdtoolkit (gdformat/gdlint) pinned to a fixed version, and install this repo's
+  Install gdtoolkit (gdformat/gdlint) pinned to a fixed version via the shared
+  `setup-python-uv` action (cached `uv tool install`, no more bare uncached
+  `pip install --break-system-packages` per run), and install this repo's
   canonical, intentionally strict .gdlintrc/.gdformatrc into the caller's working directory —
   overwriting anything the caller repo has locally. This is what makes "change GDScript
   lint rules in one place" true: consumer repos must not keep their own .gdlintrc/.gdformatrc.
@@ -22,9 +24,10 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install gdtoolkit
-      shell: bash
-      run: pip3 install --break-system-packages "gdtoolkit==${{ inputs.gdtoolkit-version }}"
+    - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+      with:
+        tool: gdtoolkit==${{ inputs.gdtoolkit-version }}
+        cache-key-prefix: gdtoolkit
 
     - name: Install canonical .gdlintrc
       shell: bash

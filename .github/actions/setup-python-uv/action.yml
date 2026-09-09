@@ -1,0 +1,59 @@
+name: Setup uv + cached tool install
+description: >
+  Checkout + install one pinned Python CLI tool (ruff, pip-audit, gdtoolkit,
+  ...) via `uv tool install`, with its install cached across runs. Replaces
+  the bare `pip install --quiet --break-system-packages <tool>` step every
+  Python/Godot job previously duplicated with zero caching — mirrors
+  setup-node-yarn/setup-node-pnpm's shape (checkout, restore a cache,
+  install-if-miss) so Python CI stops being the one stack with no shared
+  setup step.
+
+  Assumes `uv` is already on PATH on the runner - the self-hosted `catfood`
+  runner image is expected to bake in Python + uv directly (same as it
+  already bakes in the Godot engine binary for godot-develop-ci.yml's `test`
+  job), rather than this action downloading/bootstrapping either per run.
+  This step fails fast with `uv: command not found` if that image update
+  hasn't landed yet.
+
+inputs:
+  tool:
+    description: >
+      pip-installable spec passed straight to `uv tool install`, including
+      any version pin - e.g. `ruff`, `pip-audit`, `gdtoolkit==4.5.0`. Also
+      used verbatim in the cache key, so pinning a version here is what
+      invalidates the cache on a version bump.
+    required: true
+  cache-key-prefix:
+    description: >
+      Job/purpose identifier (e.g. 'lint', 'dependency-audit', 'gdtoolkit')
+      folded into the cache key so a job only ever restores/writes the
+      cache entry it itself created - same rationale as
+      setup-node-yarn's identical input.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+
+    - name: Cache uv tool install
+      id: uv-tool-cache
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.local/share/uv/tools
+          ~/.cache/uv
+        # No hashFiles() here, unlike the node_modules/cargo caches - a
+        # standalone tool install isn't keyed on a repo lockfile, it's keyed
+        # on the exact `tool` spec (which already embeds the pin, e.g.
+        # `gdtoolkit==4.5.0`), so a version bump invalidates it directly.
+        key: ${{ runner.os }}-uv-tool-${{ inputs.cache-key-prefix }}-${{ inputs.tool }}
+
+    - name: Install ${{ inputs.tool }}
+      if: steps.uv-tool-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: uv tool install "${{ inputs.tool }}"
+
+    - name: Add uv tool bin dir to PATH
+      shell: bash
+      run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"

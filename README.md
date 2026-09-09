@@ -1150,7 +1150,8 @@ caller pattern for the web stack. `workflow_call` inputs:
 Jobs:
 
 - `format` — `gdformat --check .`, gated on `.gdlintrc`-adjacent gdtoolkit
-  install via the `setup-gdtoolkit` composite action.
+  install via the `setup-gdtoolkit` composite action (itself a thin wrapper
+  around `setup-python-uv` — see `develop-python-ci.yml`'s section above).
 - `lint` — `gdlint .` against this repo's canonical, intentionally strict
   `.gdlintrc`.
 - `duplicate-code` — `jscpd` against the caller repo's own `.jscpd.json`,
@@ -1204,10 +1205,16 @@ jobs:
 
 Reusable PR-time CI for Python repos (data pipelines, MCP servers, ML/robotics
 scripts). Unlike `develop-node-ci.yml`, there's no shared `setup` +
-cache-restore stage — Python dependency management isn't uniform
-across consumer repos (`pyproject.toml`, `requirements.txt`, or neither), and
-`pip install ruff` is cheap enough that every job just installs what it
-needs directly. `workflow_call` inputs:
+cache-restore stage installing the *project's own* deps — Python dependency
+management isn't uniform across consumer repos (`pyproject.toml`,
+`requirements.txt`, or neither). The standalone dev tools each job needs
+(`ruff`, `pip-audit`) don't have that problem though, so `lint` and
+`dependency-audit` both install theirs via `setup-python-uv` — a cached
+`uv tool install` wrapper (`.github/actions/setup-python-uv/action.yml`,
+mirrors `setup-node-yarn`/`setup-node-pnpm`'s shape) instead of a bare,
+uncached `pip install --break-system-packages <tool>` on every run.
+`setup-python-uv` assumes `uv` is already on the runner image — see that
+action's own description. `workflow_call` inputs:
 
 - `working-directory` (string, default `.`) — directory the Python project
   lives in, for monorepo callers.
