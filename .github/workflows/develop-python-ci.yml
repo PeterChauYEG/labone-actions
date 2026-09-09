@@ -6,11 +6,14 @@ name: Develop Python CI
 # with `secrets: inherit`.
 #
 # Unlike develop-node-ci.yml, there is no shared `setup` + cache-restore
-# stage here: Python dependency management is not uniform across
-# consumer repos (pyproject.toml, requirements.txt, or neither), and `pip
-# install ruff` is fast enough that every job just installs what it needs
-# directly, matching what every consumer repo already did with bespoke CI
-# before this workflow existed.
+# stage installing the *project's own* deps here: Python dependency
+# management is not uniform across consumer repos (pyproject.toml,
+# requirements.txt, or neither). The standalone dev tools each job needs
+# (ruff, pip-audit) are a different story though - those aren't tied to the
+# project's own dependency format, so `lint` and `dependency-audit` both go
+# through `setup-python-uv`, a cached `uv tool install` wrapper (mirrors
+# setup-node-yarn/setup-node-pnpm's shape) instead of a bare, uncached `pip
+# install --break-system-packages <tool>` on every single run.
 #
 # `lint` is a HARD gate: `ruff check <lint_path>`, always on.
 #
@@ -122,9 +125,11 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ needs.changes.outputs.python == 'true' }}
     steps:
-      - uses: actions/checkout@v7
-      - run: pip install --quiet --break-system-packages ruff
-      - run: python3 -m ruff check ${{ inputs.lint_path }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: ruff
+          cache-key-prefix: lint
+      - run: ruff check ${{ inputs.lint_path }}
         working-directory: ${{ inputs.working-directory }}
 
   test:
@@ -177,7 +182,9 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
-      - uses: actions/checkout@v7
-      - run: pip install --quiet --break-system-packages pip-audit
-      - run: python3 -m pip_audit -r ${{ inputs.requirements_file }}
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: pip-audit
+          cache-key-prefix: dependency-audit
+      - run: pip-audit -r ${{ inputs.requirements_file }}
         working-directory: ${{ inputs.working-directory }}
