@@ -1,52 +1,50 @@
 name: Setup Node.js + pnpm
 description: >
-  pnpm sibling of `setup-node-yarn` (LAB-1268, cache-only LAB-1371) — same
-  contract: checkout, enable Corepack, setup Node.js from package.json,
-  configure a repo-local pnpm store directory and restore its cache, restore
-  a node_modules cache keyed on pnpm-lock.yaml (skipping `pnpm install
-  --frozen-lockfile` entirely on a hit — see `cache-write` input), running
-  the install locally in every job that needs deps rather than installing
-  once and fanning the result out via a GitHub Actions artifact. See
-  `setup-node-yarn`'s description for why the artifact approach was dropped
-  (it was the direct cause of repeatedly blowing the account-wide Actions
-  artifact storage quota).
+  pnpm sibling of `setup-node-yarn` — same content-addressed-bundle design,
+  same rationale (drops GitHub's actions/cache network round-trip per job
+  in favor of a host-local bind-mounted cache; node_modules is
+  content-addressed by lockfile hash rather than shared as one mutable
+  directory, since - unlike a compiler object cache - it's a full resolved
+  tree tied to exactly one lockfile). See setup-node-yarn's own description
+  for the full write-vs-read contract (cache-write: true only on
+  main-ci.yml/main-node-ci.yml's `setup` job writes a new immutable
+  `bundle-<hash>/`; every other job only ever reads one, falling back to a
+  fully local, unshared install on a miss) and pruning (gha-cleanup-daily.sh
+  removes any `bundle-*/` unused for 7 days).
+
+  pnpm's own content-addressable store is an even more natural fit for the
+  no-isolation shared tier than Yarn's package cache — it's already a
+  global, content-addressed store by pnpm's own design — so it's shared
+  read+write by every job regardless of cache-write, same as Yarn's.
 
 inputs:
   cache-key-prefix:
     description: >
-      Job/purpose identifier (e.g. 'setup', 'lint', 'test', 'dead-code')
-      folded into both the pnpm store cache and node_modules cache keys so
-      a job only ever restores/writes the cache entry it itself created,
-      never one shared with a different job in the same workflow - even
-      when every job builds from the exact same pnpm-lock.yaml. Required -
-      see setup-node-yarn's identical input for the full rationale.
+      No longer used to key the dependency cache itself - see
+      setup-node-yarn's identical input for the full rationale. Kept only
+      for caller backwards compatibility; still logged for debugging.
     required: true
   working-directory:
     description: >
       Directory (relative to the repo root) the pnpm app lives in. Defaults
-      to `.` (repo root), matching every existing caller. Set this when the
-      app lives in a subdirectory of a monorepo.
+      to `.` (repo root). Also namespaces this repo's shared dep-cache-main
+      mount - see setup-node-yarn's identical input.
     required: false
     default: '.'
   extra-paths:
     description: >
-      Newline- or space-separated list of additional paths (relative to the
-      repo root) to fold into the node_modules cache entry, beyond
-      node_modules and .next/cache — e.g. a gitignored src/generated/
-      directory populated by a `postinstall` codegen script.
+      Newline- or space-separated list of additional paths (relative to
+      working-directory) folded into the SAME content-addressed bundle as
+      node_modules — e.g. a gitignored src/generated/ directory populated
+      by a `postinstall` codegen script.
     required: false
     default: ''
   extra-cache-key-glob-1:
     description: >
       Extra glob pattern (relative to working-directory) folded into the
-      node_modules cache key's hashFiles alongside pnpm-lock.yaml - e.g.
-      `prisma/schema.prisma` for a repo whose `postinstall` script runs
-      `prisma generate`. See `setup-node-yarn`'s identical input for the
-      full rationale (a `postinstall` codegen input changing without a
-      dependency change otherwise leaves every job restoring stale
-      generated output forever). A caller needing two extra patterns also
-      has extra-cache-key-glob-2. Empty (default) matches every existing
-      caller with zero behavior change.
+      bundle hash alongside pnpm-lock.yaml - see setup-node-yarn's
+      identical input for the full rationale. A caller needing two extra
+      patterns also has extra-cache-key-glob-2.
     required: false
     default: ''
   extra-cache-key-glob-2:
@@ -56,33 +54,28 @@ inputs:
   ssh-deploy-key:
     description: >
       SSH private key (e.g. secrets.LAB_GIT_DEPS_SSH_KEY) for cloning
-      private git-dependency packages during pnpm install - e.g.
-      "pkg": "github:PeterChauYEG/some-private-pkg#main" in package.json.
-      Loaded into an ssh-agent before install. Leave empty (default) for
-      repos with no private git dependencies.
+      private git-dependency packages during pnpm install. Leave empty
+      (default) for repos with no private git dependencies. Only relevant
+      when this run actually installs - a symlink-only cache hit never
+      invokes pnpm at all.
     required: false
     default: ''
   gh-token:
     description: >
       GitHub token (e.g. secrets.GH_PAT) exposed as GH_TOKEN to the pnpm
       install step only - for repos whose `postinstall` script shells out
-      to the `gh` CLI against a *different* private repo. The ephemeral
-      default GITHUB_TOKEN is scoped only to the calling repo, so `gh` can't
-      see releases on a sibling private repo without this. Leave empty
+      to the `gh` CLI against a *different* private repo. Leave empty
       (default) for repos with no such cross-repo `gh` calls.
     required: false
     default: ''
   cache-write:
     description: >
-      Whether the node_modules cache below should be allowed to write a new
-      cache entry ('true') or only read an existing one ('false',
-      read-only). Caches change infrequently, so only the push-to-main
-      workflow's `setup` job needs to write - every other job, on both PR
-      and main runs, reads that same entry read-only via restore-keys
-      instead of also paying to write a duplicate copy, which just
-      churns/evicts the shared cache. 'false' (read-only) by default.
-      String, not boolean - composite action inputs are always strings.
-      Same convention as `setup-node-yarn`.
+      'true' (main-ci.yml/main-node-ci.yml's `setup` job only) writes a new
+      bundle into the shared host cache when this run's lockfile hash isn't
+      already there. 'false' (default, every other job) only ever reads an
+      existing bundle, falling back to a fully local, unshared install
+      when no matching bundle exists yet. String, not boolean - composite
+      action inputs are always strings.
     required: false
     default: 'false'
 
@@ -99,70 +92,26 @@ runs:
       with:
         node-version-file: '${{ inputs.working-directory }}/package.json'
 
-    - name: Configure pnpm store directory
-      # Repo-local (rather than pnpm's default global `~/.local/share/pnpm/
-      # store`) so it's cacheable the same way setup-node-yarn caches
-      # `.yarn/cache` relative to working-directory - keeps this action
-      # self-hosted-runner-friendly with no assumptions about a shared home
-      # directory across runner instances.
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: pnpm config set store-dir .pnpm-store
-
-    - name: Cache pnpm store
-      uses: actions/cache@v6
-      with:
-        path: ${{ inputs.working-directory }}/.pnpm-store
-        key: ${{ runner.os }}-pnpm-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
-        restore-keys: |
-          ${{ runner.os }}-pnpm-${{ inputs.cache-key-prefix }}-
-
-    - name: Compute node_modules cache paths
-      # Same rationale as setup-node-yarn's identical step: extra-paths is a
-      # dynamic, space-separated list that can't be looped over in a `path:`
-      # input directly, so build the full multiline path list once here.
-      id: cache-paths
+    - name: Compute cache key + paths
+      id: cache-key
       shell: bash
       run: |
+        slug=$(echo "${{ inputs.working-directory }}" | tr -c 'A-Za-z0-9_.-' '-')
+        hash="${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}"
+        base="/root/.cache/dep-cache-main/wd-${slug}"
+        echo "base=${base}" >> "$GITHUB_OUTPUT"
+        echo "bundle=${base}/bundle-${hash}" >> "$GITHUB_OUTPUT"
+        echo "pnpm-store=${base}/pnpm-store" >> "$GITHUB_OUTPUT"
         {
-          echo "paths<<CACHE_PATHS_EOF"
-          echo "${{ inputs.working-directory }}/node_modules"
-          echo "${{ inputs.working-directory }}/.next/cache"
+          echo "rel-paths<<REL_PATHS_EOF"
+          echo "node_modules"
+          echo ".next/cache"
           for p in ${{ inputs.extra-paths }}; do
-            echo "${{ inputs.working-directory }}/$p"
+            echo "$p"
           done
-          echo "CACHE_PATHS_EOF"
+          echo "REL_PATHS_EOF"
         } >> "$GITHUB_OUTPUT"
-
-    - name: Cache node_modules
-      # Same rationale as setup-node-yarn's node_modules cache: the pnpm
-      # store cache above only avoids re-fetching over the network, not the
-      # resolve/link cost of a full `pnpm install --frozen-lockfile`.
-      # cache-write true (main-node-ci.yml's `setup` job only) uses the
-      # normal restore+save action; cache-write false (every other job)
-      # uses the read-only restore variant below instead - see cache-write's
-      # input description.
-      id: node-modules-cache
-      if: inputs.cache-write == 'true'
-      uses: actions/cache@v6
-      with:
-        path: ${{ steps.cache-paths.outputs.paths }}
-        # extra-cache-key-glob-1/-2 are optional (default '') - guarded the
-        # same way as setup-node-yarn's identical key - see that action's
-        # comment.
-        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
-        restore-keys: |
-          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
-
-    - name: Restore node_modules (read-only)
-      id: node-modules-restore
-      if: inputs.cache-write != 'true'
-      uses: actions/cache/restore@v6
-      with:
-        path: ${{ steps.cache-paths.outputs.paths }}
-        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
-        restore-keys: |
-          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
+        echo "[setup-node-pnpm] cache-key-prefix='${{ inputs.cache-key-prefix }}' (unused for cache path, kept for log context) bundle=${base}/bundle-${hash}"
 
     - name: Load SSH deploy key for private git dependencies
       if: inputs.ssh-deploy-key != ''
@@ -171,41 +120,70 @@ runs:
         ssh-private-key: ${{ inputs.ssh-deploy-key }}
 
     - name: Trust github.com host key
-      # Self-hosted Docker runners (unlike GitHub-hosted ones) don't ship
-      # github.com pre-populated in known_hosts, so the git-dependency
-      # clone above would otherwise fail host-key verification.
       if: inputs.ssh-deploy-key != ''
       shell: bash
       run: ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
 
     - name: Route git+https git dependencies over SSH
-      # package.json git-dependency entries are commonly written as
-      # git+https://github.com/... (or resolve to that form), which ignores
-      # the ssh-agent key loaded above entirely - https:// clones normally
-      # ride on the credential actions/checkout leaves behind for the
-      # *current* repo only, and dependabot-triggered runs get a
-      # single-repo-scoped GITHUB_TOKEN that can't touch a sibling private
-      # repo at all. Rewriting the URL scheme forces pnpm to use the SSH
-      # transport (and therefore the deploy key above) regardless of how
-      # the dependency is declared.
       if: inputs.ssh-deploy-key != ''
       shell: bash
       run: git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
 
-    - name: Install dependencies
-      # Skipped entirely on a node_modules cache hit - the restored tree
-      # already matches this exact pnpm-lock.yaml. Still runs when
-      # extra-paths is set, though: those are postinstall-generated (e.g.
-      # SDK codegen) outputs that only exist after a real install, so a
-      # cache hit there can't be trusted to have already produced them
-      # unless they were also captured into this same cache entry on a
-      # prior run.
-      if: |
-        (steps.node-modules-cache.outputs.cache-hit != 'true' &&
-         steps.node-modules-restore.outputs.cache-hit != 'true') ||
-        inputs.extra-paths != ''
+    - name: Read bundle (cache hit) or install (cache-write / miss)
+      id: install
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
-      run: pnpm install --frozen-lockfile
+        # Content-addressed, safe to share read+write across every job
+        # regardless of cache-write - see this action's own description.
+        PNPM_STORE: ${{ steps.cache-key.outputs.pnpm-store }}
+        BUNDLE: ${{ steps.cache-key.outputs.bundle }}
+        REL_PATHS: ${{ steps.cache-key.outputs.rel-paths }}
+        CACHE_WRITE: ${{ inputs.cache-write }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$PNPM_STORE"
+        pnpm config set store-dir "$PNPM_STORE"
+
+        link_bundle() {
+          # .last-used touched FIRST, before any symlink - see
+          # setup-node-yarn's identical function for why (gha-cleanup-
+          # daily.sh's 7-day prune reads this to decide "still in use").
+          local bundle="$1"
+          touch "$bundle/.last-used"
+          while IFS= read -r rel; do
+            [[ -z "$rel" ]] && continue
+            mkdir -p "$(dirname "$rel")" "$(dirname "$bundle/$rel")"
+            ln -sfn "$bundle/$rel" "$rel"
+          done <<< "$REL_PATHS"
+        }
+
+        if [[ -f "$BUNDLE/.complete" ]]; then
+          echo "[setup-node-pnpm] bundle hit: $BUNDLE - symlinking, no install"
+          link_bundle "$BUNDLE"
+          exit 0
+        fi
+
+        if [[ "$CACHE_WRITE" == "true" ]]; then
+          echo "[setup-node-pnpm] cache-write run, bundle miss: $BUNDLE - installing into shared cache"
+          scratch="${BUNDLE}.tmp-${RANDOM}-$$"
+          mkdir -p "$scratch"
+          while IFS= read -r rel; do
+            [[ -z "$rel" ]] && continue
+            mkdir -p "$(dirname "$rel")" "$(dirname "$scratch/$rel")"
+            ln -sfn "$scratch/$rel" "$rel"
+          done <<< "$REL_PATHS"
+          pnpm install --frozen-lockfile
+          if [[ ! -d "$BUNDLE" ]]; then
+            mv "$scratch" "$BUNDLE"
+            touch "$BUNDLE/.complete"
+          else
+            rm -rf "$scratch"
+          fi
+          link_bundle "$BUNDLE"
+          exit 0
+        fi
+
+        echo "[setup-node-pnpm] bundle miss on a non-cache-write run: $BUNDLE - installing locally, not shared"
+        pnpm install --frozen-lockfile

@@ -1,63 +1,102 @@
 name: Setup Node.js + Yarn
 description: >
-  Checkout, enable Corepack, setup Node.js from package.json, restore the
-  Yarn cache, restore a node_modules cache keyed on yarn.lock (skipping
-  `yarn install --frozen-lockfile` entirely on a hit — see `cache-write`
-  input), running the install locally in every job that needs deps rather
-  than installing once and fanning the result out via a GitHub Actions
-  artifact. LAB-1371: the artifact approach (one unique upload per run,
-  downloaded by every downstream job) is what was blowing the account-wide
-  Actions artifact storage quota — every single run/job pair created its own
-  copy regardless of whether the lockfile had actually changed. A cache
-  entry keyed on yarn.lock's hash (not the run id) is naturally deduped
-  across runs and jobs instead, and only churns when the lockfile itself
-  changes. The tradeoff: on a genuine cache miss (new/changed lockfile),
-  every job that calls this action re-runs its own full install rather than
-  one job installing once for everyone — acceptable on self-hosted runners,
-  and rare since most runs hit an already-warm cache entry.
+  Checkout, enable Corepack, setup Node.js from package.json, then install
+  deps from a host-local, per-repo persistent cache bind-mounted by
+  gha-runner-docker's dispatch-one.sh at /root/.cache/dep-cache-main (NOT
+  GitHub's actions/cache network service - see below for why). LAB-1371:
+  node_modules used to be installed once and fanned out via a GitHub
+  Actions artifact, which blew the account-wide Actions artifact storage
+  quota (every run/job pair created its own copy). That was replaced with
+  actions/cache (every job restores/reads independently, cache-hit skips
+  the install), which fixed the storage-quota problem but still paid a
+  network round-trip to GitHub's cache service on every one of a run's many
+  jobs even on a hit.
+
+  This version drops actions/cache too, in favor of the same host-bind-mount
+  trick already proven for sccache (see setup-rust/dispatch-one.sh's own
+  comments) - but node_modules isn't content-addressed the way a compiler
+  object cache is: it's a full resolved tree tied to exactly one lockfile,
+  so blindly sharing one mutable directory across every branch (like
+  sccache does, with a main/scratch copy split) doesn't fit here. Instead
+  this content-addresses node_modules ITSELF by the lockfile's hash:
+
+    - `cache-write: true` (main-ci.yml/main-node-ci.yml's `setup` job only)
+      installs into an immutable `bundle-<hash>/` directory under the
+      mounted host cache, once per distinct hash ever seen, and marks it
+      complete.
+    - Every other job (cache-write: false - every PR/branch job, on every
+      workflow) ONLY EVER READS: if a `bundle-<hash>/` matching its own
+      lockfile hash already exists (the common case - most PRs don't touch
+      dependencies), it symlinks node_modules straight to it and never
+      installs at all. If no matching bundle exists yet (this PR actually
+      changed a dependency), it falls back to a normal, fully local,
+      non-shared `yarn install` in the job's own ephemeral workspace -
+      nothing is ever written to the mounted host cache except by a
+      cache-write: true run. This is a deliberate choice (not just a
+      simplicity shortcut): a PR/branch job never gets to write into the
+      shared, host-persistent cache pool under any circumstances, even
+      opportunistically under its own uniquely-hashed slot.
+
+  Because a hash directory is immutable once its `.complete` marker exists,
+  concurrent readers (any number of PR jobs symlinking to the same bundle)
+  are always safe - there's nothing to race with. The only writer race is
+  two main-branch runs computing the identical hash at once; handled by
+  writing to a private per-run scratch dir first and only `mv`-ing it into
+  the final `bundle-<hash>/` path if nothing already claimed that name (see
+  the "Install dependencies (cache-write)" step below).
+
+  Yarn's own package-download cache (`.yarn/cache`) is a separate, simpler
+  tier: it's genuinely content-addressed (package name+version+hash), so a
+  new tarball written by any branch can never invalidate or corrupt what
+  another branch reads. That tier is shared read+write by every job,
+  main or not, with no isolation needed at all.
+
+  Pruning: gha-cleanup-daily.sh (gha-runner-docker, already cron-scheduled
+  on the runner host) removes any `bundle-*/` not used in 7 days - see that
+  script for the marker file this action touches on every use to track
+  that.
 
 inputs:
   cache-key-prefix:
     description: >
-      Job/purpose identifier (e.g. 'setup', 'lint', 'test', 'dead-code')
-      folded into both the Yarn cache and node_modules cache keys so a job
-      only ever restores/writes the cache entry it itself created, never
-      one shared with a different job in the same workflow - even when
-      every job builds from the exact same yarn.lock. Required: a shared,
-      un-prefixed key let one job's cache-write silently clobber or get
-      restored by an unrelated job's cache-write.
+      No longer used to key the dependency cache itself (that's now
+      content-addressed by lockfile hash and shared by every job
+      regardless of which one calls this action - lint/test/build/etc. all
+      read or write the SAME bundle for a given hash, rather than each
+      paying for its own copy). Kept only so every existing caller
+      workflow doesn't need to drop this input; still logged for
+      debugging. Required for backwards compatibility.
     required: true
   working-directory:
     description: >
       Directory (relative to the repo root) the Next.js/yarn app lives in.
       Defaults to `.` (repo root), matching every existing caller. Set this
       when the app lives in a subdirectory of a monorepo, e.g. `prototype`.
+      Also namespaces this repo's shared dep-cache-main mount, so two
+      different apps in one monorepo (two different lockfiles) never
+      collide on the same bundle path even if their content hashes matched
+      by coincidence.
     required: false
     default: '.'
   extra-paths:
     description: >
-      Newline- or space-separated list of additional paths (relative to the
-      repo root) to fold into the node_modules cache entry, beyond
-      node_modules and .next/cache — e.g. a gitignored src/generated/
-      directory populated by a `postinstall` codegen script.
+      Newline- or space-separated list of additional paths (relative to
+      working-directory) folded into the SAME content-addressed bundle as
+      node_modules — e.g. a gitignored src/generated/ directory populated
+      by a `postinstall` codegen script. Symlinked into place alongside
+      node_modules on both the write and read paths.
     required: false
     default: ''
   extra-cache-key-glob-1:
     description: >
       Extra glob pattern (relative to working-directory) folded into the
-      node_modules cache key's hashFiles alongside yarn.lock — e.g.
-      `prisma/schema.prisma` for a repo whose `postinstall` script runs
-      `prisma generate`. Without this, the cache key only changes when
-      yarn.lock changes, so editing a `postinstall` codegen input (like the
-      Prisma schema) without also touching a dependency leaves every job
-      restoring the OLD node_modules — including its stale generated
-      output — forever, since a cache hit skips `yarn install`
-      (`postinstall`) entirely (see the `Install dependencies` step's `if:`
-      below). Same failure mode extra-paths doesn't cover: extra-paths
-      controls what gets swept into the cache entry, not when that entry is
-      considered stale. A caller needing two extra patterns also has
-      extra-cache-key-glob-2. Empty (default) matches every existing
-      caller with zero behavior change.
+      bundle hash alongside yarn.lock — e.g. `prisma/schema.prisma` for a
+      repo whose `postinstall` script runs `prisma generate`. Without this,
+      the hash only changes when yarn.lock changes, so editing a
+      `postinstall` codegen input without also touching a dependency would
+      otherwise resolve to the same bundle and reuse its now-stale
+      generated output. A caller needing two extra patterns also has
+      extra-cache-key-glob-2.
     required: false
     default: ''
   extra-cache-key-glob-2:
@@ -70,32 +109,27 @@ inputs:
       private git-dependency packages during yarn install — e.g.
       "pkg": "github:PeterChauYEG/some-private-pkg#main" in package.json.
       Loaded into an ssh-agent before install. Leave empty (default) for
-      repos with no private git dependencies.
+      repos with no private git dependencies. Only relevant when this run
+      actually installs (a fresh hash, on either the write or fallback
+      path) - a symlink-only cache hit never invokes yarn at all.
     required: false
     default: ''
   gh-token:
     description: >
       GitHub token (e.g. secrets.GH_PAT) exposed as GH_TOKEN to the yarn
       install step only — for repos whose `postinstall` script shells out
-      to the `gh` CLI against a *different* private repo (e.g. gamecraft's
-      scripts/install-gamecraft-api-sdk.mjs running
-      `gh release download --repo PeterChauYEG/gamecraft-api ...`). The
-      ephemeral default GITHUB_TOKEN is scoped only to the calling repo, so
-      `gh` can't see releases on a sibling private repo without this. Leave
-      empty (default) for repos with no such cross-repo `gh` calls.
+      to the `gh` CLI against a *different* private repo. Leave empty
+      (default) for repos with no such cross-repo `gh` calls.
     required: false
     default: ''
   cache-write:
     description: >
-      Whether the node_modules cache below should be allowed to write a new
-      cache entry ('true') or only read an existing one ('false',
-      read-only). Caches change infrequently, so only the push-to-main
-      workflow's `setup` job (main-ci.yml / main-node-ci.yml) needs to
-      write — every other job, on both PR and main runs, reads that same
-      entry read-only via restore-keys instead of also paying to write a
-      duplicate copy, which just churns/evicts the shared cache. 'false'
-      (read-only) by default. String, not boolean — composite action inputs
-      are always strings.
+      'true' (main-ci.yml/main-node-ci.yml's `setup` job only) writes a new
+      bundle into the shared host cache when this run's lockfile hash isn't
+      already there. 'false' (default, every other job on every workflow)
+      only ever reads an existing bundle, falling back to a fully local,
+      unshared install when no matching bundle exists yet. String, not
+      boolean — composite action inputs are always strings.
     required: false
     default: 'false'
 
@@ -112,69 +146,28 @@ runs:
       with:
         node-version-file: '${{ inputs.working-directory }}/package.json'
 
-    - name: Cache Yarn cache
-      uses: actions/cache@v6
-      with:
-        path: |
-          ${{ inputs.working-directory }}/.yarn/cache
-          ${{ inputs.working-directory }}/.yarn/install-state.gz
-        key: ${{ runner.os }}-yarn-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory)) }}
-        restore-keys: |
-          ${{ runner.os }}-yarn-${{ inputs.cache-key-prefix }}-
-
-    - name: Compute node_modules cache paths
-      # extra-paths is a dynamic, space-separated list - actions/cache's
-      # `path:` input can't loop over one in YAML directly, so build the
-      # full multiline path list (node_modules + .next/cache, if present,
-      # + each extra path) once here and reference it from both cache steps
-      # below via this step's output.
-      id: cache-paths
+    - name: Compute cache key + paths
+      id: cache-key
       shell: bash
       run: |
+        # Path-safe slug: namespaces the shared per-repo mount by
+        # working-directory, so two apps in one monorepo never collide.
+        slug=$(echo "${{ inputs.working-directory }}" | tr -c 'A-Za-z0-9_.-' '-')
+        hash="${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}"
+        base="/root/.cache/dep-cache-main/wd-${slug}"
+        echo "base=${base}" >> "$GITHUB_OUTPUT"
+        echo "bundle=${base}/bundle-${hash}" >> "$GITHUB_OUTPUT"
+        echo "yarn-pkg-cache=${base}/yarn-pkg-cache" >> "$GITHUB_OUTPUT"
         {
-          echo "paths<<CACHE_PATHS_EOF"
-          echo "${{ inputs.working-directory }}/node_modules"
-          echo "${{ inputs.working-directory }}/.next/cache"
+          echo "rel-paths<<REL_PATHS_EOF"
+          echo "node_modules"
+          echo ".next/cache"
           for p in ${{ inputs.extra-paths }}; do
-            echo "${{ inputs.working-directory }}/$p"
+            echo "$p"
           done
-          echo "CACHE_PATHS_EOF"
+          echo "REL_PATHS_EOF"
         } >> "$GITHUB_OUTPUT"
-
-    - name: Cache node_modules
-      # Highest-value cache here: without this, yarn install --frozen-lockfile
-      # reinstalls/relinks the full tree every single run regardless of the
-      # Yarn package cache above (that cache only avoids re-fetching over the
-      # network, not the resolve/link cost). Keyed on yarn.lock's hash, same
-      # as the Yarn cache. cache-write true (main-ci.yml/main-node-ci.yml's
-      # `setup` job only) uses the normal restore+save action; cache-write
-      # false (every other job) uses the read-only restore variant below
-      # instead — see cache-write's input description.
-      id: node-modules-cache
-      if: inputs.cache-write == 'true'
-      uses: actions/cache@v6
-      with:
-        path: ${{ steps.cache-paths.outputs.paths }}
-        # cache-key-extra-glob-1/-2 are optional (default '') — naively
-        # formatting an unset one as `{working-directory}/` (e.g. './')
-        # hands hashFiles a bare directory reference instead of a glob,
-        # which can error out the whole hashFiles() call rather than just
-        # skip the empty pattern (same guard cached-script's own
-        # extra-glob hashFiles already applies - see that action's
-        # comment). Only fold each glob in when actually set.
-        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
-        restore-keys: |
-          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
-
-    - name: Restore node_modules (read-only)
-      id: node-modules-restore
-      if: inputs.cache-write != 'true'
-      uses: actions/cache/restore@v6
-      with:
-        path: ${{ steps.cache-paths.outputs.paths }}
-        key: ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}
-        restore-keys: |
-          ${{ runner.os }}-node-modules-${{ inputs.cache-key-prefix }}-
+        echo "[setup-node-yarn] cache-key-prefix='${{ inputs.cache-key-prefix }}' (unused for cache path, kept for log context) bundle=${base}/bundle-${hash}"
 
     - name: Load SSH deploy key for private git dependencies
       if: inputs.ssh-deploy-key != ''
@@ -191,48 +184,82 @@ runs:
       run: ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
 
     - name: Route git+https git dependencies over SSH
-      # package.json git-dependency entries are commonly written as
-      # git+https://github.com/... (or resolve to that form), which ignores
-      # the ssh-agent key loaded above entirely — https:// clones normally
-      # ride on the credential actions/checkout leaves behind for the
-      # *current* repo only, and dependabot-triggered runs get a
-      # single-repo-scoped GITHUB_TOKEN that can't touch a sibling private
-      # repo at all. Rewriting the URL scheme forces yarn to use the SSH
-      # transport (and therefore the deploy key above) regardless of how
-      # the dependency is declared.
       if: inputs.ssh-deploy-key != ''
       shell: bash
       run: git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
 
-    - name: Install dependencies
-      # Skipped entirely on a node_modules cache hit — the restored tree
-      # already matches this exact yarn.lock. Still runs when extra-paths is
-      # set, though: those are postinstall-generated (e.g. SDK codegen)
-      # outputs that only exist after a real install, so a cache hit there
-      # can't be trusted to have already produced them unless they were also
-      # captured into this same cache entry on a prior run.
-      if: |
-        (steps.node-modules-cache.outputs.cache-hit != 'true' &&
-         steps.node-modules-restore.outputs.cache-hit != 'true') ||
-        inputs.extra-paths != ''
+    - name: Read bundle (cache hit) or install (cache-write / miss)
+      id: install
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        # Scoped to this step only (not job-wide) so a `postinstall` script's
-        # `gh` CLI calls against a sibling private repo can authenticate,
-        # without widening the token's blast radius to any other step.
         GH_TOKEN: ${{ inputs.gh-token }}
-        # Yarn Berry's default networkConcurrency (8) opens that many
-        # parallel fetch/extract workers, each holding its own decompression
-        # buffers in memory at once — the single biggest install-time memory
-        # driver on a cache miss (LAB-1301: budget PRs #170/#171/#173-#176
-        # were OOM-killed ~28s into this exact step on the shared catfood
-        # runner pool when several PRs' installs landed on the same host at
-        # once). Capping it trades a few extra seconds of wall-clock for a
-        # meaningfully lower peak RSS per concurrent install, so the same
-        # runner host can absorb more overlapping PR pushes without any one
-        # of them getting OOM-killed. Only takes effect on an actual
-        # install (see the `if:` above) — a cache hit skips this step
-        # entirely and pays no penalty.
         YARN_NETWORK_CONCURRENCY: '4'
-      run: yarn install --frozen-lockfile
+        # Content-addressed, safe to share read+write across every job
+        # regardless of cache-write - see this action's own description.
+        YARN_CACHE_FOLDER: ${{ steps.cache-key.outputs.yarn-pkg-cache }}
+        BUNDLE: ${{ steps.cache-key.outputs.bundle }}
+        REL_PATHS: ${{ steps.cache-key.outputs.rel-paths }}
+        CACHE_WRITE: ${{ inputs.cache-write }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$(dirname "$YARN_CACHE_FOLDER")" "$YARN_CACHE_FOLDER"
+
+        link_bundle() {
+          # Symlinks every rel-path (node_modules, .next/cache, extra-paths)
+          # from the working directory into the given (already-complete)
+          # bundle. Safe to call from any number of concurrent readers -
+          # the bundle is never mutated after its .complete marker exists.
+          #
+          # .last-used is touched FIRST, before any symlink is created: this
+          # is what gha-cleanup-daily.sh's 7-day prune reads to decide
+          # whether a bundle is still in use, so a reader must claim it
+          # before starting to depend on it, not after - touching it last
+          # left a narrow window where a bundle could be pruned out from
+          # under a job that had just started reading it (the reader's own
+          # touch hadn't landed yet). Still not airtight against a prune
+          # running in the few milliseconds between this touch and the
+          # first symlink, but that's an unavoidable TOCTOU inherent to any
+          # mtime-based "still in use" signal on a cron cadence measured in
+          # days, not a design gap worth adding real locking for.
+          local bundle="$1"
+          touch "$bundle/.last-used"
+          while IFS= read -r rel; do
+            [[ -z "$rel" ]] && continue
+            mkdir -p "$(dirname "$rel")" "$(dirname "$bundle/$rel")"
+            ln -sfn "$bundle/$rel" "$rel"
+          done <<< "$REL_PATHS"
+        }
+
+        if [[ -f "$BUNDLE/.complete" ]]; then
+          echo "[setup-node-yarn] bundle hit: $BUNDLE - symlinking, no install"
+          link_bundle "$BUNDLE"
+          exit 0
+        fi
+
+        if [[ "$CACHE_WRITE" == "true" ]]; then
+          echo "[setup-node-yarn] cache-write run, bundle miss: $BUNDLE - installing into shared cache"
+          scratch="${BUNDLE}.tmp-${RANDOM}-$$"
+          mkdir -p "$scratch"
+          while IFS= read -r rel; do
+            [[ -z "$rel" ]] && continue
+            mkdir -p "$(dirname "$rel")" "$(dirname "$scratch/$rel")"
+            ln -sfn "$scratch/$rel" "$rel"
+          done <<< "$REL_PATHS"
+          yarn install --frozen-lockfile
+          # Claim the final bundle name only if nothing else already did
+          # (two main runs racing on an identical hash) - otherwise this
+          # run's install was redundant work but not corrupting: just
+          # re-link to whichever copy won and discard this one.
+          if [[ ! -d "$BUNDLE" ]]; then
+            mv "$scratch" "$BUNDLE"
+            touch "$BUNDLE/.complete"
+          else
+            rm -rf "$scratch"
+          fi
+          link_bundle "$BUNDLE"
+          exit 0
+        fi
+
+        echo "[setup-node-yarn] bundle miss on a non-cache-write run: $BUNDLE - installing locally, not shared"
+        yarn install --frozen-lockfile

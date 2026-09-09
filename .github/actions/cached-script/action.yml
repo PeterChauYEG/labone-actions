@@ -99,13 +99,34 @@ inputs:
     default: ''
   cache-write:
     description: >
-      'true' to read+write the cache (push-to-main workflows), 'false'
-      (default) to only read it (PR workflows) - mirrors setup-node-yarn's
-      identical input and the same rationale: only the push-to-main run
-      needs to write a fresh entry, PR branches just read whatever main
-      last wrote.
+      'true' to read+write this action's OWN script-specific cache
+      (.eslintcache/tsbuildinfo/.jestcache, still plain actions/cache -
+      unaffected by deps-cache-write below), 'false' (default) to only
+      read it. Also the default for deps-cache-write when that's left
+      unset (''), for every existing caller that wants both tiers to move
+      together (main-ci.yml/main-node-ci.yml, develop-ci.yml/
+      develop-node-ci.yml: both are gated on the same push-to-main-vs-PR
+      distinction, so one flag correctly covers both). A caller where the
+      two must diverge (see deps-cache-write) sets both explicitly instead.
     required: false
     default: 'false'
+  deps-cache-write:
+    description: >
+      Passed straight through to setup-node-yarn/setup-node-pnpm's
+      cache-write input - see that input's own description for the full
+      contract (main-only write into the shared, host-persistent
+      content-addressed bundle store; every other job only ever reads).
+      Left unset (default '') to fall back to cache-write above, for
+      every caller where both tiers should move together. Set this
+      explicitly, independent of cache-write, for a caller like
+      develop-mobile-ci.yml that has no push-to-main trigger to gate on at
+      all: its jobs still want cache-write: 'true' for their OWN
+      .eslintcache/tsbuildinfo/.jestcache (safely per-PR-branch-scoped,
+      unaffected by this), but must never write into the shared
+      dependency bundle store - deps-cache-write: 'false' there,
+      independent of whatever cache-write is set to.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -120,7 +141,7 @@ runs:
         extra-cache-key-glob-2: ${{ inputs.extra-deps-cache-key-glob-2 }}
         ssh-deploy-key: ${{ inputs.ssh-deploy-key }}
         gh-token: ${{ inputs.gh-token }}
-        cache-write: ${{ inputs.cache-write }}
+        cache-write: ${{ inputs.deps-cache-write != '' && inputs.deps-cache-write || inputs.cache-write }}
 
     - if: inputs.package-manager == 'pnpm'
       uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
@@ -132,7 +153,7 @@ runs:
         extra-cache-key-glob-2: ${{ inputs.extra-deps-cache-key-glob-2 }}
         ssh-deploy-key: ${{ inputs.ssh-deploy-key }}
         gh-token: ${{ inputs.gh-token }}
-        cache-write: ${{ inputs.cache-write }}
+        cache-write: ${{ inputs.deps-cache-write != '' && inputs.deps-cache-write || inputs.cache-write }}
 
     - name: Restore ${{ inputs.cache-key-prefix }} cache (read-only)
       if: inputs.cache-path != '' && inputs.cache-write != 'true'

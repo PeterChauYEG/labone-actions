@@ -228,13 +228,20 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood]
     steps:
+      # cache-write: 'false' - unlike main-ci.yml/main-node-ci.yml's own
+      # `setup` job, this workflow has no push-to-main trigger to gate a
+      # write on at all (see the `lint`/`typecheck`/`test` jobs' own
+      # comments below), so every mobile job only ever reads an existing
+      # bundle from setup-node-yarn's shared, host-persistent
+      # content-addressed store, falling back to a fully local, unshared
+      # install on a miss - never writing into that shared store itself.
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           cache-key-prefix: setup
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          cache-write: 'true'
+          cache-write: 'false'
 
   peer-deps:
     name: peer-deps
@@ -264,9 +271,15 @@ jobs:
     if: ${{ needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos in this repo,
-      # so this stays a plain restore+save cache (cache-write: 'true') -
-      # see README.md "Caching strategy" and cached-script's cache-write
-      # description.
+      # so the .eslintcache script cache stays a plain restore+save
+      # (cache-write: 'true', unaffected - still ordinary actions/cache,
+      # safely scoped per-PR-branch by GitHub itself). deps-cache-write is
+      # set independently to 'false': setup-node-yarn's shared,
+      # host-persistent bundle store has no such per-branch scoping (it's
+      # one directory per repo, content-addressed by lockfile hash across
+      # every branch), so it must only ever be written by an actual
+      # push-to-main run - which this workflow never is. See
+      # cached-script's deps-cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           deps-cache-key-prefix: lint
@@ -281,6 +294,7 @@ jobs:
           cache-key-extra-glob-1: .eslintrc*
           cache-key-extra-glob-2: eslint.config.*
           cache-write: 'true'
+          deps-cache-write: 'false'
 
   ls-lint:
     name: ls-lint
@@ -304,8 +318,12 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
     steps:
-      # No main-*-ci.yml counterpart exists for mobile repos, so this stays
-      # a plain restore+save cache (cache-write: 'true').
+      # No main-*-ci.yml counterpart exists for mobile repos, so the
+      # tsbuildinfo script cache stays a plain restore+save (cache-write:
+      # 'true', unaffected - ordinary actions/cache, safely scoped
+      # per-PR-branch). deps-cache-write: 'false' independently - see
+      # `lint`'s identical comment above and cached-script's
+      # deps-cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           deps-cache-key-prefix: typecheck
@@ -319,6 +337,7 @@ jobs:
           cache-key-prefix: tsbuildinfo
           cache-key-extra-glob-1: tsconfig*.json
           cache-write: 'true'
+          deps-cache-write: 'false'
 
   test:
     name: test
@@ -326,9 +345,12 @@ jobs:
     runs-on: [self-hosted, catfood]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
-      # No main-*-ci.yml counterpart exists for mobile repos, so this stays
-      # a plain restore+save cache (cache-write: 'true'), same as
-      # lint/typecheck above (LAB-1333).
+      # No main-*-ci.yml counterpart exists for mobile repos, so the
+      # jestcache script cache stays a plain restore+save (cache-write:
+      # 'true', unaffected - ordinary actions/cache, safely scoped
+      # per-PR-branch), same as lint/typecheck above (LAB-1333).
+      # deps-cache-write: 'false' independently - see `lint`'s identical
+      # comment above and cached-script's deps-cache-write description.
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
           deps-cache-key-prefix: test
@@ -342,6 +364,7 @@ jobs:
           cache-key-prefix: jestcache
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'true'
+          deps-cache-write: 'false'
       - uses: codecov/codecov-action@v7
         with:
           use_oidc: ${{ inputs.codecov_use_oidc }}
