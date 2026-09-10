@@ -10,6 +10,5 @@ jobs:
   automerge:
     name: Auto-merge minor/patch updates (disabled)
     runs-on: [self-hosted, catfood]
-    if: false
     steps:
       - run: echo "Dependabot auto-merge is disabled"
