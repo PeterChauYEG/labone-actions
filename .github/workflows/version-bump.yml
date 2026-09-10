@@ -133,7 +133,14 @@ jobs:
           DAY=$(date +%d)
           CALVER_BASE="${YEAR}.${MONTH}${DAY}"
 
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          if [[ -f package.json ]]; then
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+          elif [[ -f Cargo.toml ]]; then
+            CURRENT_VERSION=$(awk '/^\[package\]/{f=1} f && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)
+          else
+            echo "::error::No package.json or Cargo.toml found — don't know how to read the current version."
+            exit 1
+          fi
 
           if [[ "$CURRENT_VERSION" == "${CALVER_BASE}."* ]]; then
             PATCH=$(echo "$CURRENT_VERSION" | cut -d'.' -f3)
@@ -175,7 +182,12 @@ jobs:
 
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "GitHub Actions"
-          git add package.json
+          if [[ -f package.json ]]; then
+            git add package.json
+          fi
+          if [[ -f Cargo.toml ]]; then
+            git add Cargo.toml Cargo.lock 2>/dev/null || git add Cargo.toml
+          fi
           git commit -m "chore: bump version to ${NEW_VERSION}"
           git push origin main
 
