@@ -6,13 +6,17 @@ name: Develop CI
 # stability note on the input/job names below (a phase-2 migration of
 # laboratory-one-web depends on them being exact).
 #
-# Job coverage mirrors the a11y/design-system/dead-code/duplicate-code/
-# run-e2e-tests/react-tech-debt/max-lines jobs that today are hand-copied
-# into laboratory-one-web's and ai-harness-web's develop.yml. Every job past
+# Job coverage mirrors the design-system/dead-code/duplicate-code/
+# react-tech-debt/max-lines jobs that today are hand-copied into
+# laboratory-one-web's and ai-harness-web's develop.yml. Every job past
 # lint/typecheck is optional via an `enable_*` boolean input (default true),
 # following the pre-existing `enable_ls_lint` precedent, so a repo without
-# (say) an `a11y` yarn script can turn that job off instead of being forced
-# to run it.
+# (say) a `design-system` yarn script can turn that job off instead of being
+# forced to run it.
+#
+# a11y and run-e2e-tests (Playwright/Chromium-based) were removed org-wide
+# (fleet-wide decision to drop Playwright/Chromium/a11y/e2e CI support) -
+# see the PR that removed enable_a11y/enable_e2e from this file.
 #
 # `tech-debt` is the one exception to that "default true"
 # precedent: it's a brand-new grep-based metrics report (useEffect count,
@@ -99,10 +103,6 @@ on:
         description: Run `yarn test:coverage`.
         type: boolean
         default: true
-      enable_a11y:
-        description: Run `yarn a11y` (accessibility scan), with PR sticky comment + Linear ticket filing on failure.
-        type: boolean
-        default: true
       enable_design_system:
         description: Run `yarn design-system`, with PR sticky comment + Linear ticket filing on failure.
         type: boolean
@@ -113,10 +113,6 @@ on:
         default: true
       enable_duplicate_code:
         description: Run `yarn duplicate-code`, with PR sticky comment + Linear ticket filing on failure.
-        type: boolean
-        default: true
-      enable_e2e:
-        description: Run `yarn run-e2e-scan` (Playwright e2e), with PR sticky comment + Linear ticket filing on failure.
         type: boolean
         default: true
       enable_react_tech_debt:
@@ -420,41 +416,6 @@ jobs:
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'false'
 
-  a11y:
-    name: a11y
-    needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_a11y && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
-        with:
-          cache-key-prefix: a11y
-          working-directory: ${{ inputs.working-directory }}
-          extra-paths: ${{ inputs.extra_deps_paths }}
-          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          gh-token: ${{ secrets.GH_PAT }}
-          cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
-        with:
-          script: a11y
-          gh-token: ${{ secrets.GH_PAT }}
-          report-file: ${{ inputs.working-directory }}/a11y-report.md
-          working-directory: ${{ inputs.working-directory }}
-          sticky-header: a11y-scan
-          job-name: a11y
-          playwright: 'true'
-          pr-number: ${{ inputs.pr_number }}
-          pr-url: ${{ inputs.pr_url }}
-          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
-          # Advisory only (nextjs-ci v1.0.3, 2026-08-20) - matches
-          # design-system/dead-code/duplicate-code below: still runs and
-          # still files a sticky comment/ticket on a finding, but never
-          # fails this job or blocks merge.
-          blocking: 'false'
-
   design-system:
     name: design-system
     needs: [setup, changes]
@@ -548,47 +509,6 @@ jobs:
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
-  run-e2e-tests:
-    name: run-e2e-tests
-    needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
-    if: ${{ inputs.enable_e2e && !inputs.is_dependabot && needs.changes.outputs.web == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
-    # NEXT_PUBLIC_API_URL (LAB-2100): job-level env, not a scan-with-report
-    # input — that composite action is shared across every scan type
-    # (a11y/dead-code/etc), not e2e-specific, so this stays here instead.
-    # Composite-action `run:` steps inherit the calling job's env, so this
-    # reaches `yarn run-e2e-scan` without scan-with-report needing to know
-    # about it. `vars.*` resolves against whichever repo actually calls
-    # this reusable workflow — repos with no NEXT_PUBLIC_API_URL variable
-    # set just get an empty string here (no behavior change for them; the
-    # app's own code-level fallback, if any, still applies).
-    env:
-      NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
-    steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
-        with:
-          cache-key-prefix: run-e2e-tests
-          working-directory: ${{ inputs.working-directory }}
-          extra-paths: ${{ inputs.extra_deps_paths }}
-          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
-          gh-token: ${{ secrets.GH_PAT }}
-          cache-write: 'false'
-      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
-        with:
-          script: run-e2e-scan
-          gh-token: ${{ secrets.GH_PAT }}
-          report-file: ${{ inputs.working-directory }}/e2e-report.md
-          working-directory: ${{ inputs.working-directory }}
-          sticky-header: e2e-scan
-          job-name: e2e
-          playwright: 'true'
-          pr-number: ${{ inputs.pr_number }}
-          pr-url: ${{ inputs.pr_url }}
-          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
-
   react-tech-debt:
     name: react-tech-debt
     needs: [setup, changes]
@@ -670,7 +590,7 @@ jobs:
 
   required-checks:
     name: required-checks
-    needs: [lint, ls-lint, typecheck, build, test, run-e2e-tests, actionlint, security-scan, secret-scan]
+    needs: [lint, ls-lint, typecheck, build, test, actionlint, security-scan, secret-scan]
     runs-on: [self-hosted, catfood]
     if: always()
     steps:

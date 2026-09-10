@@ -1,7 +1,7 @@
 name: Scan with sticky-comment report (+ optional Linear ticket)
 description: >
-  Shared body for develop-ci.yml's scan jobs (a11y, design-system, dead-code,
-  duplicate-code, run-e2e-tests, react-tech-debt, max-lines): run a yarn
+  Shared body for develop-ci.yml's scan jobs (design-system, dead-code,
+  duplicate-code, react-tech-debt, max-lines): run a yarn
   script that writes a markdown report, post/update a sticky PR comment with
   that report regardless of outcome, optionally file/comment-on a Linear
   ticket when the script fails, then fail the containing job if the script
@@ -14,29 +14,28 @@ description: >
 
 inputs:
   script:
-    description: yarn script to run, e.g. `a11y`, `design-system`.
+    description: yarn script to run, e.g. `design-system`.
     required: true
   working-directory:
     description: >
       Directory (relative to the repo root) the Next.js/yarn app lives in.
       Defaults to `.` (repo root), matching every existing caller. Applied
-      to the `yarn <script>` and Playwright install steps below; scan
-      scripts write their report relative to their own cwd, so callers
-      must pass a `report-file` that already accounts for this (e.g. the
-      working-directory value joined with `a11y-report.md`).
+      to the `yarn <script>` step below; scan scripts write their report
+      relative to their own cwd, so callers must pass a `report-file` that
+      already accounts for this (e.g. the working-directory value joined
+      with `design-system-report.md`).
     required: false
     default: '.'
   report-file:
-    description: Path to the markdown report the script writes, e.g. `a11y-report.md`.
+    description: Path to the markdown report the script writes, e.g. `design-system-report.md`.
     required: true
   sticky-header:
-    description: Unique header for the sticky-pull-request-comment, e.g. `a11y-scan`.
+    description: Unique header for the sticky-pull-request-comment, e.g. `design-system-scan`.
     required: true
   job-name:
     description: >
       Job name passed as the first arg to `scripts/file-linear-ticket.sh`,
-      e.g. `a11y`, `e2e` (note: `run-e2e-tests`'s job-name is `e2e`, not
-      `run-e2e-tests`, matching prior behavior).
+      e.g. `design-system`.
     required: true
   file-ticket:
     description: Whether to file/comment-on a Linear ticket when the scan fails.
@@ -50,10 +49,6 @@ inputs:
     description: github.event.pull_request.html_url from the top-level caller.
     required: false
     default: ''
-  playwright:
-    description: Whether to install Playwright's chromium browser before running the scan.
-    required: false
-    default: 'false'
   gh-token:
     description: >
       Optional per-repo secret (e.g. secrets.GH_PAT) forwarded as GH_TOKEN/
@@ -67,8 +62,8 @@ inputs:
       the scan script's own run, which cached-script's equivalent step
       already covers for lint/typecheck/build/test but scan-with-report
       never did until now (see the PR that added this input for the
-      incident writeup - the a11y/design-system/dead-code/duplicate-code/
-      run-e2e-tests/react-tech-debt/max-lines jobs across every caller
+      incident writeup - the design-system/dead-code/duplicate-code/
+      react-tech-debt/max-lines jobs across every caller
       repo had no token available to their own SDK-install pretest/
       prebuild hooks).
     required: false
@@ -93,11 +88,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - if: inputs.playwright == 'true'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: node node_modules/playwright/cli.js install chromium
-
     - run: yarn ${{ inputs.script }}
       id: scan
       shell: bash

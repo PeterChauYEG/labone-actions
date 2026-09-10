@@ -53,11 +53,9 @@ jobs:
       enable_ls_lint: true
       enable_build: true
       enable_test: true
-      enable_a11y: true
       enable_design_system: true
       enable_dead_code: true
       enable_duplicate_code: true
-      enable_e2e: true
       enable_react_tech_debt: true
       enable_max_lines: true
       enable_tech_debt: true
