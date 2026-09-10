@@ -19,7 +19,15 @@ concurrency:
 
 jobs:
   trivy:
-    uses: ./.github/workflows/security-scan.yml
+    # Relative-path self-call (./.github/workflows/security-scan.yml)
+    # consistently startup_failure'd here with zero jobs ever scheduled,
+    # on every trigger, for days - while every other repo calling this
+    # same reusable workflow via a remote @main ref succeeds. This is
+    # the only local relative-path reusable *workflow* call anywhere in
+    # this repo (composite actions under .github/actions/ are unaffected
+    # and used locally throughout). Call it the same way every consumer
+    # repo already does.
+    uses: PeterChauYEG/labone-actions/.github/workflows/security-scan.yml@main
     with:
       # Only the push-to-main run writes a fresh Trivy DB cache entry - PR
       # and weekly-schedule runs only read it. See security-scan.yml's
