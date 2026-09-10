@@ -42,6 +42,7 @@ runs:
       with:
         path: |
           ~/.local/share/uv/tools
+          ~/.local/bin
           ~/.cache/uv
         # No hashFiles() here, unlike the node_modules/cargo caches - a
         # standalone tool install isn't keyed on a repo lockfile, it's keyed
