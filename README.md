@@ -127,7 +127,7 @@ jobs:
       pr_url: ${{ github.event.pull_request.html_url }}
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
       # Turn off any job your repo doesn't have a yarn script for, e.g.:
-      # enable_e2e: false
+      # enable_design_system: false
 ```
 
 For a monorepo where the Next.js/yarn app doesn't live at the repo root, set
@@ -293,9 +293,9 @@ Inputs (all `workflow_call` inputs, `enable_*` default `true`):
   delta vs. the PR's base branch; harmless to leave unset otherwise.
 - `is_dependabot` (boolean) — caller-computed; skips every job below
   `lint`/`typecheck`/`build`.
-- `enable_ls_lint`, `enable_build`, `enable_test`, `enable_a11y`,
+- `enable_ls_lint`, `enable_build`, `enable_test`,
   `enable_design_system`, `enable_dead_code`, `enable_duplicate_code`,
-  `enable_e2e`, `enable_react_tech_debt`, `enable_max_lines` (boolean,
+  `enable_react_tech_debt`, `enable_max_lines` (boolean,
   default `true`) — turn a job off if your repo has no matching yarn
   script.
 - `enable_tech_debt` (boolean, default **`false`**) — run the grep-based
@@ -322,41 +322,44 @@ in `package.json`), `setup-node-yarn` loads it into an `ssh-agent` before
 this step entirely — zero-diff for every repo with no private git
 dependencies.
 
-Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`, `a11y`,
-`design-system`, `dead-code`, `duplicate-code`, `run-e2e-tests`,
+Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`,
+`design-system`, `dead-code`, `duplicate-code`,
 `react-tech-debt`, `max-lines`, `tech-debt` (opt-in, see "Tech debt metrics
-report" below). Scan jobs (`a11y`, `design-system`,
-`dead-code`, `duplicate-code`, `run-e2e-tests`) post a sticky PR comment on
+report" below). Scan jobs (`design-system`,
+`dead-code`, `duplicate-code`) post a sticky PR comment on
 every run and file/comment-on a Linear ticket (via
 `scripts/file-linear-ticket.sh`) when they fail; `react-tech-debt` and
 `max-lines` only post the sticky comment (no ticket), matching prior
-per-repo behavior. Internally, each of these 7 jobs is just a
+per-repo behavior. Internally, each of these 5 jobs is just a
 `setup-node-yarn` call followed by one call to the
 `.github/actions/scan-with-report` composite action — see "Scan job
 dedup" below.
 
-**Blocking vs advisory (nextjs-ci v1.0.3, 2026-08-20):** `run-e2e-tests` is
-the only remaining hard pass/fail scan gate — a failure fails the job.
-`a11y`, `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+**`a11y`/`run-e2e-tests` removed (fleet-wide Playwright/Chromium/a11y/e2e
+removal):** both jobs, their `enable_a11y`/`enable_e2e` inputs, and the
+Chromium install step + `playwright` input in
+`.github/actions/scan-with-report` were removed - a repo-owner decision to
+drop Playwright/Chromium-based CI fleet-wide, companion to per-repo test
+removal and the shared runner image dropping the Chromium apt packages.
+
+**Blocking vs advisory (nextjs-ci v1.0.3, 2026-08-20):** `design-system`,
+`dead-code`, `duplicate-code`, `react-tech-debt`,
 and `max-lines` are all advisory (`scan-with-report`'s `blocking: 'false'`
 input) — they still run, still post their sticky comment/report, and
 `duplicate-code` still files a Linear ticket on failure, but a finding
-never fails the job. `design-system`/`dead-code`/`duplicate-code`/
-`react-tech-debt`/`max-lines` were already advisory here; `a11y` was the
-last holdout in `develop-ci.yml` and moved to advisory in this v1.0.3 pass
-(nextjs-ci v1.0.2, 2026-08-20, PR #68 covered `duplicate-code`/`max-lines`
-in `main-ci.yml`'s equivalent pass/fail-to-advisory move — same rationale
-applies here: all of these are repo-wide scans that can trip on a
-pre-existing finding unrelated to the PR's own diff, which is too brittle
-to gate a merge/deploy on). See `main-ci.yml`'s equivalent note below for
-the push-to-main side of this same change.
+never fails the job (nextjs-ci v1.0.2, 2026-08-20, PR #68 covered
+`duplicate-code`/`max-lines` in `main-ci.yml`'s equivalent pass/fail-to-advisory
+move — same rationale applies here: all of these are repo-wide scans that
+can trip on a pre-existing finding unrelated to the PR's own diff, which is
+too brittle to gate a merge/deploy on). See `main-ci.yml`'s equivalent note
+below for the push-to-main side of this same change.
 
 **`required-checks` (LAB-2103):** a final aggregator job that `needs:` every
 REAL (blocking) gate job above - `lint`, `ls-lint`, `typecheck`, `build`,
-`test`, `run-e2e-tests` - and fails if any of them resolves to `failure` or
+`test` - and fails if any of them resolves to `failure` or
 `cancelled` (`if: always()`, so it still runs and reports even when an
-upstream gate didn't). The 6 explicitly-advisory scan jobs (`a11y`,
-`design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+upstream gate didn't). The explicitly-advisory scan jobs (`design-system`,
+`dead-code`, `duplicate-code`, `react-tech-debt`,
 `max-lines`) and the opt-in `tech-debt` metrics report are deliberately
 **not** dependencies - see the job's own comment in the workflow file.
 **Caller repos' branch protection should require ONLY this one context
@@ -952,8 +955,8 @@ here — don't confuse them:
 
 ## Scan job dedup — `.github/actions/scan-with-report`
 
-`develop-ci.yml`'s 7 scan jobs (`a11y`, `design-system`, `dead-code`,
-`duplicate-code`, `run-e2e-tests`, `react-tech-debt`, `max-lines`) all
+`develop-ci.yml`'s 5 scan jobs (`design-system`, `dead-code`,
+`duplicate-code`, `react-tech-debt`, `max-lines`) all
 follow the same shape: run a yarn script that writes a markdown report,
 post/update a sticky PR comment with that report regardless of outcome,
 optionally file/comment-on a Linear ticket on failure, then fail the job
@@ -964,28 +967,26 @@ action with inputs:
 - `script` (required) — yarn script to run.
 - `report-file` (required) — markdown report path the script writes.
 - `sticky-header` (required) — unique sticky-pull-request-comment header.
-- `job-name` (required) — first arg to `scripts/file-linear-ticket.sh`
-  (note `run-e2e-tests`'s `job-name` is `e2e`, not `run-e2e-tests`, matching
-  prior behavior).
+- `job-name` (required) — first arg to `scripts/file-linear-ticket.sh`.
 - `file-ticket` (boolean-as-string, default `'true'`) — set `'false'` for
   `react-tech-debt`/`max-lines`, which only get the sticky comment.
 - `pr-number` / `pr-url` (string) — forwarded from the caller's inputs.
-- `playwright` (boolean-as-string, default `'false'`) — set `'true'` for
-  `a11y`/`run-e2e-tests` to install Playwright's chromium first.
 - `linear-api-key` (string, default `''`) — composite actions can't see the
   caller's `secrets` context directly, so each job passes
   `secrets.LINEAR_API_KEY` in explicitly.
 - `blocking` (boolean-as-string, default `'true'`) — set `'false'` for
-  `a11y`, `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
-  and `max-lines` (`design-system`/`dead-code`/`duplicate-code`/
-  `react-tech-debt`/`max-lines` in nextjs-ci v1.0.2, 2026-08-20; `a11y`
-  followed in nextjs-ci v1.0.3, 2026-08-20): the scan still runs, still
+  `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+  and `max-lines` (nextjs-ci v1.0.2, 2026-08-20): the scan still runs, still
   posts its sticky comment, and `duplicate-code`/`dead-code` still file a
   Linear ticket on failure, but the composite action's final `exit 1` is
-  skipped, so a finding never fails the containing job. `run-e2e-tests`
-  leaves this at the default `'true'` and stays a hard pass/fail gate.
+  skipped, so a finding never fails the containing job.
 
-Each of the 7 scan jobs in `develop-ci.yml` now shrinks to its
+(`a11y` and `run-e2e-tests` — the two jobs that used to set `playwright:
+'true'` to install Chromium first — were removed org-wide, along with the
+`playwright` input itself; see the top of this file's `develop-ci.yml`
+section.)
+
+Each of the 5 scan jobs in `develop-ci.yml` now shrinks to its
 `needs`/`runs-on`/`if`/`permissions` header, a `setup-node-yarn` call, and
 one `scan-with-report` call. `scripts/file-linear-ticket.sh` is invoked with a
 bare relative path (`bash scripts/file-linear-ticket.sh ...`), same as
