@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: security-${{ github.ref }}
@@ -19,14 +20,15 @@ concurrency:
 
 jobs:
   trivy:
-    # Relative-path self-call (./.github/workflows/security-scan.yml)
-    # consistently startup_failure'd here with zero jobs ever scheduled,
-    # on every trigger, for days - while every other repo calling this
-    # same reusable workflow via a remote @main ref succeeds. This is
-    # the only local relative-path reusable *workflow* call anywhere in
-    # this repo (composite actions under .github/actions/ are unaffected
-    # and used locally throughout). Call it the same way every consumer
-    # repo already does.
+    # The nested `changes` job in security-scan.yml requests
+    # `pull-requests: read` (for dorny/paths-filter) - a reusable
+    # workflow's job can't be granted more than the caller itself
+    # grants, so this caller has to list that scope explicitly too, not
+    # just `contents: read`. This was the actual cause of the
+    # `startup_failure`s (confirmed via the GitHub web UI's validation
+    # error, which the REST/GraphQL APIs never surfaced) - unrelated to
+    # local-vs-remote-ref call syntax, which an earlier fix attempt
+    # here wrongly assumed was the problem.
     uses: PeterChauYEG/labone-actions/.github/workflows/security-scan.yml@main
     with:
       # Only the push-to-main run writes a fresh Trivy DB cache entry - PR
