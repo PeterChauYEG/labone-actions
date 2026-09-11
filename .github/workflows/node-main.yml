@@ -45,7 +45,7 @@ jobs:
     secrets: inherit
     with:
       working-directory: ${{ inputs.working-directory }}
-      is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.head_commit.author.name == 'github-actions[bot]') }}
+      is_dependabot: ${{ github.event.head_commit.author.username == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.head_commit.author.username == 'github-actions[bot]') }}
       enable_build: true
       enable_test: true
       enable_deploy: true
