@@ -84,7 +84,7 @@ jobs:
   format:
     name: format
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-godot]
     timeout-minutes: 10
     if: ${{ needs.changes.outputs.godot_source == 'true' }}
     permissions:
@@ -118,7 +118,7 @@ jobs:
   lint:
     name: lint
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-godot]
     timeout-minutes: 10
     if: ${{ needs.changes.outputs.godot_source == 'true' }}
     permissions:
@@ -190,7 +190,7 @@ jobs:
   test:
     name: test
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-godot]
     timeout-minutes: 30
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     permissions:

@@ -8,3 +8,4 @@ self-hosted-runner:
     - catfood-minimal
     - catfood-node
     - catfood-rust
+    - catfood-godot
