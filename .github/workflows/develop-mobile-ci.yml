@@ -195,7 +195,7 @@ concurrency:
 jobs:
   changes:
     name: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
       pull-requests: read
@@ -246,7 +246,7 @@ jobs:
   peer-deps:
     name: peer-deps
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ needs.changes.outputs.mobile_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
@@ -534,7 +534,7 @@ jobs:
   security-scan:
     name: security-scan
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.mobile_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
@@ -552,7 +552,7 @@ jobs:
   secret-scan:
     name: secret-scan
     needs: setup
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
@@ -570,7 +570,7 @@ jobs:
   dependency-audit:
     name: dependency-audit
     needs: setup
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
       # `yarn npm audit` resolves entirely from yarn.lock against the
@@ -589,7 +589,7 @@ jobs:
   tech-debt:
     name: tech-debt
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
