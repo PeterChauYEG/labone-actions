@@ -604,3 +604,13 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
+
+  required-checks:
+    name: required-checks
+    needs: [changes, actionlint, setup, peer-deps, lint, ls-lint, typecheck, test, a11y, design-system, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit, tech-debt]
+    runs-on: [self-hosted, catfood]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
