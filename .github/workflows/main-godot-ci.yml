@@ -1,0 +1,62 @@
+name: Main Godot CI
+
+# Reusable push-to-main CI for Godot 4/GDScript repos. Callers are thin
+# wrappers: `on: push: branches: [main]` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/main-godot-ci.yml@main`
+# with `secrets: inherit`.
+#
+# No deploy/slack-notification job here, unlike main-ci.yml/main-node-ci.yml:
+# those deploy a web/Node service via Dokku, but Godot repos in this org are
+# games/addons with no server-side deploy target. This just re-runs the same
+# format/lint/duplicate-code/test quality gate godot-develop-ci.yml already
+# runs on every PR, once more against main after merge - same reasoning
+# develop-ci.yml/main-ci.yml share their lint/typecheck/test job bodies for.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Godot project lives in.
+        type: string
+        required: false
+        default: '.'
+      is_dependabot:
+        description: >
+          Whether the triggering commit was authored by dependabot[bot], or
+          by github-actions[bot] for a CalVer version-bump commit (caller
+          should treat both the same, mirroring
+          develop-mobile-ci.yml's also_treat_actions_bot_as_dependabot
+          convention). Caller must compute this from
+          github.event.head_commit.author.username, since reusable
+          workflows can't see that context directly. Passed straight
+          through to godot-develop-ci.yml, which already skips
+          duplicate-code/test but always runs format/lint regardless.
+        type: boolean
+        required: false
+        default: false
+      enable_test:
+        description: >
+          Run GUT tests under `tests-path`. Default true. Set false only for
+          repos that structurally can't run GUT standalone - mirror whatever
+          this repo's own develop.yml caller passes to godot-develop-ci.yml.
+        type: boolean
+        required: false
+        default: true
+      tests-path:
+        description: GUT test directory, relative to working-directory.
+        type: string
+        required: false
+        default: 'tests'
+
+permissions:
+  contents: read
+
+jobs:
+  godot-ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main
+    secrets: inherit
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      is_dependabot: ${{ inputs.is_dependabot }}
+      enable_test: ${{ inputs.enable_test }}
+      tests-path: ${{ inputs.tests-path }}
