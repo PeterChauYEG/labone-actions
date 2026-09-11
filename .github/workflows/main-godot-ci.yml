@@ -1,0 +1,47 @@
+name: Main Godot CI
+
+# Reusable push-to-main CI for Godot 4/GDScript repos. Callers are thin
+# wrappers: `on: push: branches: [main]` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/main-godot-ci.yml@main`
+# with `secrets: inherit`.
+#
+# No deploy/slack-notification job here, unlike main-ci.yml/main-node-ci.yml:
+# those deploy a web/Node service via Dokku, but Godot repos in this org are
+# games/addons with no server-side deploy target. This just re-runs the same
+# format/lint/duplicate-code/test quality gate godot-develop-ci.yml already
+# runs on every PR, once more against main after merge - same reasoning
+# develop-ci.yml/main-ci.yml share their lint/typecheck/test job bodies for.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Godot project lives in.
+        type: string
+        required: false
+        default: '.'
+      enable_test:
+        description: >
+          Run GUT tests under `tests-path`. Default true. Set false only for
+          repos that structurally can't run GUT standalone - mirror whatever
+          this repo's own develop.yml caller passes to godot-develop-ci.yml.
+        type: boolean
+        required: false
+        default: true
+      tests-path:
+        description: GUT test directory, relative to working-directory.
+        type: string
+        required: false
+        default: 'tests'
+
+permissions:
+  contents: read
+
+jobs:
+  godot-ci:
+    uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main
+    secrets: inherit
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      enable_test: ${{ inputs.enable_test }}
+      tests-path: ${{ inputs.tests-path }}
