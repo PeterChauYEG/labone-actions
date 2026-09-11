@@ -152,7 +152,7 @@ jobs:
   duplicate-code:
     name: duplicate-code
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 10
     if: ${{ !inputs.is_dependabot && needs.changes.outputs.godot_source == 'true' }}
     permissions:
