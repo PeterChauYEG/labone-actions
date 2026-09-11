@@ -6,3 +6,5 @@ self-hosted-runner:
   labels:
     - catfood
     - catfood-minimal
+    - catfood-node
+    - catfood-rust
