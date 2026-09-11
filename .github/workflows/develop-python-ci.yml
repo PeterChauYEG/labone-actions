@@ -188,3 +188,13 @@ jobs:
           cache-key-prefix: dependency-audit
       - run: pip-audit -r ${{ inputs.requirements_file }}
         working-directory: ${{ inputs.working-directory }}
+
+  required-checks:
+    name: required-checks
+    needs: [changes, actionlint, lint, test, security-scan, secret-scan, dependency-audit]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
