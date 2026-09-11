@@ -467,3 +467,13 @@ jobs:
       - run: cargo install cargo-audit --locked
       - working-directory: ${{ inputs.working-directory }}
         run: cargo audit
+
+  required-checks:
+    name: required-checks
+    needs: [changes, actionlint, fmt, clippy, test, build, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
