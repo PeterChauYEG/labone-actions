@@ -182,7 +182,7 @@ jobs:
   fmt:
     name: fmt
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ needs.changes.outputs.rust_source == 'true' }}
     permissions:
       contents: read
@@ -217,7 +217,7 @@ jobs:
   clippy:
     name: clippy
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true' }}
     permissions:
       contents: read
@@ -258,7 +258,7 @@ jobs:
   test:
     name: test
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ !inputs.is_dependabot }}
     permissions:
       contents: read
@@ -294,7 +294,7 @@ jobs:
   build:
     name: build
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ inputs.enable_build && !inputs.is_dependabot }}
     steps:
       # cache-key-prefix scopes this job's own cargo-build-${Cargo.lock
@@ -313,7 +313,7 @@ jobs:
   dead-code:
     name: dead-code
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && (needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true') }}
     permissions:
       contents: read
@@ -353,7 +353,7 @@ jobs:
   duplicate-code:
     name: duplicate-code
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     permissions:
       contents: read
@@ -456,7 +456,7 @@ jobs:
 
   dependency-audit:
     name: dependency-audit
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main

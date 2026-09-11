@@ -102,7 +102,7 @@ jobs:
   setup:
     name: setup
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -116,7 +116,7 @@ jobs:
   lint:
     name: lint
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     # No path-based skip on main - unlike develop-ci.yml's PR-time lint,
     # every real merge to main should lint in full regardless of which
     # paths changed. is_dependabot is the only skip condition here (and it
@@ -141,7 +141,7 @@ jobs:
   typecheck:
     name: typecheck
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -160,7 +160,7 @@ jobs:
   build:
     name: build
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
@@ -175,7 +175,7 @@ jobs:
   test:
     name: test
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
@@ -240,7 +240,7 @@ jobs:
 
   deploy:
     name: deploy
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     needs: [required-checks, changes]
     if: >-
       always() && inputs.enable_deploy && !inputs.is_dependabot &&
@@ -262,7 +262,7 @@ jobs:
     name: slack-notification
     needs: [deploy]
     if: ${{ always() && inputs.enable_slack_notification && needs.deploy.result == 'failure' }}
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     steps:
       - name: Notify Slack
         uses: slackapi/slack-github-action@v4

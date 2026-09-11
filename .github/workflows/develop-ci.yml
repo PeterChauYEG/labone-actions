@@ -209,7 +209,7 @@ jobs:
   setup:
     name: setup
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     # Deliberately narrower than (and independent of) the caller's own
     # workflow-level `concurrency:` group (grouped per PR number, see
     # templates/*-pr.yml and README.md "Concurrency" point 1) — this one is
@@ -311,7 +311,7 @@ jobs:
   lint:
     name: lint
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ needs.changes.outputs.web_source == 'true' || needs.changes.outputs.web_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # --cache/--cache-location are passed through to the caller's `lint`
@@ -338,7 +338,7 @@ jobs:
   ls-lint:
     name: ls-lint
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -355,7 +355,7 @@ jobs:
   typecheck:
     name: typecheck
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     steps:
       # --incremental/--tsBuildInfoFile are passed through to the caller's
       # `typecheck` script (yarn forwards extra CLI args) — assumes that
@@ -379,7 +379,7 @@ jobs:
   build:
     name: build
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
@@ -394,7 +394,7 @@ jobs:
   test:
     name: test
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       # test_script_args (default Jest's cache flags) is passed through to
@@ -419,7 +419,7 @@ jobs:
   design-system:
     name: design-system
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_design_system && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
@@ -449,7 +449,7 @@ jobs:
   dead-code:
     name: dead-code
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read
@@ -479,7 +479,7 @@ jobs:
   duplicate-code:
     name: duplicate-code
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read
@@ -512,7 +512,7 @@ jobs:
   react-tech-debt:
     name: react-tech-debt
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
@@ -542,7 +542,7 @@ jobs:
   max-lines:
     name: max-lines
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read

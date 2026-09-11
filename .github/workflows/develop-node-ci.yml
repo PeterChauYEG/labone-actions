@@ -307,7 +307,7 @@ jobs:
   setup:
     name: setup
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     steps:
       - if: inputs.package_manager == 'yarn'
         uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -352,7 +352,7 @@ jobs:
   peer-deps:
     name: peer-deps
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ needs.changes.outputs.node_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
@@ -386,7 +386,7 @@ jobs:
   lint:
     name: lint
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # Zero-tolerance gate: this just runs `<package manager> lint` and
@@ -416,7 +416,7 @@ jobs:
   ls-lint:
     name: ls-lint
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
     # setup-node-yarn only exposes GH_TOKEN as an env var scoped to its own
     # internal "Install dependencies" step (see that action's `gh-token`
@@ -448,7 +448,7 @@ jobs:
   typecheck:
     name: typecheck
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -470,7 +470,7 @@ jobs:
   build:
     name: build
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
@@ -488,7 +488,7 @@ jobs:
   test:
     name: test
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
@@ -550,7 +550,7 @@ jobs:
   dependency-audit:
     name: dependency-audit
     needs: setup
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     # `yarn npm audit`/`pnpm audit` resolve advisory data against the real
     # registry, including for scoped packages published to GitHub Packages
@@ -591,7 +591,7 @@ jobs:
   dead-code:
     name: dead-code
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
     permissions:
       contents: read
@@ -628,7 +628,7 @@ jobs:
   duplicate-code:
     name: duplicate-code
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
     permissions:
       contents: read
