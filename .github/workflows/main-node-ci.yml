@@ -224,7 +224,9 @@ jobs:
     name: lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
+    # No path-based skip on main - unlike develop-node-ci.yml's PR-time
+    # lint, every real merge to main should lint in full regardless of
+    # which paths changed. is_dependabot is the only skip condition here.
     steps:
       # Zero-tolerance gate: this just runs `yarn lint` and fails on any
       # non-zero exit. Whether that actually means "zero warnings" depends
@@ -316,7 +318,8 @@ jobs:
     name: security-scan
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
-    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.node_deps == 'true' }}
+    # No path-based skip on main - see lint's comment above.
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (vulnerabilities)

@@ -117,7 +117,11 @@ jobs:
     name: lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood]
-    if: ${{ needs.changes.outputs.web == 'true' }}
+    # No path-based skip on main - unlike develop-ci.yml's PR-time lint,
+    # every real merge to main should lint in full regardless of which
+    # paths changed. is_dependabot is the only skip condition here (and it
+    # deliberately does NOT skip lint/typecheck/build - see that input's
+    # description above).
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -192,7 +196,8 @@ jobs:
     name: security-scan
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
-    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.web_deps == 'true' }}
+    # No path-based skip on main - see lint's comment above.
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (vulnerabilities)
