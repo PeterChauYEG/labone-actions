@@ -218,3 +218,13 @@ jobs:
         run: bash scripts/file-linear-ticket.sh test test-report.md
       - if: steps.scan.outcome == 'failure'
         run: exit 1
+
+  required-checks:
+    name: required-checks
+    needs: [changes, actionlint, format, lint, duplicate-code, test]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
