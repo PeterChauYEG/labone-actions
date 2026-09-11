@@ -1,0 +1,156 @@
+name: Main Python CI
+
+# Reusable push-to-main CI for Python repos (data pipelines, MCP servers,
+# ML/robotics scripts). Callers are thin wrappers: `on: push: branches:
+# [main]` -> `uses: PeterChauYEG/labone-actions/.github/workflows/main-python-ci.yml@main`
+# with `secrets: inherit`.
+#
+# NOT a thin wrapper around develop-python-ci.yml, unlike main-godot-ci.yml's
+# relationship to godot-develop-ci.yml: develop-python-ci.yml's `lint`
+# job path-filters on `changes.outputs.python`, which is a PR-time-only
+# optimization - main-push CI must never skip a job based on which paths
+# changed, only on `is_dependabot` (extended by the caller to also cover
+# github-actions[bot] version-bump commits). So this workflow duplicates
+# the job bodies instead, the same way main-ci.yml/main-node-ci.yml
+# duplicate develop-ci.yml/develop-node-ci.yml's rather than wrapping them.
+#
+# No `changes`/`deploy`/`slack-notification` job: Python repos in this org
+# (data pipelines, MCP servers, scripts) have no single common deploy
+# target the way web/Node services do via Dokku - add deploy as a
+# repo-specific bespoke job in the caller if one is ever needed.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Python project lives in.
+        type: string
+        required: false
+        default: '.'
+      is_dependabot:
+        description: >
+          Whether the triggering commit was authored by dependabot[bot], or
+          by github-actions[bot] for a CalVer version-bump commit (caller
+          should treat both the same). Caller must compute this from
+          github.event.head_commit.author.username, since reusable
+          workflows can't see that context directly. When true, `test`,
+          `security-scan`, `secret-scan` and `dependency-audit` are
+          skipped (`lint` stays on, matching develop-python-ci.yml).
+        type: boolean
+        required: false
+        default: false
+      lint_path:
+        description: Path (relative to working-directory) passed to `ruff check`.
+        type: string
+        required: false
+        default: '.'
+      enable_test:
+        description: Run `test_command`.
+        type: boolean
+        default: true
+      test_command:
+        description: Command used to run the test suite.
+        type: string
+        required: false
+        default: 'python3 -m pytest'
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        type: string
+        required: false
+        default: ''
+      enable_dependency_audit:
+        description: Run `pip-audit` against `requirements_file`.
+        type: boolean
+        default: false
+      requirements_file:
+        description: Path (relative to working-directory) to a requirements.txt for pip-audit.
+        type: string
+        required: false
+        default: 'requirements.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-python-ci-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: ruff
+          cache-key-prefix: lint
+      - run: ruff check ${{ inputs.lint_path }}
+        working-directory: ${{ inputs.working-directory }}
+
+  test:
+    name: test
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: ${{ inputs.test_command }}
+        working-directory: ${{ inputs.working-directory }}
+
+  security-scan:
+    name: security-scan
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (vulnerabilities)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  secret-scan:
+    name: secret-scan
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (secrets)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  dependency-audit:
+    name: dependency-audit
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: pip-audit
+          cache-key-prefix: dependency-audit
+      - run: pip-audit -r ${{ inputs.requirements_file }}
+        working-directory: ${{ inputs.working-directory }}
+
+  required-checks:
+    name: required-checks
+    needs: [lint, test, security-scan, secret-scan, dependency-audit]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
