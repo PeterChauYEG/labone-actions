@@ -100,7 +100,7 @@ concurrency:
 jobs:
   changes:
     name: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
       pull-requests: read
@@ -145,7 +145,7 @@ jobs:
   security-scan:
     name: security-scan
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.python_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
@@ -162,7 +162,7 @@ jobs:
 
   secret-scan:
     name: secret-scan
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
