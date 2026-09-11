@@ -1,0 +1,273 @@
+name: Main Rust CI
+
+# Reusable push-to-main CI for Rust CLI/tool repos. Callers are thin
+# wrappers: `on: push: branches: [main]` -> `uses:
+# PeterChauYEG/labone-actions/.github/workflows/main-rust-ci.yml@main`
+# with `secrets: inherit`.
+#
+# NOT a thin wrapper around develop-rust-ci.yml, same reasoning as
+# main-python-ci.yml's relationship to develop-python-ci.yml:
+# develop-rust-ci.yml's clippy/dead-code/duplicate-code/file-size/
+# security-scan jobs path-filter on changes.outputs.rust_source/rust_deps,
+# a PR-time-only optimization - main-push CI must never skip a job based
+# on which paths changed, only on `is_dependabot` (extended by the caller
+# to also cover github-actions[bot] version-bump commits). So this
+# workflow duplicates the job bodies instead.
+#
+# No `changes`/`actionlint` job (actionlint is PR-only across every
+# main-*-ci.yml in this repo) and no sticky-PR-comment/Linear-ticket-filing
+# steps (there's no PR to comment on or file a ticket against from a push
+# event) - every job here is a plain pass/fail gate, matching main-ci.yml/
+# main-node-ci.yml's own convention. No `deploy`/`slack-notification` job
+# either - no single common deploy target for Rust CLI/tool repos in this
+# org.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory (relative to the repo root) the Cargo project lives in.
+        type: string
+        required: false
+        default: '.'
+      is_dependabot:
+        description: >
+          Whether the triggering commit was authored by dependabot[bot], or
+          by github-actions[bot] for a CalVer version-bump commit (caller
+          should treat both the same). Caller must compute this from
+          github.event.head_commit.author.username, since reusable
+          workflows can't see that context directly. fmt/clippy always
+          run in full; test, build, and every optional scan job are
+          skipped when true.
+        type: boolean
+        required: false
+        default: false
+      pre_build_command:
+        description: >
+          Arbitrary shell run once per job (fmt/clippy/test/build), after
+          checkout and toolchain setup but before the job's actual cargo
+          command. Empty (no-op) by default.
+        type: string
+        required: false
+        default: ''
+      enable_build:
+        description: Run `cargo build --release`.
+        type: boolean
+        default: false
+      enable_dead_code:
+        description: Run a cargo-machete dead-dependency scan via `dead_code_script`.
+        type: boolean
+        default: true
+      dead_code_script:
+        description: Path (relative to working-directory) to the dead-code-scan script.
+        type: string
+        required: false
+        default: 'scripts/dead-code-scan.sh'
+      enable_duplicate_code:
+        description: Run a cargo-dupes duplicate-code scan via `duplicate_code_script`.
+        type: boolean
+        default: false
+      duplicate_code_script:
+        description: Path (relative to working-directory) to the duplicate-code-scan script.
+        type: string
+        required: false
+        default: 'scripts/ci/duplicate-code-scan.sh'
+      cargo_dupes_version:
+        description: Pinned cargo-dupes version.
+        type: string
+        required: false
+        default: '0.2.1'
+      enable_file_size:
+        description: Run a file-size scan via `file_size_script`. Report-only, never fails the job.
+        type: boolean
+        default: false
+      file_size_script:
+        description: Path (relative to working-directory) to the file-size-scan script.
+        type: string
+        required: false
+        default: 'scripts/ci/file-size-scan.sh'
+      enable_security_scan:
+        description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
+        type: boolean
+        default: true
+      security_scan_trivyignores:
+        type: string
+        required: false
+        default: ''
+      enable_dependency_audit:
+        description: Run `cargo audit`.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-rust-ci-${{ github.repository }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          cache-key-prefix: fmt
+          working-directory: ${{ inputs.working-directory }}
+          components: rustfmt
+          cache: 'false'
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo fmt -- --check
+
+  clippy:
+    name: clippy
+    runs-on: [self-hosted, catfood]
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          cache-key-prefix: clippy
+          working-directory: ${{ inputs.working-directory }}
+          components: clippy
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo clippy -- -D warnings
+
+  test:
+    name: test
+    runs-on: [self-hosted, catfood]
+    if: ${{ !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          cache-key-prefix: test
+          working-directory: ${{ inputs.working-directory }}
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo test
+
+  build:
+    name: build
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_build && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          cache-key-prefix: build
+          working-directory: ${{ inputs.working-directory }}
+      - if: inputs.pre_build_command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pre_build_command }}
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo build --release
+
+  dead-code:
+    name: dead-code
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          cache-key-prefix: dead-code
+          working-directory: ${{ inputs.working-directory }}
+          cache: 'false'
+      - working-directory: ${{ inputs.working-directory }}
+        run: bash ${{ inputs.dead_code_script }}
+
+  duplicate-code:
+    name: duplicate-code
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          cache-key-prefix: duplicate-code
+          working-directory: ${{ inputs.working-directory }}
+          cache: 'false'
+      - uses: actions/cache@v6
+        id: dupes-cache
+        with:
+          path: ~/.cargo/bin/cargo-dupes
+          key: cargo-dupes-${{ inputs.cargo_dupes_version }}
+      - if: steps.dupes-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-dupes --version ${{ inputs.cargo_dupes_version }} --locked
+      - working-directory: ${{ inputs.working-directory }}
+        run: bash ${{ inputs.duplicate_code_script }}
+
+  file-size:
+    name: file-size
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ inputs.enable_file_size && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - working-directory: ${{ inputs.working-directory }}
+        # Report-only by design - never fails the job.
+        run: bash ${{ inputs.file_size_script }}
+
+  security-scan:
+    name: security-scan
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (vulnerabilities)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  secret-scan:
+    name: secret-scan
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Trivy (secrets)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          scanners: secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  dependency-audit:
+    name: dependency-audit
+    runs-on: [self-hosted, catfood]
+    if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
+        with:
+          cache-key-prefix: dependency-audit
+          working-directory: ${{ inputs.working-directory }}
+          cache: 'false'
+      - run: cargo install cargo-audit --locked
+      - working-directory: ${{ inputs.working-directory }}
+        run: cargo audit
+
+  required-checks:
+    name: required-checks
+    needs: [fmt, clippy, test, build, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: always()
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
