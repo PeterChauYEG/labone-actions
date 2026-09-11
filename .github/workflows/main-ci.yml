@@ -88,7 +88,7 @@ concurrency:
 jobs:
   changes:
     name: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
     outputs:
@@ -191,7 +191,7 @@ jobs:
   security-scan:
     name: security-scan
     needs: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.web_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
@@ -208,7 +208,7 @@ jobs:
 
   secret-scan:
     name: secret-scan
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
@@ -226,7 +226,7 @@ jobs:
   required-checks:
     name: required-checks
     needs: [lint, typecheck, build, test, security-scan, secret-scan]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled

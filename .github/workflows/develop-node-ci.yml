@@ -277,7 +277,7 @@ jobs:
   # "unconfirmed" callout.
   changes:
     name: changes
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
       pull-requests: read
@@ -514,7 +514,7 @@ jobs:
   security-scan:
     name: security-scan
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.node_deps == 'true' }}
     steps:
       - uses: actions/checkout@v7
@@ -532,7 +532,7 @@ jobs:
   secret-scan:
     name: secret-scan
     needs: setup
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
@@ -713,7 +713,7 @@ jobs:
         dependency-audit,
         actionlint,
       ]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled
