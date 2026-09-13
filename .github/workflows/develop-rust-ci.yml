@@ -49,6 +49,18 @@ on:
         type: string
         required: false
         default: ''
+      pr_base_sha:
+        description: >
+          github.event.pull_request.base.sha from the caller. Only used by
+          the `tech-debt` job (when `enable_tech_debt` is true) to compute
+          a delta vs. the PR's base branch - see
+          `.github/actions/tech-debt-report-rust`'s `base-sha` input.
+          Leave empty (default) to skip the delta and get current-totals
+          only; harmless to leave unset for every caller that doesn't
+          enable `tech-debt`.
+        type: string
+        required: false
+        default: ''
       is_dependabot:
         description: >
           Whether this PR was opened by dependabot[bot]. Caller must
@@ -140,6 +152,14 @@ on:
           ai-harness-cli has this today, so there's no established
           precedent to default on (unlike develop-node-ci.yml's
           dependency-audit, which mirrors an existing yarn-repo norm).
+        type: boolean
+        default: false
+      enable_tech_debt:
+        description: >
+          Run the grep-based Rust tech-debt metrics report (TODO/FIXME/
+          HACK comments, #[allow(...)] lint suppressions) and post it as
+          a sticky PR comment. Opt-in, like develop-ci.yml's equivalent -
+          defaults false since no consumer repo has this today.
         type: boolean
         default: false
 
@@ -518,6 +538,32 @@ jobs:
       - run: cargo install cargo-audit --locked
       - working-directory: ${{ inputs.working-directory }}
         run: cargo audit
+
+  tech-debt:
+    name: tech-debt
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # No setup-rust call: this is a plain grep over the tracked .rs
+      # tree, no built workspace needed - just check out the repo. An
+      # explicit setup-node here (unlike develop-ci.yml's JS tech-debt
+      # job, which assumes node is already on PATH on catfood-minimal -
+      # untested, since no repo has enabled that job yet) matches
+      # file-size's own belt-and-suspenders approach above, since this
+      # job's own composite action needs npx for its danger comment step.
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report-rust@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          pr-number: ${{ inputs.pr_number }}
+          base-sha: ${{ inputs.pr_base_sha }}
 
   required-checks:
     name: required-checks

@@ -1,0 +1,137 @@
+name: Rust tech debt metrics report
+description: >
+  Grep-based tech-debt metrics for Rust consumer repos: counts TODO/FIXME/
+  HACK comments and `#[allow(...)]`/`#![allow(...)]` lint-suppression
+  attributes across every tracked `.rs` file (respecting the repo's own
+  .gitignore — see count-metrics.sh). Rust sibling of
+  `tech-debt-report` (TS/TSX) — same sticky-PR-comment mechanism via
+  `danger ci --id`, same current-tree + optional base-sha delta shape,
+  scoped to the two metrics that have a direct Rust equivalent:
+  `#[allow(...)]` is Rust's `eslint-disable` (it suppresses a specific
+  clippy/rustc lint at a specific call site), and TODO/FIXME/HACK comments
+  mean the same thing regardless of language. Never runs cargo or needs a
+  built workspace, so callers don't need setup-rust first — just
+  `actions/checkout@v7`. Never fails the job; this is a metrics report,
+  not a pass/fail gate.
+
+inputs:
+  working-directory:
+    description: >
+      Directory (relative to the repo root) the Rust crate/workspace lives
+      in. Defaults to `.` (repo root), matching every other action in this
+      repo.
+    required: false
+    default: '.'
+  pr-number:
+    description: github.event.pull_request.number from the top-level caller.
+    required: true
+  base-sha:
+    description: >
+      github.event.pull_request.base.sha from the top-level caller. When
+      set, this action also fetches and checks out that SHA into a
+      throwaway `git worktree` and computes the same metrics there, so the
+      report can show a delta vs. the PR's base branch. Leave empty (or
+      unresolvable, e.g. a base SHA outside a shallow clone's fetchable
+      history) to skip the delta — the report falls back to current-totals
+      only rather than failing the job.
+    required: false
+    default: ''
+  sticky-header:
+    description: Unique identifier for this job's sticky PR comment, passed as danger's `--id`.
+    required: false
+    default: tech-debt-report-rust
+
+runs:
+  using: composite
+  steps:
+    - name: Compute current tech debt metrics
+      id: current
+      shell: bash
+      run: |
+        set -uo pipefail
+        read -r todo allow_attrs <<< \
+          "$(bash "${{ github.action_path }}/count-metrics.sh" "${{ inputs.working-directory }}")"
+        {
+          echo "todo=$todo"
+          echo "allow_attrs=$allow_attrs"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Compute base branch tech debt metrics
+      id: base
+      if: inputs.base-sha != ''
+      shell: bash
+      # Deliberately not `set -e` at the top level — a fetch/worktree
+      # failure here (e.g. a shallow clone that can't reach base-sha, or a
+      # rewritten base branch) should degrade to "no delta", not fail the
+      # whole job just for a nice-to-have metrics comment.
+      run: |
+        set -uo pipefail
+        {
+          set -e
+          git fetch --depth=1 origin "${{ inputs.base-sha }}"
+          worktree_dir="$(mktemp -d)"
+          git worktree add --detach "$worktree_dir" "${{ inputs.base-sha }}" >/dev/null
+          read -r todo allow_attrs <<< \
+            "$(bash "${{ github.action_path }}/count-metrics.sh" "$worktree_dir/${{ inputs.working-directory }}")"
+          git worktree remove --force "$worktree_dir"
+          {
+            echo "todo=$todo"
+            echo "allow_attrs=$allow_attrs"
+          } >> "$GITHUB_OUTPUT"
+        } || echo "::warning::tech-debt-report-rust: couldn't compute base-branch metrics for ${{ inputs.base-sha }}, showing totals only"
+
+    - name: Build tech debt report
+      id: report
+      shell: bash
+      run: |
+        set -euo pipefail
+        report_file="$(mktemp)"
+        has_base="${{ steps.base.outputs.todo != '' }}"
+
+        fmt_row() {
+          local label="$1" current="$2" base="$3"
+          if [ -n "$base" ]; then
+            local delta=$((current - base))
+            local sign=''
+            if [ "$delta" -gt 0 ]; then sign='+'; fi
+            echo "| $label | $current | ${sign}${delta} |"
+          else
+            echo "| $label | $current |"
+          fi
+        }
+
+        {
+          echo '### Rust tech debt metrics'
+          echo
+          if [ "$has_base" = 'true' ]; then
+            echo '| Metric | Count | Δ vs. base |'
+            echo '|---|---|---|'
+          else
+            echo '| Metric | Count |'
+            echo '|---|---|'
+          fi
+          fmt_row 'TODO/FIXME/HACK comments' "${{ steps.current.outputs.todo }}" "${{ steps.base.outputs.todo }}"
+          fmt_row '`#[allow(...)]`/`#![allow(...)]` suppressions' "${{ steps.current.outputs.allow_attrs }}" "${{ steps.base.outputs.allow_attrs }}"
+        } >> "$report_file"
+
+        echo "path=$report_file" >> "$GITHUB_OUTPUT"
+
+    - name: Generate Dangerfile
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > "$RUNNER_TEMP/tech-debt-report-rust-dangerfile.js" <<'DANGERFILE'
+        const fs = require('fs')
+        const reportPath = process.env.DANGER_REPORT_PATH
+
+        if (reportPath && fs.existsSync(reportPath)) {
+          markdown(fs.readFileSync(reportPath, 'utf8'))
+        }
+        DANGERFILE
+
+    - name: Post sticky report comment via danger
+      shell: bash
+      env:
+        DANGER_REPORT_PATH: ${{ steps.report.outputs.path }}
+        DANGER_GITHUB_API_TOKEN: ${{ github.token }}
+      run: npx --yes danger@14.0.7 ci --id "${{ inputs.sticky-header }}" --dangerfile "$RUNNER_TEMP/tech-debt-report-rust-dangerfile.js"

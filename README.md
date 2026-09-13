@@ -1104,6 +1104,42 @@ To opt a repo in, set `enable_tech_debt: true` on the `develop-ci.yml`/
 `templates/mobile-pr.yml`) and, for the delta column, also pass
 `pr_base_sha: ${{ github.event.pull_request.base.sha }}`.
 
+## Rust tech debt metrics report — `.github/actions/tech-debt-report-rust`
+
+`develop-rust-ci.yml` has an opt-in `tech-debt` job (`enable_tech_debt`,
+default **false**, same convention as `develop-ci.yml`'s equivalent above)
+that greps the caller's tracked `.rs` tree for two tech-debt signals and
+posts the totals as a sticky PR comment (same `danger ci --id` mechanism).
+Never fails the job — a metrics report, not a gate — and never runs cargo
+or needs a built workspace, so the job just does a plain
+`actions/checkout@v7` (plus an explicit `actions/setup-node@v7`, since
+unlike a Node-flavored runner this job's own `catfood-minimal` image isn't
+guaranteed to have `npx` on `PATH` already) before calling the action.
+
+Metrics (repo-wide totals, not diff-only counts):
+
+- `TODO`/`FIXME`/`HACK` comments — same meaning as the TS/TSX report above
+- `#[allow(...)]`/`#![allow(...)]` lint-suppression attributes — Rust's
+  `eslint-disable`(-next-line): both suppress a specific lint at a
+  specific site
+
+File discovery is `git ls-files` (tracked + untracked-but-not-ignored),
+respecting the repo's own `.gitignore` (`target/`, generated code, etc.)
+rather than a hardcoded exclude list. Falls back to a plain `find`
+(excluding only `target/` and `.git/`) if `working-directory` isn't
+inside a git working tree at all.
+
+`.github/actions/tech-debt-report-rust/action.yml` inputs mirror
+`tech-debt-report`'s exactly (`working-directory`, `pr-number`, `base-sha`,
+`sticky-header`) — see that section above for the full contract. The
+counting logic lives in `.github/actions/tech-debt-report-rust/
+count-metrics.sh <dir>`, invoked by both the "current tree" and "base
+branch worktree" steps.
+
+To opt a repo in, set `enable_tech_debt: true` on the `develop-rust-ci.yml`
+call and, for the delta column, also pass
+`pr_base_sha: ${{ github.event.pull_request.base.sha }}`.
+
 ## `security-scan.yml`
 
 Reusable, `workflow_call` inputs `scan-ref` (string, default `.`),
@@ -1352,9 +1388,18 @@ strategy" → "Cargo cache scoping" above. `workflow_call` inputs:
 - `enable_dependency_audit` (boolean, default `false`) — runs `cargo audit`.
   Off by default: neither known caller has this today, so there's no
   established precedent to default on.
+- `pr_base_sha` (string, default `''`) — only used by the `tech-debt` job
+  (when `enable_tech_debt` is true) to compute a delta vs. the PR's base
+  branch. Leave empty (default) for current-totals only.
+- `enable_tech_debt` (boolean, default `false`) — runs the grep-based Rust
+  tech-debt metrics report (TODO/FIXME/HACK comments, `#[allow(...)]`/
+  `#![allow(...)]` lint suppressions) and posts it as a sticky PR comment,
+  via `.github/actions/tech-debt-report-rust` — the Rust sibling of
+  `develop-ci.yml`'s `enable_tech_debt`. Opt-in like that one, since no
+  Rust repo has this today.
 
 Jobs: `fmt`, `clippy`, `test`, `build`, `dead-code`, `duplicate-code`,
-`file-size`, `security-scan`, `dependency-audit`. `fmt`/`clippy`/`test` and
+`file-size`, `security-scan`, `dependency-audit`, `tech-debt`. `fmt`/`clippy`/`test` and
 every optional scan job follow the same continue-on-error + sticky PR
 comment (scans only) + `file-linear-ticket.sh` + explicit `exit 1` pattern
 `godot-develop-ci.yml` established, since both known callers already file
