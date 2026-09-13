@@ -158,10 +158,30 @@ runs:
         echo "base=${base}" >> "$GITHUB_OUTPUT"
         echo "bundle=${base}/bundle-${hash}" >> "$GITHUB_OUTPUT"
         echo "yarn-pkg-cache=${base}/yarn-pkg-cache" >> "$GITHUB_OUTPUT"
+
+        # .next/cache is only relevant to a Next.js app - confirmed live
+        # 2026-09-13 that this used to be added unconditionally, so every
+        # repo (NestJS backends included) got an empty top-level `.next/`
+        # directory materialized just from running this action, with
+        # nothing ever populating it (only a real `next build` writes
+        # there). On payments-service (pure NestJS, no `next` dependency
+        # at all) that stray `.next` directory then failed ls-lint's
+        # `.dir: kebab-case` rule (a leading-dot name isn't kebab-case),
+        # breaking the `ls-lint` job for a repo that was never a Next.js
+        # app in the first place.
+        wd="${{ inputs.working-directory }}"
+        is_nextjs=false
+        if [[ -f "$wd/next.config.js" || -f "$wd/next.config.mjs" || -f "$wd/next.config.ts" || -f "$wd/next.config.cjs" ]]; then
+          is_nextjs=true
+        elif [[ -f "$wd/package.json" ]] && jq -e '((.dependencies // {}) + (.devDependencies // {})) | has("next")' "$wd/package.json" >/dev/null 2>&1; then
+          is_nextjs=true
+        fi
+        echo "[setup-node-yarn] is_nextjs=${is_nextjs} (working-directory=${wd})"
+
         {
           echo "rel-paths<<REL_PATHS_EOF"
           echo "node_modules"
-          echo ".next/cache"
+          [[ "$is_nextjs" == "true" ]] && echo ".next/cache"
           for p in ${{ inputs.extra-paths }}; do
             echo "$p"
           done
