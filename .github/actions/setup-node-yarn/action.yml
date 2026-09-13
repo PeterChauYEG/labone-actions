@@ -195,6 +195,22 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
         YARN_NETWORK_CONCURRENCY: '4'
+        # Yarn's taskPoolConcurrency (extraction worker pool) defaults to
+        # os.cpus().length, which reports the HOST's real core count (12 on
+        # the runner box) even though gha-runner-docker throttles this
+        # container to a `--cpus` CFS quota of 1 (docker's --cpus is a
+        # quota, not a cpuset, so it never changes what nproc/os.cpus()
+        # report). Confirmed live 2026-09-13: with 12 extraction workers
+        # racing over a ~1-core budget, `yarn install` hit a deterministic
+        # (not probabilistic - reproduced identically on 3/3 retry
+        # attempts, same package, same error, every time) "While
+        # persisting .../node_modules/@scope/pkg/ -> .../node_modules/
+        # @scope/pkg ENOTDIR: not a directory" on 9 different repos the
+        # same afternoon. Pinning this to 1 serializes extraction so there
+        # is never more than one worker touching node_modules at a time -
+        # eliminates the race at its actual source instead of retrying
+        # around it.
+        YARN_TASK_POOL_CONCURRENCY: '1'
         # Content-addressed, safe to share read+write across every job
         # regardless of cache-write - see this action's own description.
         YARN_CACHE_FOLDER: ${{ steps.cache-key.outputs.yarn-pkg-cache }}
