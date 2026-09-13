@@ -30,7 +30,11 @@ inputs:
     description: Path to the markdown report the script writes, e.g. `design-system-report.md`.
     required: true
   sticky-header:
-    description: Unique header for the sticky-pull-request-comment, e.g. `design-system-scan`.
+    description: >
+      Unique identifier for this job's sticky PR comment, passed as danger's
+      `--id`, e.g. `design-system-scan`. Keeps each job's comment
+      independently addressable and updated in place across re-runs, rather
+      than merged into one shared comment.
     required: true
   job-name:
     description: >
@@ -97,12 +101,27 @@ runs:
         GH_TOKEN: ${{ inputs.gh-token }}
         GITHUB_TOKEN: ${{ inputs.gh-token }}
 
-    - uses: marocchino/sticky-pull-request-comment@v3
+    - name: Generate Dangerfile
       if: always()
-      with:
-        number: ${{ inputs.pr-number }}
-        header: ${{ inputs.sticky-header }}
-        path: ${{ inputs.report-file }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > "$RUNNER_TEMP/scan-with-report-dangerfile.js" <<'DANGERFILE'
+        const fs = require('fs')
+        const reportPath = process.env.DANGER_REPORT_PATH
+
+        if (reportPath && fs.existsSync(reportPath)) {
+          markdown(fs.readFileSync(reportPath, 'utf8'))
+        }
+        DANGERFILE
+
+    - name: Post sticky report comment via danger
+      if: always()
+      shell: bash
+      env:
+        DANGER_REPORT_PATH: ${{ inputs.report-file }}
+        DANGER_GITHUB_API_TOKEN: ${{ inputs.gh-token != '' && inputs.gh-token || github.token }}
+      run: npx --yes danger@14.0.7 ci --id "${{ inputs.sticky-header }}" --dangerfile "$RUNNER_TEMP/scan-with-report-dangerfile.js"
 
     - name: File Linear ticket for failure
       if: steps.scan.outcome == 'failure' && inputs.file-ticket == 'true'

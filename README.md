@@ -969,7 +969,8 @@ action with inputs:
 
 - `script` (required) — yarn script to run.
 - `report-file` (required) — markdown report path the script writes.
-- `sticky-header` (required) — unique sticky-pull-request-comment header.
+- `sticky-header` (required) — unique identifier for this job's sticky PR
+  comment, passed as `danger ci`'s `--id`.
 - `job-name` (required) — first arg to `scripts/file-linear-ticket.sh`.
 - `file-ticket` (boolean-as-string, default `'true'`) — set `'false'` for
   `react-tech-debt`/`max-lines`, which only get the sticky comment.
@@ -1010,15 +1011,43 @@ inline. Verified with `actionlint`.
 already minimal 2-step bodies and were left as-is — not worth
 composite-izing further.
 
+### Sticky comments via `danger ci --id`
+
+Every scan job posts its own independent sticky PR comment via
+[danger-js](https://danger.systems/js/)'s CLI (`npx --yes danger@14.0.7 ci
+--id <sticky-header> --dangerfile <path>`) rather than
+`marocchino/sticky-pull-request-comment`. Each job writes a tiny,
+job-specific Dangerfile to `$RUNNER_TEMP` at run time (never committed) that
+reads its report file and, if present, calls `markdown()` with its
+contents; if the report file doesn't exist, the Dangerfile does nothing —
+danger still runs (so a missing report degrades gracefully instead of
+failing the step), it just posts nothing.
+
+`danger ci`'s `--id` is what makes N independent sticky comments possible
+on one PR instead of a single combined one: each id gets its own hidden
+marker embedded in the comment body, which is how a later run finds and
+updates *that* comment specifically rather than any other job's. This is a
+deliberate design choice — one Dangerfile/comment per job, not one
+Dangerfile covering every check — so `design-system`, `dead-code`,
+`duplicate-code`, etc. each keep their own comment, updated in place on
+re-runs, exactly like `marocchino/sticky-pull-request-comment`'s `header`
+input did. The `sticky-header` input each caller already passes is reused
+unchanged as this `--id` value.
+
+The danger step authenticates via `DANGER_GITHUB_API_TOKEN`, set to the
+job's `gh-token` input when non-empty (same per-repo secret forwarded to
+the scan step) or `github.token` otherwise — the same fallback
+`marocchino/sticky-pull-request-comment` used implicitly.
+
 ## Tech debt metrics report — `.github/actions/tech-debt-report`
 
 `develop-ci.yml` and `develop-mobile-ci.yml` both have an opt-in `tech-debt`
 job (`enable_tech_debt`, default **false** — see each workflow's own
 section above) that greps the caller's tracked `.ts`/`.tsx` tree for seven
 tech-debt signals and posts the totals as a sticky PR comment, updated in
-place on every push rather than posted fresh each time (same
-`marocchino/sticky-pull-request-comment@v3` action `scan-with-report`
-already uses). Unlike every scan job above, it never fails the job — it's a
+place on every push rather than posted fresh each time (same `danger ci
+--id` mechanism `scan-with-report` already uses — see "Sticky comments via
+`danger ci --id`" above). Unlike every scan job above, it never fails the job — it's a
 metrics report, not a gate — and it never runs a yarn script or needs
 `node_modules`, so the job just does a plain `actions/checkout@v7` before
 calling the action (no `setup-node-yarn` step).
@@ -1043,7 +1072,9 @@ Every file under `node_modules`, `.next`, `dist`, `build`, `coverage`,
 - `working-directory` (string, default `.`) — same convention as every
   other action in this repo.
 - `pr-number` (required) — forwarded from the caller workflow's
-  `pr_number` input, for the sticky comment.
+  `pr_number` input. `danger ci` detects the PR from the GitHub Actions
+  environment itself, so this is kept only for input-compatibility with
+  existing callers, not read by the comment step.
 - `base-sha` (string, default `''`) — forwarded from the caller workflow's
   `pr_base_sha` input (`github.event.pull_request.base.sha`). When set,
   the action fetches that SHA and checks it out into a throwaway `git
@@ -1052,9 +1083,9 @@ Every file under `node_modules`, `.next`, `dist`, `build`, `coverage`,
   failure (e.g. an unreachable SHA) degrades to current-totals-only
   instead of failing the job — this is a nice-to-have, not something worth
   blocking a PR over.
-- `sticky-header` (string, default `tech-debt-report`) — unique
-  sticky-pull-request-comment header, same convention as
-  `scan-with-report`'s `sticky-header` input.
+- `sticky-header` (string, default `tech-debt-report`) — unique identifier
+  for this job's sticky PR comment, passed as `danger ci`'s `--id`, same
+  convention as `scan-with-report`'s `sticky-header` input.
 
 The actual counting logic lives in one place,
 `.github/actions/tech-debt-report/count-metrics.sh <dir>`, invoked by both

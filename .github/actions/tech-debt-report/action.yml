@@ -7,12 +7,12 @@ description: >
   "as any" / "@ts-nocheck"), TODO/FIXME/HACK comments, and `console.log`
   calls across every tracked `.ts`/`.tsx` file (excluding node_modules/
   .next/dist/build/coverage/.expo/.git). Posts/updates a single sticky PR
-  comment (`marocchino/sticky-pull-request-comment`, same action
-  scan-with-report already uses) with a markdown table of the current
-  totals, and — when `base-sha` is supplied — the delta against the PR's
-  base branch, computed via a throwaway `git worktree` checkout of that SHA
-  instead of a second full checkout. Repo-wide totals, not a diff-only
-  count — see README.md. Unlike scan-with-report, this never runs a yarn
+  comment via `danger ci --id` (same mechanism scan-with-report already
+  uses) with a markdown table of the current totals, and — when `base-sha`
+  is supplied — the delta against the PR's base branch, computed via a
+  throwaway `git worktree` checkout of that SHA instead of a second full
+  checkout. Repo-wide totals, not a diff-only count — see README.md. Unlike
+  scan-with-report, this never runs a yarn
   script and doesn't need node_modules, so callers don't need
   setup-node-yarn first — just `actions/checkout@v7`. Never fails the job;
   this is a metrics report, not a pass/fail gate.
@@ -40,7 +40,7 @@ inputs:
     required: false
     default: ''
   sticky-header:
-    description: Unique header for the sticky-pull-request-comment.
+    description: Unique identifier for this job's sticky PR comment, passed as danger's `--id`.
     required: false
     default: tech-debt-report
 
@@ -134,8 +134,22 @@ runs:
 
         echo "path=$report_file" >> "$GITHUB_OUTPUT"
 
-    - uses: marocchino/sticky-pull-request-comment@v3
-      with:
-        number: ${{ inputs.pr-number }}
-        header: ${{ inputs.sticky-header }}
-        path: ${{ steps.report.outputs.path }}
+    - name: Generate Dangerfile
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > "$RUNNER_TEMP/tech-debt-report-dangerfile.js" <<'DANGERFILE'
+        const fs = require('fs')
+        const reportPath = process.env.DANGER_REPORT_PATH
+
+        if (reportPath && fs.existsSync(reportPath)) {
+          markdown(fs.readFileSync(reportPath, 'utf8'))
+        }
+        DANGERFILE
+
+    - name: Post sticky report comment via danger
+      shell: bash
+      env:
+        DANGER_REPORT_PATH: ${{ steps.report.outputs.path }}
+        DANGER_GITHUB_API_TOKEN: ${{ github.token }}
+      run: npx --yes danger@14.0.7 ci --id "${{ inputs.sticky-header }}" --dangerfile "$RUNNER_TEMP/tech-debt-report-dangerfile.js"
