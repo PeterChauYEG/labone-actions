@@ -2,7 +2,8 @@ name: Tech debt metrics report
 description: >
   Grep-based tech-debt metrics for TypeScript/React (web + React Native/
   Expo) consumer repos: counts `useEffect` call sites, React Native
-  `Animated.*` usage, `eslint-disable`(-next-line) suppressions,
+  `Animated.*` usage, lint/format disable comments (`eslint-disable`(-next-line),
+  `prettier-ignore`, `biome-ignore`),
   `@ts-ignore`/`@ts-expect-error` suppressions, `any` usage (": any" /
   "as any" / "@ts-nocheck"), TODO/FIXME/HACK comments, and `console.log`
   calls across every tracked `.ts`/`.tsx` file (excluding node_modules/
@@ -125,7 +126,7 @@ runs:
           fi
           fmt_row '`useEffect` call sites' "${{ steps.current.outputs.use_effect }}" "${{ steps.base.outputs.use_effect }}"
           fmt_row 'RN `Animated.*` usage' "${{ steps.current.outputs.animated }}" "${{ steps.base.outputs.animated }}"
-          fmt_row '`eslint-disable`(-next-line)' "${{ steps.current.outputs.eslint_disable }}" "${{ steps.base.outputs.eslint_disable }}"
+          fmt_row 'Lint/format disable comments' "${{ steps.current.outputs.eslint_disable }}" "${{ steps.base.outputs.eslint_disable }}"
           fmt_row '`@ts-ignore`/`@ts-expect-error`' "${{ steps.current.outputs.ts_ignore }}" "${{ steps.base.outputs.ts_ignore }}"
           fmt_row '`any` usage' "${{ steps.current.outputs.any_usage }}" "${{ steps.base.outputs.any_usage }}"
           fmt_row 'TODO/FIXME/HACK comments' "${{ steps.current.outputs.todo }}" "${{ steps.base.outputs.todo }}"

@@ -1058,14 +1058,21 @@ Metrics (repo-wide totals, not diff-only counts):
 - React Native's built-in `Animated.*` usage (not third-party animation
   libraries — a known, accepted imprecision of a plain `Animated\.` grep,
   see the action's `count-metrics.sh`)
-- `eslint-disable`/`eslint-disable-next-line` suppressions
+- Lint/format disable comments: `eslint-disable`/`eslint-disable-next-line`,
+  `prettier-ignore`, `biome-ignore`
 - `@ts-ignore`/`@ts-expect-error` suppressions
 - `any` usage (`: any`, `as any`, `@ts-nocheck` files, summed)
 - `TODO`/`FIXME`/`HACK` comments
 - `console.log` calls
 
-Every file under `node_modules`, `.next`, `dist`, `build`, `coverage`,
-`.expo`, and `.git` is excluded from the count.
+File discovery is `git ls-files` (tracked + untracked-but-not-ignored),
+not a hardcoded exclude list, so it automatically respects whatever the
+repo's own `.gitignore` excludes — `node_modules`, build output, or
+anything else a repo chooses to ignore — rather than a fixed guess-list
+that silently misses whatever wasn't thought of. Falls back to a plain
+`find` with a hardcoded exclude list (`node_modules`, `.next`, `dist`,
+`build`, `coverage`, `.expo`, `.git`) only if `working-directory` isn't
+inside a git working tree at all.
 
 `.github/actions/tech-debt-report/action.yml` inputs:
 
