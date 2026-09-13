@@ -198,18 +198,14 @@ runs:
         # Yarn's taskPoolConcurrency (extraction worker pool) defaults to
         # os.cpus().length, which reports the HOST's real core count (12 on
         # the runner box) even though gha-runner-docker throttles this
-        # container to a `--cpus` CFS quota of 1 (docker's --cpus is a
-        # quota, not a cpuset, so it never changes what nproc/os.cpus()
-        # report). Confirmed live 2026-09-13: with 12 extraction workers
-        # racing over a ~1-core budget, `yarn install` hit a deterministic
-        # (not probabilistic - reproduced identically on 3/3 retry
-        # attempts, same package, same error, every time) "While
-        # persisting .../node_modules/@scope/pkg/ -> .../node_modules/
-        # @scope/pkg ENOTDIR: not a directory" on 9 different repos the
-        # same afternoon. Pinning this to 1 serializes extraction so there
-        # is never more than one worker touching node_modules at a time -
-        # eliminates the race at its actual source instead of retrying
-        # around it.
+        # container to a `--cpus` CFS quota of 1. Tried live 2026-09-13 as
+        # a fix for the "While persisting .../node_modules/@scope/pkg ...
+        # ENOTDIR" error below -- turned out NOT to be the actual cause
+        # (the error still reproduced with this pinned to 1; see the
+        # node_modules-symlink comment further down for the real fix).
+        # Left in place anyway since capping install concurrency to the
+        # container's real budget is correct on its own merits, just not
+        # load-bearing for this particular bug.
         YARN_TASK_POOL_CONCURRENCY: '1'
         # Content-addressed, safe to share read+write across every job
         # regardless of cache-write - see this action's own description.
@@ -247,26 +243,12 @@ runs:
           done <<< "$REL_PATHS"
         }
 
-        # Retries a fresh `yarn install --frozen-lockfile` up to 3 times,
-        # wiping whatever it half-extracted before each retry. Confirmed
-        # live 2026-09-13: `yarn install` with nodeLinker: node-modules has
-        # a known upstream race in its own internal extraction worker pool
-        # (yarnpkg/berry#2532-style) that throws "While persisting .../
-        # node_modules/@scope/pkg/ -> .../node_modules/@scope/pkg ENOTDIR:
-        # not a directory" when two scoped packages under the same @scope/
-        # parent finish extracting at nearly the same instant - this is
-        # entirely internal to one `yarn install` process (nothing else was
-        # concurrently touching the same repo's install at the time), so
-        # sharing YARN_CACHE_FOLDER isn't the cause and locking around the
-        # whole step wouldn't fix it either. It reproduced on every one of
-        # 9 different repos' `setup` jobs the same afternoon, which rules
-        # out one-off flakiness - but a clean retry has no corrupted state
-        # to trip over the second time, since the race depends on exact
-        # extraction timing that a fresh process re-rolls.
-        # $1: the node_modules path to wipe between attempts (differs
-        # between the cache-write scratch dir and the local fallback path).
+        # Retries a fresh `yarn install --frozen-lockfile` up to 3 times as
+        # a defense-in-depth measure, wiping ./node_modules before each
+        # retry. Kept even after finding the real cause below, since a
+        # clean retry is cheap and harmless either way.
         install_with_retry() {
-          local nm_path="$1" attempt=1 max_attempts=3
+          local attempt=1 max_attempts=3
           while true; do
             if yarn install --frozen-lockfile; then
               return 0
@@ -275,8 +257,8 @@ runs:
               echo "[setup-node-yarn] yarn install failed after ${max_attempts} attempts - not retrying further" >&2
               return 1
             fi
-            echo "[setup-node-yarn] yarn install failed (attempt ${attempt}/${max_attempts}) - likely the known concurrent-extraction ENOTDIR race, wiping ${nm_path} and retrying"
-            rm -rf "$nm_path"
+            echo "[setup-node-yarn] yarn install failed (attempt ${attempt}/${max_attempts}) - wiping node_modules and retrying"
+            rm -rf node_modules
             attempt=$(( attempt + 1 ))
           done
         }
@@ -291,12 +273,33 @@ runs:
           echo "[setup-node-yarn] cache-write run, bundle miss: $BUNDLE - installing into shared cache"
           scratch="${BUNDLE}.tmp-${RANDOM}-$$"
           mkdir -p "$scratch"
+          # node_modules is deliberately NOT pre-symlinked here, unlike
+          # every other rel-path (.next/cache, extra-paths). Root-caused
+          # live 2026-09-13 after both a retry loop and pinning Yarn's
+          # taskPoolConcurrency to 1 failed to stop a "While persisting
+          # .../node_modules/@scope/pkg/ -> .../node_modules/@scope/pkg
+          # ENOTDIR: not a directory" error that reproduced on 9 different
+          # repos' `setup` jobs (this branch is the only cache-write:true
+          # job in the reusable workflow) - the actual bug is
+          # yarnpkg/berry#6415: Yarn's node-modules linker doesn't fully
+          # support `node_modules` already being a symlink at install
+          # time, and this step used to symlink it to $scratch/node_modules
+          # BEFORE calling yarn install. .next/cache isn't touched by
+          # yarn's linker at all (only by the later build step), so it's
+          # unaffected and still gets pre-symlinked as before.
           while IFS= read -r rel; do
-            [[ -z "$rel" ]] && continue
+            [[ -z "$rel" || "$rel" == "node_modules" ]] && continue
             mkdir -p "$(dirname "$rel")" "$(dirname "$scratch/$rel")"
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
-          install_with_retry "$scratch/node_modules"
+          install_with_retry
+          # Only now, with a real (non-symlinked) node_modules fully
+          # installed, move it into the scratch bundle and replace it with
+          # the same kind of symlink every reader will use.
+          mkdir -p "$(dirname "$scratch/node_modules")"
+          rm -rf "$scratch/node_modules"
+          mv node_modules "$scratch/node_modules"
+          ln -sfn "$scratch/node_modules" node_modules
           # Claim the final bundle name only if nothing else already did
           # (two main runs racing on an identical hash) - otherwise this
           # run's install was redundant work but not corrupting: just
@@ -312,4 +315,4 @@ runs:
         fi
 
         echo "[setup-node-yarn] bundle miss on a non-cache-write run: $BUNDLE - installing locally, not shared"
-        install_with_retry "node_modules"
+        install_with_retry
