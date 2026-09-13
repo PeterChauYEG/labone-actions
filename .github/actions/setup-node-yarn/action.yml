@@ -231,6 +231,40 @@ runs:
           done <<< "$REL_PATHS"
         }
 
+        # Retries a fresh `yarn install --frozen-lockfile` up to 3 times,
+        # wiping whatever it half-extracted before each retry. Confirmed
+        # live 2026-09-13: `yarn install` with nodeLinker: node-modules has
+        # a known upstream race in its own internal extraction worker pool
+        # (yarnpkg/berry#2532-style) that throws "While persisting .../
+        # node_modules/@scope/pkg/ -> .../node_modules/@scope/pkg ENOTDIR:
+        # not a directory" when two scoped packages under the same @scope/
+        # parent finish extracting at nearly the same instant - this is
+        # entirely internal to one `yarn install` process (nothing else was
+        # concurrently touching the same repo's install at the time), so
+        # sharing YARN_CACHE_FOLDER isn't the cause and locking around the
+        # whole step wouldn't fix it either. It reproduced on every one of
+        # 9 different repos' `setup` jobs the same afternoon, which rules
+        # out one-off flakiness - but a clean retry has no corrupted state
+        # to trip over the second time, since the race depends on exact
+        # extraction timing that a fresh process re-rolls.
+        # $1: the node_modules path to wipe between attempts (differs
+        # between the cache-write scratch dir and the local fallback path).
+        install_with_retry() {
+          local nm_path="$1" attempt=1 max_attempts=3
+          while true; do
+            if yarn install --frozen-lockfile; then
+              return 0
+            fi
+            if (( attempt >= max_attempts )); then
+              echo "[setup-node-yarn] yarn install failed after ${max_attempts} attempts - not retrying further" >&2
+              return 1
+            fi
+            echo "[setup-node-yarn] yarn install failed (attempt ${attempt}/${max_attempts}) - likely the known concurrent-extraction ENOTDIR race, wiping ${nm_path} and retrying"
+            rm -rf "$nm_path"
+            attempt=$(( attempt + 1 ))
+          done
+        }
+
         if [[ -f "$BUNDLE/.complete" ]]; then
           echo "[setup-node-yarn] bundle hit: $BUNDLE - symlinking, no install"
           link_bundle "$BUNDLE"
@@ -246,7 +280,7 @@ runs:
             mkdir -p "$(dirname "$rel")" "$(dirname "$scratch/$rel")"
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
-          yarn install --frozen-lockfile
+          install_with_retry "$scratch/node_modules"
           # Claim the final bundle name only if nothing else already did
           # (two main runs racing on an identical hash) - otherwise this
           # run's install was redundant work but not corrupting: just
@@ -262,4 +296,4 @@ runs:
         fi
 
         echo "[setup-node-yarn] bundle miss on a non-cache-write run: $BUNDLE - installing locally, not shared"
-        yarn install --frozen-lockfile
+        install_with_retry "node_modules"
