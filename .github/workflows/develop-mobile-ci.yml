@@ -7,14 +7,14 @@ name: Develop Mobile CI
 # with `secrets: inherit`. See README.md for the full caller example.
 #
 # CALLER'S `ci` JOB MUST ALSO SET `permissions: {contents: read,
-# pull-requests: write}` — the dead-code/duplicate-code/a11y/design-system
-# jobs below (see their own `permissions:` blocks) need `pull-requests:
-# write` for their sticky-PR-comment feature, and GitHub validates the
-# full callee permission graph before dispatching any job, so a caller
-# missing this fails its ENTIRE PR CI run with `startup_failure`/0 jobs,
-# even with those `enable_*` flags off. `templates/mobile-pr.yml` already
-# has this set correctly. See README.md's "`develop-mobile-ci.yml`" caller
-# example for the full explanation.
+# pull-requests: write}` — the `danger-comment` aggregator job below (see
+# its own `permissions:` block) needs `pull-requests: write` for its
+# sticky-PR-comment feature, and GitHub validates the full callee
+# permission graph before dispatching any job, so a caller missing this
+# fails its ENTIRE PR CI run with `startup_failure`/0 jobs, even with every
+# `enable_*` flag off. `templates/mobile-pr.yml` already has this set
+# correctly. See README.md's "`develop-mobile-ci.yml`" caller example for
+# the full explanation.
 #
 # Same cache-restore-per-job caching strategy as develop-node-ci.yml (LAB-1371,
 # both are Yarn Berry - reuses the same setup-node-yarn action as-is), but a
@@ -25,10 +25,18 @@ name: Develop Mobile CI
 # this is closer in spirit to develop-ci.yml's Next.js job set than
 # develop-node-ci.yml's plain NestJS one).
 #
-# Every scan job (a11y/design-system/dead-code/duplicate-code) follows the
-# continue-on-error + sticky-PR-comment + file-linear-ticket.sh + explicit
-# `exit 1` pattern all three source repos already use - pr_number/pr_url
-# are caller-supplied for the same reason godot-develop-ci.yml takes them.
+# Every job that reports findings (peer-deps/a11y/design-system/dead-code/
+# duplicate-code/security-scan/secret-scan/dependency-audit/tech-debt) now
+# just runs its check with `continue-on-error: true` and exposes
+# `outputs: {outcome, report}` - posting a sticky PR comment and filing a
+# (deduped, via scripts/file-linear-ticket.sh) Linear ticket on failure is
+# centralized in the single `danger-comment` aggregator job near the end of
+# this file, rather than each of the nine independently generating its own
+# Dangerfile/comment/ticket, which is what this repo did until now. Each
+# job still fails itself (an explicit final `exit 1` step) exactly when it
+# used to - `danger-comment` only adds reporting, it changes no pass/fail
+# semantics. pr_number/pr_url are caller-supplied for the same reason
+# godot-develop-ci.yml takes them.
 #
 # `is_dependabot` should be computed by the caller to also cover
 # `github-actions[bot]` (the CalVer version-bump PRs main.yml opens against
@@ -248,6 +256,11 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ needs.changes.outputs.mobile_deps == 'true' }}
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment. Still a HARD gate (unchanged) via the final `exit 1` step.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - run: corepack enable
@@ -255,14 +268,40 @@ jobs:
         with:
           node-version-file: ${{ inputs.working-directory }}/package.json
       - name: Install and check for peer dependency conflicts
+        id: check
+        continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: |
-          yarn install --immutable 2>&1 | tee /tmp/yarn-install.log
-          if grep -q "YN0060" /tmp/yarn-install.log; then
+          yarn install --immutable 2>&1 | tee /tmp/peer-deps-check.log
+          if grep -q "YN0060" /tmp/peer-deps-check.log; then
             echo "Peer dependency conflicts detected:"
-            grep "YN0060" /tmp/yarn-install.log
+            grep "YN0060" /tmp/peer-deps-check.log
             exit 1
           fi
+      - name: Build peer-deps report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.check.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<PEER_DEPS_REPORT_EOF"
+            echo '### peer-deps'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Peer dependency conflicts detected:'
+              echo '```'
+              tail -n 60 /tmp/peer-deps-check.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ No peer dependency conflicts detected.'
+            fi
+            echo "PEER_DEPS_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.check.outcome == 'failure' }}
+        run: exit 1
 
   lint:
     name: lint
@@ -379,6 +418,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment.
+    outputs:
+      outcome: ${{ steps.scan.outcome }}
+      report: ${{ steps.report.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -392,35 +436,21 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: yarn a11y
-      - name: Generate Dangerfile
+      - name: Capture report
+        id: report
         if: always()
+        shell: bash
         run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/a11y-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/a11y-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id a11y-scan --dangerfile "$RUNNER_TEMP/a11y-dangerfile.js"
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh a11y a11y-report.md
+          set -uo pipefail
+          {
+            echo "report<<A11Y_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/a11y-report.md" ]; then
+              cat "${{ inputs.working-directory }}/a11y-report.md"
+            else
+              echo "(no report written — see the a11y job's own log)"
+            fi
+            echo "A11Y_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -432,6 +462,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment.
+    outputs:
+      outcome: ${{ steps.scan.outcome }}
+      report: ${{ steps.report.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -445,35 +480,21 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: yarn design-system
-      - name: Generate Dangerfile
+      - name: Capture report
+        id: report
         if: always()
+        shell: bash
         run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/design-system-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/design-system-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id design-system-scan --dangerfile "$RUNNER_TEMP/design-system-dangerfile.js"
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh design-system design-system-report.md
+          set -uo pipefail
+          {
+            echo "report<<DESIGN_SYSTEM_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/design-system-report.md" ]; then
+              cat "${{ inputs.working-directory }}/design-system-report.md"
+            else
+              echo "(no report written — see the design-system job's own log)"
+            fi
+            echo "DESIGN_SYSTEM_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -485,6 +506,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment.
+    outputs:
+      outcome: ${{ steps.scan.outcome }}
+      report: ${{ steps.report.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -498,35 +524,21 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: yarn dead-code
-      - name: Generate Dangerfile
+      - name: Capture report
+        id: report
         if: always()
+        shell: bash
         run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/dead-code-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/dead-code-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id dead-code-scan --dangerfile "$RUNNER_TEMP/dead-code-dangerfile.js"
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
+          set -uo pipefail
+          {
+            echo "report<<DEAD_CODE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/dead-code-report.md" ]; then
+              cat "${{ inputs.working-directory }}/dead-code-report.md"
+            else
+              echo "(no report written — see the dead-code job's own log)"
+            fi
+            echo "DEAD_CODE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -538,6 +550,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment.
+    outputs:
+      outcome: ${{ steps.scan.outcome }}
+      report: ${{ steps.report.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -551,35 +568,21 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: yarn duplicate-code
-      - name: Generate Dangerfile
+      - name: Capture report
+        id: report
         if: always()
+        shell: bash
         run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/duplicate-code-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/report/jscpd-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id duplicate-code-scan --dangerfile "$RUNNER_TEMP/duplicate-code-dangerfile.js"
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh duplicate-code report/jscpd-report.md
+          set -uo pipefail
+          {
+            echo "report<<DUPLICATE_CODE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/report/jscpd-report.md" ]; then
+              cat "${{ inputs.working-directory }}/report/jscpd-report.md"
+            else
+              echo "(no report written — see the duplicate-code job's own log)"
+            fi
+            echo "DUPLICATE_CODE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -588,9 +591,16 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.mobile_deps == 'true' }}
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment. Still a HARD gate (unchanged) via the final `exit 1` step.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (vulnerabilities)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -599,16 +609,48 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: security-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build security-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECURITY_SCAN_REPORT_EOF"
+            echo '### security-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL vulnerabilities:'
+              echo '```'
+              cat security-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No HIGH/CRITICAL vulnerabilities found.'
+            fi
+            echo "SECURITY_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   secret-scan:
     name: secret-scan
     needs: setup
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (secrets)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -617,13 +659,43 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: secret-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build secret-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECRET_SCAN_REPORT_EOF"
+            echo '### secret-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL secrets:'
+              echo '```'
+              cat secret-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No secrets found.'
+            fi
+            echo "SECRET_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   dependency-audit:
     name: dependency-audit
     needs: setup
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       # `yarn npm audit` resolves entirely from yarn.lock against the
       # registry - no installed node_modules tree needed, just the yarn
@@ -635,8 +707,34 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: ${{ inputs.working-directory }}/package.json
-      - run: yarn npm audit
+      - id: audit
+        continue-on-error: true
+        run: yarn npm audit 2>&1 | tee /tmp/dependency-audit.log
         working-directory: ${{ inputs.working-directory }}
+      - name: Build dependency-audit report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.audit.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<DEPENDENCY_AUDIT_REPORT_EOF"
+            echo '### dependency-audit'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Known vulnerabilities found:'
+              echo '```'
+              tail -n 60 /tmp/dependency-audit.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ No known vulnerabilities found.'
+            fi
+            echo "DEPENDENCY_AUDIT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.audit.outcome == 'failure' }}
+        run: exit 1
 
   tech-debt:
     name: tech-debt
@@ -645,17 +743,203 @@ jobs:
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - metrics-only, never
+    # fails (no `outcome`/ticket-filing - matching this action's own "never
+    # fails the job" contract), just a report section in the combined
+    # comment.
+    outputs:
+      report: ${{ steps.tech-debt-report.outputs.report }}
     steps:
       # No setup-node-yarn call: this is a plain grep over the tracked
       # .ts/.tsx tree, no installed node_modules needed - just check out
       # the repo, same as security-scan/dependency-audit above.
       - uses: actions/checkout@v7
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
+        id: tech-debt-report
         with:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
+
+  # Single aggregator for every scan/gate job above that reports findings:
+  # peer-deps, a11y, design-system, dead-code, duplicate-code, security-scan,
+  # secret-scan, dependency-audit, tech-debt. Posts ONE sticky PR comment
+  # covering all nine and files (deduped, via scripts/file-linear-ticket.sh)
+  # a Linear ticket for whichever of them failed - instead of each
+  # independently generating its own Dangerfile / posting its own sticky
+  # comment / filing its own ticket, which is what this repo did until now.
+  # `tech-debt` is metrics-only and never fails (no `outcome` output, so no
+  # ticket-filing step for it below) - its report still gets a section in
+  # the combined comment.
+  #
+  # `if: always()` so this still runs (and can report) when an upstream job
+  # failed - same rationale as required-checks' identical `if: always()`
+  # below. Skips entirely only when every one of the nine was skipped.
+  danger-comment:
+    name: danger-comment
+    needs:
+      [
+        peer-deps,
+        a11y,
+        design-system,
+        dead-code,
+        duplicate-code,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+        tech-debt,
+      ]
+    if: |
+      always() &&
+      (needs.peer-deps.result != 'skipped' ||
+       needs.a11y.result != 'skipped' ||
+       needs.design-system.result != 'skipped' ||
+       needs.dead-code.result != 'skipped' ||
+       needs.duplicate-code.result != 'skipped' ||
+       needs.security-scan.result != 'skipped' ||
+       needs.secret-scan.result != 'skipped' ||
+       needs.dependency-audit.result != 'skipped' ||
+       needs.tech-debt.result != 'skipped')
+    runs-on: [self-hosted, catfood]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Checked out separately (not the caller repo) purely to get
+      # scripts/file-linear-ticket.sh, which lives in labone-actions
+      # regardless of which repo calls this workflow.
+      - name: Checkout labone-actions scripts
+        uses: actions/checkout@v7
+        with:
+          repository: PeterChauYEG/labone-actions
+          ref: main
+          path: labone-actions
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+      - name: Prepare reports
+        id: build
+        shell: bash
+        env:
+          PEER_DEPS_RESULT: ${{ needs.peer-deps.result }}
+          PEER_DEPS_REPORT: ${{ needs.peer-deps.outputs.report }}
+          A11Y_RESULT: ${{ needs.a11y.result }}
+          A11Y_REPORT: ${{ needs.a11y.outputs.report }}
+          DESIGN_SYSTEM_RESULT: ${{ needs.design-system.result }}
+          DESIGN_SYSTEM_REPORT: ${{ needs.design-system.outputs.report }}
+          DEAD_CODE_RESULT: ${{ needs.dead-code.result }}
+          DEAD_CODE_REPORT: ${{ needs.dead-code.outputs.report }}
+          DUPLICATE_CODE_RESULT: ${{ needs.duplicate-code.result }}
+          DUPLICATE_CODE_REPORT: ${{ needs.duplicate-code.outputs.report }}
+          SECURITY_SCAN_RESULT: ${{ needs.security-scan.result }}
+          SECURITY_SCAN_REPORT: ${{ needs.security-scan.outputs.report }}
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          SECRET_SCAN_REPORT: ${{ needs.secret-scan.outputs.report }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+          DEPENDENCY_AUDIT_REPORT: ${{ needs.dependency-audit.outputs.report }}
+          TECH_DEBT_RESULT: ${{ needs.tech-debt.result }}
+          TECH_DEBT_REPORT: ${{ needs.tech-debt.outputs.report }}
+        run: |
+          set -uo pipefail
+          printf '%s\n' "$PEER_DEPS_REPORT" > /tmp/peer-deps-report.md
+          printf '%s\n' "$A11Y_REPORT" > /tmp/a11y-report.md
+          printf '%s\n' "$DESIGN_SYSTEM_REPORT" > /tmp/design-system-report.md
+          printf '%s\n' "$DEAD_CODE_REPORT" > /tmp/dead-code-report.md
+          printf '%s\n' "$DUPLICATE_CODE_REPORT" > /tmp/duplicate-code-report.md
+          printf '%s\n' "$SECURITY_SCAN_REPORT" > /tmp/security-scan-report.md
+          printf '%s\n' "$SECRET_SCAN_REPORT" > /tmp/secret-scan-report.md
+          printf '%s\n' "$DEPENDENCY_AUDIT_REPORT" > /tmp/dependency-audit-report.md
+          {
+            echo "report<<DANGER_COMMENT_REPORT_EOF"
+            echo '## Dependency & code-health checks'
+            echo
+            [ "$PEER_DEPS_RESULT" != 'skipped' ] && { printf '%s\n\n' "$PEER_DEPS_REPORT"; }
+            [ "$A11Y_RESULT" != 'skipped' ] && { printf '%s\n\n' "$A11Y_REPORT"; }
+            [ "$DESIGN_SYSTEM_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DESIGN_SYSTEM_REPORT"; }
+            [ "$DEAD_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEAD_CODE_REPORT"; }
+            [ "$DUPLICATE_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DUPLICATE_CODE_REPORT"; }
+            [ "$SECURITY_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECURITY_SCAN_REPORT"; }
+            [ "$SECRET_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECRET_SCAN_REPORT"; }
+            [ "$DEPENDENCY_AUDIT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEPENDENCY_AUDIT_REPORT"; }
+            [ "$TECH_DEBT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$TECH_DEBT_REPORT"; }
+            echo "DANGER_COMMENT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
+        with:
+          report: ${{ steps.build.outputs.report }}
+          sticky-header: dependency-checks
+      - name: File Linear ticket for peer-deps
+        if: ${{ needs.peer-deps.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh peer-deps /tmp/peer-deps-report.md
+      - name: File Linear ticket for a11y
+        if: ${{ needs.a11y.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh a11y /tmp/a11y-report.md
+      - name: File Linear ticket for design-system
+        if: ${{ needs.design-system.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh design-system /tmp/design-system-report.md
+      - name: File Linear ticket for dead-code
+        if: ${{ needs.dead-code.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh dead-code /tmp/dead-code-report.md
+      - name: File Linear ticket for duplicate-code
+        if: ${{ needs.duplicate-code.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh duplicate-code /tmp/duplicate-code-report.md
+      - name: File Linear ticket for security-scan
+        if: ${{ needs.security-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh security-scan /tmp/security-scan-report.md
+      - name: File Linear ticket for secret-scan
+        if: ${{ needs.secret-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh secret-scan /tmp/secret-scan-report.md
+      - name: File Linear ticket for dependency-audit
+        if: ${{ needs.dependency-audit.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh dependency-audit /tmp/dependency-audit-report.md
 
   required-checks:
     name: required-checks

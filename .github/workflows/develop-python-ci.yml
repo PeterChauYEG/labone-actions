@@ -147,9 +147,19 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.python_deps == 'true' }}
+    # Feeds the `danger-comment` aggregator below. The Trivy step keeps
+    # failing the job on its own exit-code (via the final `exit 1` step) -
+    # this is still a HARD gate, unchanged - continue-on-error here only
+    # lets this job reach its own report/outcome-capturing step instead of
+    # stopping dead at Trivy like before.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (vulnerabilities)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -158,15 +168,47 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: security-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build security-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECURITY_SCAN_REPORT_EOF"
+            echo '### security-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL vulnerabilities:'
+              echo '```'
+              cat security-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No HIGH/CRITICAL vulnerabilities found.'
+            fi
+            echo "SECURITY_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (secrets)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -175,20 +217,183 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: secret-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build secret-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECRET_SCAN_REPORT_EOF"
+            echo '### secret-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL secrets:'
+              echo '```'
+              cat secret-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No secrets found.'
+            fi
+            echo "SECRET_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   dependency-audit:
     name: dependency-audit
     runs-on: [self-hosted, catfood, catfood-python]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above (still a HARD gate, via the final `exit 1`
+    # step).
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
         with:
           tool: pip-audit
           cache-key-prefix: dependency-audit
-      - run: pip-audit -r ${{ inputs.requirements_file }}
+      - id: audit
+        continue-on-error: true
+        run: pip-audit -r ${{ inputs.requirements_file }} 2>&1 | tee /tmp/dependency-audit.log
         working-directory: ${{ inputs.working-directory }}
+      - name: Build dependency-audit report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.audit.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<DEPENDENCY_AUDIT_REPORT_EOF"
+            echo '### dependency-audit'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Known vulnerabilities found:'
+              echo '```'
+              tail -n 60 /tmp/dependency-audit.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ No known vulnerabilities found.'
+            fi
+            echo "DEPENDENCY_AUDIT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.audit.outcome == 'failure' }}
+        run: exit 1
 
+  # Single aggregator for every scan/gate job above that reports findings:
+  # security-scan, secret-scan, dependency-audit. Posts ONE sticky PR
+  # comment covering all three and files (deduped, via
+  # scripts/file-linear-ticket.sh - already per-PR-per-job deduped, see that
+  # script's own header) a Linear ticket for whichever of them failed -
+  # instead of each independently generating its own Dangerfile / posting
+  # its own sticky comment / filing its own ticket. Mirrors
+  # develop-node-ci.yml's identical `danger-comment` job - see that file for
+  # the full rationale (this file has no dead-code/duplicate-code/
+  # peer-deps-equivalent job to also feed in).
+  #
+  # `if: always()` so this still runs (and can report) when an upstream job
+  # failed - same rationale as required-checks' identical `if: always()`
+  # below. The `needs.*.result != 'skipped'` check skips this job entirely
+  # only when ALL THREE were skipped.
+  danger-comment:
+    name: danger-comment
+    needs: [security-scan, secret-scan, dependency-audit]
+    if: |
+      always() &&
+      (needs.security-scan.result != 'skipped' ||
+       needs.secret-scan.result != 'skipped' ||
+       needs.dependency-audit.result != 'skipped')
+    runs-on: [self-hosted, catfood, catfood-python]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Checked out separately (not the caller repo) purely to get
+      # scripts/file-linear-ticket.sh, which lives in labone-actions
+      # regardless of which repo calls this workflow.
+      - name: Checkout labone-actions scripts
+        uses: actions/checkout@v7
+        with:
+          repository: PeterChauYEG/labone-actions
+          ref: main
+          path: labone-actions
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+      - name: Prepare reports
+        id: build
+        shell: bash
+        env:
+          SECURITY_SCAN_RESULT: ${{ needs.security-scan.result }}
+          SECURITY_SCAN_REPORT: ${{ needs.security-scan.outputs.report }}
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          SECRET_SCAN_REPORT: ${{ needs.secret-scan.outputs.report }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+          DEPENDENCY_AUDIT_REPORT: ${{ needs.dependency-audit.outputs.report }}
+        run: |
+          set -uo pipefail
+          printf '%s\n' "$SECURITY_SCAN_REPORT" > /tmp/security-scan-report.md
+          printf '%s\n' "$SECRET_SCAN_REPORT" > /tmp/secret-scan-report.md
+          printf '%s\n' "$DEPENDENCY_AUDIT_REPORT" > /tmp/dependency-audit-report.md
+          {
+            echo "report<<DANGER_COMMENT_REPORT_EOF"
+            echo '## Dependency & security checks'
+            echo
+            [ "$SECURITY_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECURITY_SCAN_REPORT"; }
+            [ "$SECRET_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECRET_SCAN_REPORT"; }
+            [ "$DEPENDENCY_AUDIT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEPENDENCY_AUDIT_REPORT"; }
+            echo "DANGER_COMMENT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
+        with:
+          report: ${{ steps.build.outputs.report }}
+          sticky-header: dependency-checks
+      - name: File Linear ticket for security-scan
+        if: ${{ needs.security-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh security-scan /tmp/security-scan-report.md
+      - name: File Linear ticket for secret-scan
+        if: ${{ needs.secret-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh secret-scan /tmp/secret-scan-report.md
+      - name: File Linear ticket for dependency-audit
+        if: ${{ needs.dependency-audit.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh dependency-audit /tmp/dependency-audit-report.md
+
+  # `needs:` lists every job in this file that's currently a REAL (blocking)
+  # gate: `lint`, `test`, `security-scan`, `secret-scan`, `dependency-audit`.
+  # Deliberately excludes `changes` (infra/plumbing, not a gate itself) and
+  # `danger-comment` (the aggregated sticky-comment/Linear-ticket job above -
+  # purely advisory/reporting, never fails on its own).
+  #
+  # `if: always()` so this job still runs (and can report a real result)
+  # even when an upstream gate job fails/is cancelled - a `skipped` result on
+  # any needed job (from `enable_*: false`/`is_dependabot` gating) must NOT
+  # fail this job - only `failure`/`cancelled` should.
   required-checks:
     name: required-checks
     needs: [changes, actionlint, lint, test, security-scan, secret-scan, dependency-audit]

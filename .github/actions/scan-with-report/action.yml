@@ -1,16 +1,21 @@
-name: Scan with sticky-comment report (+ optional Linear ticket)
+name: Scan with report
 description: >
   Shared body for develop-ci.yml's scan jobs (design-system, dead-code,
-  duplicate-code, react-tech-debt, max-lines): run a yarn
-  script that writes a markdown report, post/update a sticky PR comment with
-  that report regardless of outcome, optionally file/comment-on a Linear
-  ticket when the script fails, then fail the containing job if the script
-  failed. Callers must run `setup-node-yarn` (or the pnpm sibling) first —
-  this action does not restore deps itself, since every caller in
-  develop-ci.yml already does that as its own step (some jobs also need e.g.
-  `permissions:
-  pull-requests: write` set on the job, which a composite action can't set
-  for its caller).
+  duplicate-code, react-tech-debt, max-lines): run a yarn script that writes
+  a markdown report, expose that report plus the scan's pass/fail outcome as
+  this action's outputs, then fail the containing job if the script failed
+  and `blocking` is true. Callers must run `setup-node-yarn` (or the pnpm
+  sibling) first — this action does not restore deps itself, since every
+  caller in develop-ci.yml already does that as its own step.
+
+  Posting a sticky PR comment and filing a Linear ticket on failure used to
+  live in this action too, one independent comment/ticket per calling job.
+  That's now centralized in each workflow's single `danger-comment`
+  aggregator job instead (see develop-node-ci.yml's `danger-comment` job for
+  the pattern) — one sticky comment per workflow run covering every scan,
+  and ticket-filing's dedup logic living in exactly one place rather than
+  copy-pasted per caller. This action only produces the raw material
+  (`outcome`, `report`) that aggregator consumes.
 
 inputs:
   script:
@@ -29,30 +34,6 @@ inputs:
   report-file:
     description: Path to the markdown report the script writes, e.g. `design-system-report.md`.
     required: true
-  sticky-header:
-    description: >
-      Unique identifier for this job's sticky PR comment, passed as danger's
-      `--id`, e.g. `design-system-scan`. Keeps each job's comment
-      independently addressable and updated in place across re-runs, rather
-      than merged into one shared comment.
-    required: true
-  job-name:
-    description: >
-      Job name passed as the first arg to `scripts/file-linear-ticket.sh`,
-      e.g. `design-system`.
-    required: true
-  file-ticket:
-    description: Whether to file/comment-on a Linear ticket when the scan fails.
-    required: false
-    default: 'true'
-  pr-number:
-    description: github.event.pull_request.number from the top-level caller.
-    required: false
-    default: ''
-  pr-url:
-    description: github.event.pull_request.html_url from the top-level caller.
-    required: false
-    default: ''
   gh-token:
     description: >
       Optional per-repo secret (e.g. secrets.GH_PAT) forwarded as GH_TOKEN/
@@ -62,21 +43,7 @@ inputs:
       repo's release, same rationale as cached-script's identical input).
       Empty string for every other repo, which is a no-op. Callers must
       still restore deps via setup-node-yarn/-pnpm's own `gh-token` input
-      first (this action doesn't do that itself) - this input only covers
-      the scan script's own run, which cached-script's equivalent step
-      already covers for lint/typecheck/build/test but scan-with-report
-      never did until now (see the PR that added this input for the
-      incident writeup - the design-system/dead-code/duplicate-code/
-      react-tech-debt/max-lines jobs across every caller
-      repo had no token available to their own SDK-install pretest/
-      prebuild hooks).
-    required: false
-    default: ''
-  linear-api-key:
-    description: >
-      Linear GraphQL API key, forwarded to `scripts/file-linear-ticket.sh`.
-      Composite actions can't see the caller's `secrets` context directly, so
-      the calling job must pass `secrets.LINEAR_API_KEY` in explicitly.
+      first (this action doesn't do that itself).
     required: false
     default: ''
   blocking:
@@ -84,10 +51,18 @@ inputs:
       Whether a scan failure fails the containing job. Defaults to 'true'
       (today's behavior for every existing caller). Set to 'false' for
       report-only/advisory scans (e.g. dead-code, duplicate-code) that
-      should keep scanning, posting the sticky comment, and filing a Linear
-      ticket on failure, but never block auto-merge.
+      should keep scanning and reporting on failure, but never block
+      auto-merge.
     required: false
     default: 'true'
+
+outputs:
+  outcome:
+    description: '`success` or `failure` — the `yarn <script>` step''s own outcome.'
+    value: ${{ steps.scan.outcome }}
+  report:
+    description: Contents of `report-file` (or a placeholder if it wasn't written).
+    value: ${{ steps.report.outputs.report }}
 
 runs:
   using: composite
@@ -101,45 +76,21 @@ runs:
         GH_TOKEN: ${{ inputs.gh-token }}
         GITHUB_TOKEN: ${{ inputs.gh-token }}
 
-    - name: Generate Dangerfile
+    - name: Capture report
+      id: report
       if: always()
       shell: bash
       run: |
-        set -euo pipefail
-        cat > "$RUNNER_TEMP/scan-with-report-dangerfile.js" <<'DANGERFILE'
-        const fs = require('fs')
-        const reportPath = process.env.DANGER_REPORT_PATH
-
-        if (reportPath && fs.existsSync(reportPath)) {
-          markdown(fs.readFileSync(reportPath, 'utf8'))
-        }
-        DANGERFILE
-
-    - name: Post sticky report comment via danger
-      if: always()
-      shell: bash
-      env:
-        DANGER_REPORT_PATH: ${{ inputs.report-file }}
-        DANGER_GITHUB_API_TOKEN: ${{ inputs.gh-token != '' && inputs.gh-token || github.token }}
-      run: npx --yes danger@14.0.7 ci --id "${{ inputs.sticky-header }}" --dangerfile "$RUNNER_TEMP/scan-with-report-dangerfile.js"
-
-    - name: File Linear ticket for failure
-      if: steps.scan.outcome == 'failure' && inputs.file-ticket == 'true'
-      shell: bash
-      env:
-        LINEAR_API_KEY: ${{ inputs.linear-api-key }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ inputs.pr-number }}
-        PR_URL: ${{ inputs.pr-url }}
-        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      # scripts/file-linear-ticket.sh lives in labone-actions, not in
-      # whatever repo is currently checked out (the caller's, when this
-      # action runs as part of a cross-repo workflow_call) — a bare relative
-      # path resolves against the checked-out workspace and fails for any
-      # external caller. github.action_path points at this action's own
-      # source (fetched from labone-actions regardless of what's checked
-      # out), so anchor the script path off that instead.
-      run: bash "${{ github.action_path }}/../../../scripts/file-linear-ticket.sh" ${{ inputs.job-name }} ${{ inputs.report-file }}
+        set -uo pipefail
+        {
+          echo "report<<SCAN_WITH_REPORT_EOF"
+          if [ -f "${{ inputs.report-file }}" ]; then
+            cat "${{ inputs.report-file }}"
+          else
+            echo "(no report written — see the ${{ inputs.script }} job's own log)"
+          fi
+          echo "SCAN_WITH_REPORT_EOF"
+        } >> "$GITHUB_OUTPUT"
 
     - if: steps.scan.outcome == 'failure' && inputs.blocking == 'true'
       shell: bash

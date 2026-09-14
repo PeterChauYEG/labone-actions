@@ -12,17 +12,17 @@ these workflows.
 
 | Workflow | Trigger it's meant for | Purpose |
 |---|---|---|
-| `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with sticky PR comments + Linear ticket filing on failure. For yarn/Next.js-ish **web** repos. |
+| `.github/workflows/develop-ci.yml` | `pull_request` | Full PR-time quality gate set (lint, typecheck, tests, scans) with ONE aggregated sticky PR comment + deduped Linear ticket filing on failure, via the `danger-comment` job — see "Aggregated reporting" below. For yarn/Next.js-ish **web** repos. |
 | `.github/workflows/main-ci.yml` | `push` to `main` | Same gate set as plain pass/fail checks (`a11y`/`design-system`/`dead-code`/`duplicate-code`/`react-tech-debt`/`max-lines` are all advisory-only, nextjs-ci v1.0.3 — see below), plus `deploy` (Dokku) and `slack-notification`. For yarn/Next.js-ish **web** repos. |
-| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks, optional ls-lint (`enable_ls_lint`), dead-code (`enable_dead_code`, LAB-1866) and duplicate-code (`enable_duplicate_code`) - the latter two with sticky PR comment + Linear ticket filing, yarn-only, opt-in and advisory-only. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
+| `.github/workflows/develop-node-ci.yml` | `pull_request` | PR-time quality gate set (lint, typecheck, test, build, security-scan, dependency-audit) as plain pass/fail checks, optional ls-lint (`enable_ls_lint`), dead-code (`enable_dead_code`, LAB-1866) and duplicate-code (`enable_duplicate_code`), yarn-only, opt-in and advisory-only. `peer-deps`/`security-scan`/`secret-scan`/`dependency-audit`/`dead-code`/`duplicate-code` all feed ONE aggregated sticky PR comment + deduped Linear ticket filing on failure, via the `danger-comment` job. For yarn- or pnpm-based (`package_manager` input, LAB-1268) Node/NestJS **backend service** repos. |
 | `.github/workflows/main-node-ci.yml` | `push` to `main` | Same gate set as `develop-node-ci.yml`, plus `deploy` (Dokku) and `slack-notification`. Optional dead-code (`enable_dead_code`, LAB-1866, plain pass/fail, yarn-only) opt-in. For yarn/Node/NestJS **backend service** repos. |
 | `.github/workflows/godot-develop-ci.yml` | `pull_request` | format/lint/duplicate-code/test quality gate (gdformat, gdlint, jscpd, GUT) with Linear ticket filing on failure. For Godot 4/GDScript **game** repos. |
 | `.github/workflows/main-godot-ci.yml` | `push` to `main` | Same gate set as `godot-develop-ci.yml` (no separate deploy/slack-notification - Godot repos here have no server-side deploy target). For Godot 4/GDScript **game** repos. |
-| `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
+| `.github/workflows/develop-python-ci.yml` | `pull_request` | lint (ruff), test, security-scan, secret-scan, optional dependency-audit (pip-audit) as plain pass/fail checks. `security-scan`/`secret-scan`/`dependency-audit` feed one aggregated sticky PR comment + deduped Linear ticket filing via `danger-comment`. For **Python** repos (data pipelines, MCP servers, ML/robotics scripts). |
 | `.github/workflows/main-python-ci.yml` | `push` to `main` | Same gate set as `develop-python-ci.yml`, no path filtering (main-push CI only skips via `is_dependabot`). No deploy job - no single common deploy target for Python repos in this org. For **Python** repos. |
-| `.github/workflows/develop-rust-ci.yml` | `pull_request` | fmt/clippy/test as Linear-ticket-filing gates, optional build/dead-code (cargo-machete)/duplicate-code (cargo-dupes)/file-size/security-scan/dependency-audit (cargo-audit). For **Rust CLI/tool** repos. |
+| `.github/workflows/develop-rust-ci.yml` | `pull_request` | fmt/clippy/test/dead-code/duplicate-code/file-size/security-scan/secret-scan/dependency-audit all feed ONE aggregated sticky PR comment + deduped Linear ticket filing via `danger-comment`, optional build. For **Rust CLI/tool** repos. |
 | `.github/workflows/main-rust-ci.yml` | `push` to `main` | Same gate set as `develop-rust-ci.yml` as plain pass/fail checks (no path filtering, no sticky-comment/Linear-ticket-filing - no PR to attach those to). No deploy job - no single common deploy target for Rust CLI/tool repos in this org. For **Rust CLI/tool** repos. |
-| `.github/workflows/develop-mobile-ci.yml` | `pull_request` | lint/typecheck as plain pass/fail checks, optional ls-lint/test/a11y/design-system/dead-code (knip)/duplicate-code (jscpd)/security-scan/dependency-audit. For **Expo/React Native mobile** repos. |
+| `.github/workflows/develop-mobile-ci.yml` | `pull_request` | lint/typecheck as plain pass/fail checks, optional ls-lint/test/a11y/design-system/dead-code (knip)/duplicate-code (jscpd)/security-scan/dependency-audit, all feeding ONE aggregated sticky PR comment + deduped Linear ticket filing via `danger-comment`. For **Expo/React Native mobile** repos. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/actionlint.yml` | `pull_request` | Lints the caller's own `.github/workflows/*.yml` with actionlint. Stack-agnostic — any repo with a `.github/workflows/` directory can call it. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
@@ -326,15 +326,18 @@ this step entirely — zero-diff for every repo with no private git
 dependencies.
 
 Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`,
+`peer-deps`, `security-scan`, `secret-scan`,
 `design-system`, `dead-code`, `duplicate-code`,
-`react-tech-debt`, `max-lines`, `tech-debt`/`tech-debt-comment` (opt-in,
-see "Tech debt metrics report" below). Scan jobs (`design-system`,
-`dead-code`, `duplicate-code`) post a sticky PR comment on
-every run and file/comment-on a Linear ticket (via
-`scripts/file-linear-ticket.sh`) when they fail; `react-tech-debt` and
-`max-lines` only post the sticky comment (no ticket), matching prior
-per-repo behavior. Internally, each of these 5 jobs is just a
-`setup-node-yarn` call followed by one call to the
+`react-tech-debt`, `max-lines`, `tech-debt` (opt-in,
+see "Tech debt metrics report" below), and `danger-comment`. All nine
+reporting jobs (`peer-deps`, `security-scan`, `secret-scan`,
+`design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+`max-lines`, `tech-debt`) feed `danger-comment`, which posts ONE combined
+sticky PR comment and files/comments-on a Linear ticket (via
+`scripts/file-linear-ticket.sh`) for whichever of them failed — see
+"Aggregated reporting" below. Internally, each of the five scan jobs
+(`design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
+`max-lines`) is just a `setup-node-yarn` call followed by one call to the
 `.github/actions/scan-with-report` composite action — see "Scan job
 dedup" below.
 
@@ -348,23 +351,26 @@ removal and the shared runner image dropping the Chromium apt packages.
 **Blocking vs advisory (nextjs-ci v1.0.3, 2026-08-20):** `design-system`,
 `dead-code`, `duplicate-code`, `react-tech-debt`,
 and `max-lines` are all advisory (`scan-with-report`'s `blocking: 'false'`
-input) — they still run, still post their sticky comment/report, and
-`duplicate-code` still files a Linear ticket on failure, but a finding
-never fails the job (nextjs-ci v1.0.2, 2026-08-20, PR #68 covered
-`duplicate-code`/`max-lines` in `main-ci.yml`'s equivalent pass/fail-to-advisory
-move — same rationale applies here: all of these are repo-wide scans that
-can trip on a pre-existing finding unrelated to the PR's own diff, which is
-too brittle to gate a merge/deploy on). See `main-ci.yml`'s equivalent note
-below for the push-to-main side of this same change.
+input) — they still run and still expose their `outcome`/`report` to
+`danger-comment`, but a finding never fails the job itself (nextjs-ci
+v1.0.2, 2026-08-20, PR #68 covered `duplicate-code`/`max-lines` in
+`main-ci.yml`'s equivalent pass/fail-to-advisory move — same rationale
+applies here: all of these are repo-wide scans that can trip on a
+pre-existing finding unrelated to the PR's own diff, which is too brittle
+to gate a merge/deploy on). `peer-deps` is advisory the same way (its
+checks are `continue-on-error: true`, unrelated to `scan-with-report`).
+See `main-ci.yml`'s equivalent note below for the push-to-main side of this
+same change.
 
 **`required-checks` (LAB-2103):** a final aggregator job that `needs:` every
 REAL (blocking) gate job above - `lint`, `ls-lint`, `typecheck`, `build`,
-`test` - and fails if any of them resolves to `failure` or
-`cancelled` (`if: always()`, so it still runs and reports even when an
-upstream gate didn't). The explicitly-advisory scan jobs (`design-system`,
-`dead-code`, `duplicate-code`, `react-tech-debt`,
-`max-lines`) and the opt-in `tech-debt` metrics report are deliberately
-**not** dependencies - see the job's own comment in the workflow file.
+`test`, `security-scan`, `secret-scan` - and fails if any of them resolves
+to `failure` or `cancelled` (`if: always()`, so it still runs and reports
+even when an upstream gate didn't). The explicitly-advisory scan jobs
+(`peer-deps`, `design-system`, `dead-code`, `duplicate-code`,
+`react-tech-debt`, `max-lines`), the opt-in `tech-debt` metrics report, and
+`danger-comment` itself are deliberately **not** dependencies - see the
+job's own comment in the workflow file.
 **Caller repos' branch protection should require ONLY this one context
 (`required-checks`) going forward, not the individual per-job contexts** -
 that's what prevents required-check drift when a job inside this shared
@@ -465,21 +471,21 @@ Backend-service (Node/NestJS) sibling of `develop-ci.yml`. Inputs (all
 - `enable_dead_code` (boolean, default **`false`** — opt-in, unlike the
   `enable_*` inputs above, LAB-1866) — runs `yarn dead-code` via the shared
   `scan-with-report` composite action (same one `develop-ci.yml`'s
-  `dead-code` job uses), posting a sticky PR comment and filing a Linear
-  ticket on failure, but `blocking: 'false'` so it never fails the job
-  itself. `scan-with-report` always runs `yarn <script>` regardless of
-  `package_manager`, so this only works for `package_manager: yarn`
-  callers — a `pnpm` caller enabling it would fail. `pr_number`/`pr_url`
-  (below) feed the sticky comment/ticket link.
+  `dead-code` job uses), exposing its `outcome`/`report` to the
+  `danger-comment` aggregator job (see "Aggregated reporting" above), but
+  `blocking: 'false'` so it never fails the job itself. `scan-with-report`
+  always runs `yarn <script>` regardless of `package_manager`, so this only
+  works for `package_manager: yarn` callers — a `pnpm` caller enabling it
+  would fail. `pr_number`/`pr_url` (below) feed `danger-comment`'s Linear
+  ticket link.
 - `enable_duplicate_code` (boolean, default **`false`**, same opt-in
   rationale as `enable_dead_code`) — runs `yarn duplicate-code` via the
-  same `scan-with-report` composite action, same sticky-PR-comment/
-  Linear-ticket/`blocking: 'false'`/yarn-only behavior as `enable_dead_code`.
+  same `scan-with-report` composite action, same `danger-comment`/
+  `blocking: 'false'`/yarn-only behavior as `enable_dead_code`.
   Mirrors `develop-ci.yml`'s `duplicate-code` job.
 - `pr_number` (number, default `0`) / `pr_url` (string, default `''`) —
-  same role as `develop-ci.yml`'s identical inputs; only consumed by the
-  `dead-code`/`duplicate-code` jobs above when `enable_dead_code`/
-  `enable_duplicate_code` is true.
+  same role as `develop-ci.yml`'s identical inputs; consumed by the
+  `danger-comment` job for its Linear ticket links.
 - `security_scan_trivyignores` (string, default `''`) — passed straight
   through to the `security-scan` job's `trivy-action` call. Empty by
   default: this shared workflow ships **no default `.trivyignore`
@@ -495,15 +501,20 @@ set to the same `labone-eslint-plugin` package for backend services,
 consumed the same way via a private git dependency).
 
 Jobs: `changes`, `setup`, `lint`, `typecheck`, `build`, `test`,
-`security-scan`, `dependency-audit`, plus optional `ls-lint`
-(`enable_ls_lint`, off by default), `dead-code` (`enable_dead_code`, off by
-default) and `duplicate-code` (`enable_duplicate_code`, off by default).
-Every job except `dead-code`/`duplicate-code` is a plain pass/fail gate —
-no sticky PR comments, no Linear ticket filing; `dead-code` and
-`duplicate-code` are the exception, matching `develop-ci.yml`'s identical
-jobs (sticky comment + Linear ticket filing on failure, but advisory-only —
-never fails the job). Two gates are worth calling out explicitly because
-this shared workflow can't fully enforce them on its own:
+`peer-deps`, `security-scan`, `secret-scan`, `dependency-audit`,
+`danger-comment`, plus optional `ls-lint` (`enable_ls_lint`, off by
+default), `dead-code` (`enable_dead_code`, off by default) and
+`duplicate-code` (`enable_duplicate_code`, off by default). `peer-deps`,
+`security-scan`, `secret-scan`, `dependency-audit`, `dead-code`, and
+`duplicate-code` all feed `danger-comment`, which posts ONE combined sticky
+PR comment and files/comments-on a Linear ticket (via
+`scripts/file-linear-ticket.sh`) for whichever of them failed — see
+"Aggregated reporting" above. `security-scan`/`secret-scan`/
+`dependency-audit` are still HARD gates (a finding still fails the job, via
+an explicit final `exit 1` step); `peer-deps`/`dead-code`/`duplicate-code`
+stay advisory-only, same as before — a finding is surfaced in the comment/
+ticket but never fails the job. Two gates are worth calling out explicitly
+because this shared workflow can't fully enforce them on its own:
 
 - **`changes` (LAB-2097)** runs `dorny/paths-filter@v3` against the caller
   repo's changed files first (no dependencies, overlaps with `setup`) and
@@ -546,13 +557,15 @@ yarn-based Node/NestJS callers are on Yarn Berry) or `pnpm audit`
 any known vulnerability fails the job.
 
 **`required-checks` (LAB-2103):** a final aggregator job that `needs:`
-every REAL (blocking) gate job above - `lint`, `typecheck`, `build`, `test`,
-`security-scan`, `dependency-audit` - and fails (`exit 1`) if any of them
-resolves to `failure` or `cancelled` (`if: always()`, so it still runs even
-when an upstream gate didn't). `changes`/`setup` (infra, not gates) and the
-opt-in, explicitly advisory-only `dead-code` job (`blocking: 'false'`) are
-deliberately **not** dependencies - see the job's own comment in the
-workflow file. **Caller repos' branch protection should require ONLY this
+every REAL (blocking) gate job above - `lint`, `ls-lint`, `typecheck`,
+`build`, `test`, `security-scan`, `secret-scan`, `dependency-audit`,
+`actionlint` - and fails (`exit 1`) if any of them resolves to `failure` or
+`cancelled` (`if: always()`, so it still runs even when an upstream gate
+didn't). `changes`/`setup` (infra, not gates), the advisory-only
+`peer-deps`/`dead-code`/`duplicate-code` jobs (`blocking: 'false'`/
+`continue-on-error: true`), and `danger-comment` itself are deliberately
+**not** dependencies - see the job's own comment in the workflow file.
+**Caller repos' branch protection should require ONLY this
 one context (`required-checks`) going forward, not the individual per-job
 contexts** - that's what prevents required-check drift when a job inside
 this shared workflow is renamed/added/removed, which previously desynced
@@ -963,34 +976,89 @@ here — don't confuse them:
    "Caching strategy" above — fewer simultaneous installs, and each one
    cheaper in peak memory.
 
+## Aggregated reporting — the `danger-comment` job
+
+Every `develop-*-ci.yml` workflow used to have each of its scan/gate jobs
+(`dead-code`, `duplicate-code`, `design-system`, `react-tech-debt`,
+`max-lines`, `tech-debt`, `peer-deps`, `security-scan`, `secret-scan`,
+`dependency-audit`, and — in `develop-rust-ci.yml` — `fmt`/`clippy`/`test`/
+`file-size` too) independently generate its own Dangerfile, post its own
+sticky PR comment, and file its own Linear ticket on failure. That meant N
+separate sticky comments cluttering one PR and N copies of the same
+ticket-filing boilerplate (and its dedup logic) spread across every job in
+every workflow.
+
+That's now centralized: every reporting-worthy job in every
+`develop-*-ci.yml` file instead exposes job-level `outputs: {outcome,
+report}` (a metrics-only job like `tech-debt`/`file-size` that never fails
+only exposes `report` — there's no `outcome` and no corresponding
+ticket-filing step for it) and stops posting/filing anything itself. Each
+workflow then has exactly ONE new `danger-comment` job (`needs:` every
+reporting job, `if: always()` so it still runs when an upstream job failed)
+that:
+
+1. Checks out `labone-actions` itself (not the caller repo — a second,
+   `path:`-scoped, sparse checkout alongside the caller's own) purely to
+   get `scripts/file-linear-ticket.sh`, which lives here regardless of
+   which repo calls the workflow.
+2. Builds ONE combined markdown report by concatenating every non-skipped
+   upstream job's `report` output, and posts it as a single sticky PR
+   comment via `.github/actions/post-danger-comment` (one `danger ci --id`
+   per workflow run, not one per job).
+3. Files a Linear ticket — one "File Linear ticket for `<job>`" step per
+   reporting job, each gated on `needs.<job>.outputs.outcome == 'failure'`
+   — via `scripts/file-linear-ticket.sh <job-name> <report-file>`.
+   `file-linear-ticket.sh`'s own dedup logic (search for an already-open
+   ticket with this exact per-PR-per-job title before creating a new one,
+   comment "still failing" on it instead of duplicating) is completely
+   unchanged — it's just invoked from this one job N times now, instead of
+   from N different jobs each calling it once.
+
+`danger-comment` is always excluded from that workflow's `required-checks`
+`needs:` list, same as `dead-code`/`duplicate-code` always were — it's
+purely advisory/reporting and never fails on its own, even when every job
+feeding it failed.
+
+A job that's still a HARD gate (`security-scan`, `secret-scan`,
+`dependency-audit`, and in `develop-rust-ci.yml` `fmt`/`clippy`/`test`) has
+its check step changed to `continue-on-error: true` with an `id`, followed
+by an `if: always()` "Build report" step that captures `outcome`/`report`,
+followed by a final `if: steps.<id>.outcome == 'failure'` → `exit 1` step —
+this preserves the exact same blocking behavior toward
+`required-checks`/branch protection as before; only *how* the result gets
+surfaced changed (via `danger-comment` instead of nothing, or its own
+per-job Dangerfile).
+
 ## Scan job dedup — `.github/actions/scan-with-report`
 
 `develop-ci.yml`'s 5 scan jobs (`design-system`, `dead-code`,
 `duplicate-code`, `react-tech-debt`, `max-lines`) all
 follow the same shape: run a yarn script that writes a markdown report,
-post/update a sticky PR comment with that report regardless of outcome,
-optionally file/comment-on a Linear ticket on failure, then fail the job
-if the script failed *and the job is configured as blocking*. That's
-factored into `.github/actions/scan-with-report/action.yml`, a composite
-action with inputs:
+expose that report and the scan's outcome as this action's outputs, then
+fail the job if the script failed *and the job is configured as blocking*.
+That's factored into `.github/actions/scan-with-report/action.yml`, a
+composite action with inputs:
 
 - `script` (required) — yarn script to run.
+- `working-directory` (string, default `.`).
 - `report-file` (required) — markdown report path the script writes.
-- `sticky-header` (required) — unique identifier for this job's sticky PR
-  comment, passed as `danger ci`'s `--id`.
-- `job-name` (required) — first arg to `scripts/file-linear-ticket.sh`.
-- `file-ticket` (boolean-as-string, default `'true'`) — set `'false'` for
-  `react-tech-debt`/`max-lines`, which only get the sticky comment.
-- `pr-number` / `pr-url` (string) — forwarded from the caller's inputs.
-- `linear-api-key` (string, default `''`) — composite actions can't see the
-  caller's `secrets` context directly, so each job passes
-  `secrets.LINEAR_API_KEY` in explicitly.
+- `gh-token` (string, default `''`) — forwarded as `GH_TOKEN`/`GITHUB_TOKEN`
+  to the `yarn <script>` step, for scripts that transitively need `gh`
+  CLI/GitHub REST access.
 - `blocking` (boolean-as-string, default `'true'`) — set `'false'` for
   `design-system`, `dead-code`, `duplicate-code`, `react-tech-debt`,
-  and `max-lines` (nextjs-ci v1.0.2, 2026-08-20): the scan still runs, still
-  posts its sticky comment, and `duplicate-code`/`dead-code` still file a
-  Linear ticket on failure, but the composite action's final `exit 1` is
+  and `max-lines` (nextjs-ci v1.0.2, 2026-08-20): the scan still runs and
+  still exposes its outputs, but the composite action's final `exit 1` is
   skipped, so a finding never fails the containing job.
+
+Outputs: `outcome` (`success`/`failure` — the `yarn <script>` step's own
+outcome) and `report` (the contents of `report-file`, or a placeholder if
+it wasn't written). Posting a sticky comment and filing a Linear ticket
+used to live in this action too, one independent comment/ticket per
+calling job — that's now centralized in each workflow's single
+`danger-comment` aggregator job instead; see "Aggregated reporting" above.
+This action only produces the raw material (`outcome`, `report`) that
+aggregator consumes.
 
 (`a11y` and `run-e2e-tests` — the two jobs that used to set `playwright:
 'true'` to install Chromium first — were removed org-wide, along with the
@@ -998,14 +1066,9 @@ action with inputs:
 section.)
 
 Each of the 5 scan jobs in `develop-ci.yml` now shrinks to its
-`needs`/`runs-on`/`if`/`permissions` header, a `setup-node-yarn` call, and
-one `scan-with-report` call. `scripts/file-linear-ticket.sh` is invoked with a
-bare relative path (`bash scripts/file-linear-ticket.sh ...`), same as
-before the extraction — this still resolves correctly because every caller
-repo keeps its own copy of that script at `scripts/file-linear-ticket.sh`
-(it's not part of labone-actions' own checkout at runtime; reusable
-workflows and the composite actions they call run with the *caller's*
-repo checked out as the working directory, not labone-actions' own).
+`needs`/`runs-on`/`if` header, a `setup-node-yarn` call, one
+`scan-with-report` call (with an `id`), and a job-level `outputs: {outcome,
+report}` pointing at that step's own outputs.
 
 The `continue-on-error` + `steps.scan.outcome == 'failure'` + final `exit 1`
 pattern still works correctly inside a composite action: composite action
@@ -1020,72 +1083,61 @@ composite-izing further.
 
 ### Sticky comments via `danger ci --id`
 
-Every scan job posts its own independent sticky PR comment via
-[danger-js](https://danger.systems/js/)'s CLI (`npx --yes danger@14.0.7 ci
---id <sticky-header> --dangerfile <path>`) rather than
-`marocchino/sticky-pull-request-comment`. Each job writes a tiny,
-job-specific Dangerfile to `$RUNNER_TEMP` at run time (never committed) that
-reads its report file and, if present, calls `markdown()` with its
-contents; if the report file doesn't exist, the Dangerfile does nothing —
-danger still runs (so a missing report degrades gracefully instead of
-failing the step), it just posts nothing.
+`danger-comment` (see "Aggregated reporting" above) posts its one combined
+comment via [danger-js](https://danger.systems/js/)'s CLI (`npx --yes
+danger@14.0.7 ci --id <sticky-header> --dangerfile <path>`) rather than
+`marocchino/sticky-pull-request-comment`. It writes a tiny Dangerfile to
+`$RUNNER_TEMP` at run time (never committed) that reads the combined report
+and, if present, calls `markdown()` with its contents.
 
-`danger ci`'s `--id` is what makes N independent sticky comments possible
-on one PR instead of a single combined one: each id gets its own hidden
-marker embedded in the comment body, which is how a later run finds and
-updates *that* comment specifically rather than any other job's. This is a
-deliberate design choice — one Dangerfile/comment per job, not one
-Dangerfile covering every check — so `design-system`, `dead-code`,
-`duplicate-code`, etc. each keep their own comment, updated in place on
-re-runs, exactly like `marocchino/sticky-pull-request-comment`'s `header`
-input did. The `sticky-header` input each caller already passes is reused
-unchanged as this `--id` value.
+`danger ci`'s `--id` is what makes a sticky comment updatable in place
+across re-runs instead of posted fresh each time: the id gets its own
+hidden marker embedded in the comment body, which is how a later run finds
+and updates that exact comment. Each workflow's `danger-comment` job uses
+one fixed `sticky-header` (e.g. `dependency-checks`, `ci-scans`,
+`rust-checks`) for its one combined comment — the same mechanism that used
+to back N separate per-job ids now backs this one.
 
-The danger step authenticates via `DANGER_GITHUB_API_TOKEN`, set to the
-job's `gh-token` input when non-empty (same per-repo secret forwarded to
-the scan step) or `github.token` otherwise — the same fallback
-`marocchino/sticky-pull-request-comment` used implicitly.
+The danger step authenticates via `github.token` (the aggregator job has no
+caller-supplied `gh-token` to fall back to, unlike the individual scan jobs
+it replaces — it doesn't need one, since it only ever reads job outputs and
+posts a comment, never runs a caller script).
 
 ## Shared danger comment posting — `.github/actions/post-danger-comment`
 
 Posts/updates a single sticky PR comment with arbitrary markdown via
-`danger ci --id` — the same underlying mechanism `scan-with-report` uses,
-extracted into its own action so a metrics-only action can hand off its
-`report` output without pulling `actions/setup-node@v7` into its own job.
-Inputs: `report` (required, the markdown body) and `sticky-header`
-(required, `danger ci`'s `--id`). Used by the `tech-debt`/
-`tech-debt-comment` job pairs in `develop-ci.yml` and
-`develop-rust-ci.yml` — see "Tech debt metrics report" below for why the
-split exists. Never fails the job.
+`danger ci --id` — the same underlying mechanism `scan-with-report` used to
+use directly. Inputs: `report` (required, the markdown body) and
+`sticky-header` (required, `danger ci`'s `--id`). Used by every
+`develop-*-ci.yml` workflow's `danger-comment` aggregator job (see
+"Aggregated reporting" above) to post its one combined comment, without
+pulling `actions/setup-node@v7` into every job that only needs to hand off
+a `report` output. Never fails the job.
 
 ## Tech debt metrics report — `.github/actions/tech-debt-report`
 
 `develop-ci.yml` and `develop-mobile-ci.yml` both have an opt-in `tech-debt`
 job (`enable_tech_debt`, default **false** — see each workflow's own
 section above) that greps the caller's tracked `.ts`/`.tsx` tree for seven
-tech-debt signals and emits the totals as a `report` output. Split across
-two jobs, not one:
+tech-debt signals and emits the totals as a `report` output. `tech-debt`
+computes the metrics (this action) and never runs a yarn script or needs
+`node_modules` or a Node runtime at all, so it stays on a minimal runner —
+just `actions/checkout@v7` before calling the action, no `setup-node-yarn`
+and no `setup-node` either.
 
-- `tech-debt` computes the metrics (this action) and never runs a yarn
-  script or needs `node_modules` or a Node runtime at all, so it stays on
-  a minimal runner — just `actions/checkout@v7` before calling the action,
-  no `setup-node-yarn` and no `setup-node` either.
-- `tech-debt-comment` (`needs: tech-debt`) takes that `report` output and
-  posts/updates it as a sticky PR comment via the shared
-  `.github/actions/post-danger-comment` action, updated in place on every
-  push rather than posted fresh each time (same `danger ci --id` mechanism
-  `scan-with-report` already uses — see "Sticky comments via
-  `danger ci --id`" above). This is the only piece of the pipeline that
-  needs Node/npx (`npx danger`), so it's the only job that pays for it.
-
-This split exists because the original single-job shape assumed
-`catfood-minimal` had `npx` on `PATH` for the comment step — it doesn't,
-which is exactly what broke budget PR #330 (LAB-2328, see this repo's
-`fix/tech-debt-job-missing-node-setup` history). Rather than bolt
-`actions/setup-node@v7` onto the metrics job (which would defeat the point
-of a Node-free minimal runner), the danger-posting step moved into its own
-action and its own job. Unlike every scan job above, neither job ever
-fails the job — it's a metrics report, not a gate.
+`tech-debt`'s `report` output now feeds directly into the workflow's
+`danger-comment` aggregator job (see "Aggregated reporting" above), which
+posts it as part of the one combined sticky comment — the separate
+`tech-debt-comment` job that used to exist purely to post this one report
+via `.github/actions/post-danger-comment` is gone; `danger-comment` already
+needs `actions/setup-node@v7`/npx for its own comment step regardless, so
+there's no longer a reason for a second Node-capable job just for this.
+(The original single-job shape this superseded assumed `catfood-minimal`
+had `npx` on `PATH` for a comment step — it doesn't, which is what broke
+budget PR #330, LAB-2328, and is why the split into a separate comment job
+existed at all before `danger-comment` centralized it.) `tech-debt` never
+fails the job either way — it's a metrics report, not a gate — so it has no
+`outcome` output and `danger-comment` never files a ticket for it.
 
 Metrics (repo-wide totals, not diff-only counts):
 
@@ -1126,9 +1178,9 @@ inside a git working tree at all.
   instead of failing the job — this is a nice-to-have, not something worth
   blocking a PR over.
 
-Output: `report` — the full markdown report, passed straight through to
-`.github/actions/post-danger-comment`'s `report` input by the
-`tech-debt-comment` job.
+Output: `report` — the full markdown report, folded into the workflow's
+`danger-comment` aggregator job's combined comment (see "Aggregated
+reporting" above).
 
 The actual counting logic lives in one place,
 `.github/actions/tech-debt-report/count-metrics.sh <dir>`, invoked by both
@@ -1145,14 +1197,15 @@ To opt a repo in, set `enable_tech_debt: true` on the `develop-ci.yml`/
 `develop-rust-ci.yml` has an opt-in `tech-debt` job (`enable_tech_debt`,
 default **false**, same convention as `develop-ci.yml`'s equivalent above)
 that greps the caller's tracked `.rs` tree for two tech-debt signals and
-emits the totals as a `report` output — same `tech-debt` /
-`tech-debt-comment` two-job split as the TS/TSX version above, for the
-same reason (the metrics job never runs cargo or needs a built workspace,
-so it stays on `catfood-minimal` with just `actions/checkout@v7`; posting
-via `npx danger` is the separate `tech-debt-comment` job, which is the
-only one of the two that needs `.github/actions/post-danger-comment`'s
-`actions/setup-node@v7` step). Neither job ever fails the job — a metrics
-report, not a gate.
+emits the totals as a `report` output — the metrics job never runs cargo or
+needs a built workspace, so it stays on `catfood-minimal` with just
+`actions/checkout@v7`. Its `report` output feeds straight into
+`danger-comment` (see "Aggregated reporting" above); the separate
+`tech-debt-comment` job that used to post this report on its own via
+`.github/actions/post-danger-comment` is gone, same rationale as
+`develop-ci.yml`'s equivalent above. Never fails the job — a metrics
+report, not a gate — so it has no `outcome` output and no corresponding
+ticket-filing step in `danger-comment`.
 
 Metrics (repo-wide totals, not diff-only counts):
 
@@ -1352,9 +1405,13 @@ action's own description. `workflow_call` inputs:
   forcing this on would fail loudly for a repo with neither a
   `requirements.txt` nor a `pyproject.toml`. Opt in explicitly per caller.
 
-Jobs: `lint`, `test`, `security-scan`, `dependency-audit` — every job is a
-plain pass/fail gate (no sticky PR comments, no Linear ticket filing), same
-philosophy as `develop-node-ci.yml`. Repo-specific checks (e.g. a
+Jobs: `lint`, `test`, `security-scan`, `secret-scan`, `dependency-audit`,
+`danger-comment`. `lint`/`test` are plain pass/fail gates with no comment/
+ticket. `security-scan`/`secret-scan`/`dependency-audit` stay HARD gates
+(a finding still fails the job) but now also feed `danger-comment`, which
+posts ONE combined sticky PR comment and files/comments-on a Linear ticket
+(via `scripts/file-linear-ticket.sh`) for whichever of them failed — see
+"Aggregated reporting" above. Repo-specific checks (e.g. a
 project-specific smoke test, a domain validation script) stay as additional
 jobs in the caller's own workflow file alongside the `uses:` call — this
 workflow only covers the common shape every Python repo shares.
@@ -1437,13 +1494,20 @@ strategy" → "Cargo cache scoping" above. `workflow_call` inputs:
   Rust repo has this today.
 
 Jobs: `fmt`, `clippy`, `test`, `build`, `dead-code`, `duplicate-code`,
-`file-size`, `security-scan`, `dependency-audit`, `tech-debt`. `fmt`/`clippy`/`test` and
-every optional scan job follow the same continue-on-error + sticky PR
-comment (scans only) + `file-linear-ticket.sh` + explicit `exit 1` pattern
-`godot-develop-ci.yml` established, since both known callers already file
-Linear tickets on these failures today — unlike `develop-node-ci.yml`/
-`develop-python-ci.yml`, which are plain pass/fail gates with no ticket
-filing. Repo-specific release/build/publish machinery (version bump,
+`file-size`, `security-scan`, `secret-scan`, `dependency-audit`,
+`tech-debt`, `danger-comment`. `fmt`, `clippy`, `test`, `dead-code`,
+`duplicate-code`, `security-scan`, `secret-scan`, and `dependency-audit`
+all expose `outcome`/`report` outputs that feed `danger-comment`, which
+posts ONE combined sticky PR comment (`rust-checks`) and files/comments-on
+a Linear ticket (via `scripts/file-linear-ticket.sh`) for whichever of them
+failed — see "Aggregated reporting" above. `fmt`/`clippy`/`test`/
+`security-scan`/`secret-scan`/`dependency-audit` stay HARD gates (a
+finding still fails the job, via an explicit final `exit 1` step, same as
+before); `dead-code`/`duplicate-code` stay advisory-only. `file-size` is
+report-only (never fails, no ticket, matching its prior no-ticket
+behavior) and `tech-debt` is metrics-only (see "Rust tech debt metrics
+report" below) — both still get a section in the combined comment.
+Repo-specific release/build/publish machinery (version bump,
 cross-compiled release binaries, Homebrew tap notifications, etc.) stays
 entirely in the caller's own `main.yml` — this workflow only covers the
 common PR-time quality-gate shape.
@@ -1518,15 +1582,23 @@ plain NestJS one). `workflow_call` inputs:
   tech-debt metrics report and post it as a sticky PR comment. Opt-in — see
   "Tech debt metrics report" below.
 
-Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `test`, `a11y`,
+Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `test`, `peer-deps`, `a11y`,
 `design-system`, `dead-code`, `duplicate-code`, `security-scan`,
-`dependency-audit`, `tech-debt` (opt-in). `lint`/`typecheck` are plain, always-on pass/fail gates
-(no dependabot skip — a broken lint/type error is exactly what a dependency
-bump can cause); the scan jobs follow the same continue-on-error + sticky
-PR comment + `file-linear-ticket.sh` + explicit `exit 1` pattern all known
-callers already use. Repo-specific release/publish machinery (EAS build,
-OTA `publish-update.yml`, version bump) stays in the caller's own
-workflow files — this workflow only covers the common PR-time shape.
+`secret-scan`, `dependency-audit`, `tech-debt` (opt-in), `danger-comment`.
+`lint`/`typecheck` are plain, always-on pass/fail gates (no dependabot skip
+— a broken lint/type error is exactly what a dependency bump can cause).
+`peer-deps`, `a11y`, `design-system`, `dead-code`, `duplicate-code`,
+`security-scan`, `secret-scan`, `dependency-audit`, and `tech-debt` all
+feed `danger-comment`, which posts ONE combined sticky PR comment and
+files/comments-on a Linear ticket (via `scripts/file-linear-ticket.sh`) for
+whichever of them failed — see "Aggregated reporting" above.
+`security-scan`/`secret-scan`/`dependency-audit` stay HARD gates (a finding
+still fails the job); `peer-deps`/`a11y`/`design-system`/`dead-code`/
+`duplicate-code` stay advisory-only, matching prior behavior;
+`tech-debt` is metrics-only (never fails, no ticket). Repo-specific
+release/publish machinery (EAS build, OTA `publish-update.yml`, version
+bump) stays in the caller's own workflow files — this workflow only covers
+the common PR-time shape.
 
 Caller example:
 
