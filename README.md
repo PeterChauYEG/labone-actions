@@ -1057,7 +1057,10 @@ place on every push rather than posted fresh each time (same `danger ci
 `danger ci --id`" above). Unlike every scan job above, it never fails the job — it's a
 metrics report, not a gate — and it never runs a yarn script or needs
 `node_modules`, so the job just does a plain `actions/checkout@v7` before
-calling the action (no `setup-node-yarn` step).
+calling the action (no full `setup-node-yarn` step - the action installs
+a bare `actions/setup-node@v7` runtime itself, just enough for its `npx
+danger` step, since catfood-minimal isn't guaranteed to have `npx` on
+`PATH` already; see LAB-2330).
 
 Metrics (repo-wide totals, not diff-only counts):
 

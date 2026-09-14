@@ -14,9 +14,15 @@ description: >
   throwaway `git worktree` checkout of that SHA instead of a second full
   checkout. Repo-wide totals, not a diff-only count — see README.md. Unlike
   scan-with-report, this never runs a yarn
-  script and doesn't need node_modules, so callers don't need
-  setup-node-yarn first — just `actions/checkout@v7`. Never fails the job;
-  this is a metrics report, not a pass/fail gate.
+  script and doesn't need node_modules, so callers don't need the full
+  setup-node-yarn install first — just `actions/checkout@v7`. It does
+  still need a bare Node.js runtime for the `npx danger` sticky-comment
+  step below, which this action installs itself via `actions/setup-node@v7`
+  (no yarn install) so callers can run this job on a minimal/no-node
+  runner (e.g. catfood-minimal) - see develop-rust-ci.yml's JS-sibling job
+  for the same pattern; LAB-2330 hit `npx: command not found` here before
+  this step was added. Never fails the job; this is a metrics report, not
+  a pass/fail gate.
 
 inputs:
   working-directory:
@@ -147,6 +153,14 @@ runs:
           markdown(fs.readFileSync(reportPath, 'utf8'))
         }
         DANGERFILE
+
+    - name: Set up Node.js for danger
+      # Bare runtime only (no yarn install) — the calling job may run on a
+      # minimal/no-node runner (e.g. catfood-minimal), which doesn't have
+      # `npx` on PATH otherwise. See this action's header comment (LAB-2330).
+      uses: actions/setup-node@v7
+      with:
+        node-version: 22
 
     - name: Post sticky report comment via danger
       shell: bash
