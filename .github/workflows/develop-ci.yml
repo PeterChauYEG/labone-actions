@@ -27,11 +27,16 @@ name: Develop CI
 # other scan jobs it never fails the job (it's a metrics report, not a
 # gate) and doesn't need node_modules/yarn, so it's a plain
 # `.github/actions/tech-debt-report` call with no `setup-node-yarn` step
-# first. Posting the report is split into its own `tech-debt-comment` job
-# (via the shared `post-danger-comment` action), so the metrics job itself
-# never needs Node/npx either and can stay on catfood-minimal. See that
-# action's own header comment for the full metric list and the
-# `pr_base_sha` input for the optional delta-vs-base-branch column.
+# first. See that action's own header comment for the full metric list and
+# the `pr_base_sha` input for the optional delta-vs-base-branch column.
+#
+# `danger-comment` is the single aggregator that posts ONE sticky PR comment
+# covering peer-deps/security-scan/secret-scan/design-system/dead-code/
+# duplicate-code/react-tech-debt/max-lines/tech-debt, and files a (deduped)
+# Linear ticket for whichever of those failed. It replaces what used to be
+# each of those jobs independently generating its own Dangerfile/comment/
+# ticket (including the separate `tech-debt-comment` job, now gone) - see
+# that job's own header comment below for the full rationale.
 #
 # Caching (LAB-1371): every job (not just `setup`) calls `setup-node-yarn`
 # directly, which restores node_modules from a cache keyed on yarn.lock's
@@ -260,6 +265,14 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ needs.changes.outputs.web_deps == 'true' }}
+    # Feeds the `danger-comment` aggregator below. This stays a HARD gate
+    # (unchanged from before - the check step's own failure still fails the
+    # job via the final `exit 1` step) - continue-on-error here only lets
+    # the job reach its own report/outcome-capturing step instead of
+    # stopping dead, same pattern as security-scan/secret-scan below.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - run: corepack enable
@@ -267,23 +280,58 @@ jobs:
         with:
           node-version-file: ${{ inputs.working-directory }}/package.json
       - name: Check for peer dependency conflicts
+        id: check
+        continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: |
-          yarn install --immutable 2>&1 | tee /tmp/yarn-install.log
-          if grep -q "YN0060" /tmp/yarn-install.log; then
+          yarn install --immutable 2>&1 | tee /tmp/peer-deps-check.log
+          if grep -q "YN0060" /tmp/peer-deps-check.log; then
             echo "Peer dependency conflicts detected:"
-            grep "YN0060" /tmp/yarn-install.log
+            grep "YN0060" /tmp/peer-deps-check.log
             exit 1
           fi
+      - name: Build peer-deps report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.check.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<PEER_DEPS_REPORT_EOF"
+            echo '### peer-deps'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Peer dependency conflicts detected:'
+              echo '```'
+              tail -n 60 /tmp/peer-deps-check.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ No peer dependency conflicts detected.'
+            fi
+            echo "PEER_DEPS_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.check.outcome == 'failure' }}
+        run: exit 1
 
   security-scan:
     name: security-scan
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.web_deps == 'true' }}
+    # Feeds the `danger-comment` aggregator below. Still a HARD gate,
+    # unchanged - continue-on-error on the Trivy step only lets this job
+    # reach its own report-capturing step instead of stopping dead; the
+    # final `exit 1` step below restores the fail-the-job behavior.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (vulnerabilities)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -292,15 +340,47 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: security-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build security-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECURITY_SCAN_REPORT_EOF"
+            echo '### security-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL vulnerabilities:'
+              echo '```'
+              cat security-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No HIGH/CRITICAL vulnerabilities found.'
+            fi
+            echo "SECURITY_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (secrets)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -309,7 +389,32 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: secret-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build secret-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECRET_SCAN_REPORT_EOF"
+            echo '### secret-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL secrets:'
+              echo '```'
+              cat secret-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No secrets found.'
+            fi
+            echo "SECRET_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   lint:
     name: lint
@@ -424,9 +529,12 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_design_system && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment and scan-with-report's own header comment for why this no
+    # longer posts its own sticky comment / files its own Linear ticket.
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -437,16 +545,12 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
         with:
           script: design-system
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
-          sticky-header: design-system-scan
-          job-name: design-system
-          pr-number: ${{ inputs.pr_number }}
-          pr-url: ${{ inputs.pr_url }}
-          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
   dead-code:
@@ -454,9 +558,11 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see design-system's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -467,16 +573,12 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
         with:
           script: dead-code
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/dead-code-report.md
           working-directory: ${{ inputs.working-directory }}
-          sticky-header: dead-code-scan
-          job-name: dead-code
-          pr-number: ${{ inputs.pr_number }}
-          pr-url: ${{ inputs.pr_url }}
-          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
   duplicate-code:
@@ -484,9 +586,11 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see design-system's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -496,20 +600,13 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      # Standardized to file a ticket like the other scans do (one of the
-      # two source repos this was consolidated from skipped this step,
-      # which was an inconsistency, not a deliberate choice - see README.md).
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
         with:
           script: duplicate-code
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
           working-directory: ${{ inputs.working-directory }}
-          sticky-header: duplicate-code-scan
-          job-name: duplicate-code
-          pr-number: ${{ inputs.pr_number }}
-          pr-url: ${{ inputs.pr_url }}
-          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
   react-tech-debt:
@@ -517,9 +614,16 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see design-system's
+    # identical comment above. NOTE: this job's own `enable_react_tech_debt`
+    # input description above says "no ticket", but the old scan-with-report
+    # call here never actually passed `file-ticket: 'false'` - it filed one
+    # like every other scan job. Preserving that ACTUAL prior behavior
+    # (aggregator files a ticket on failure) rather than the stale
+    # description; the description should probably be fixed separately.
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -530,16 +634,12 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
         with:
           script: react-tech-debt
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
           working-directory: ${{ inputs.working-directory }}
-          sticky-header: react-tech-debt-scan
-          job-name: react-tech-debt
-          pr-number: ${{ inputs.pr_number }}
-          pr-url: ${{ inputs.pr_url }}
-          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
   max-lines:
@@ -547,9 +647,11 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see react-tech-debt's
+    # identical "no ticket" discrepancy note above (same applies here).
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -560,16 +662,12 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
       - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
         with:
           script: max-lines
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/max-lines-report.md
           working-directory: ${{ inputs.working-directory }}
-          sticky-header: max-lines-scan
-          job-name: max-lines
-          pr-number: ${{ inputs.pr_number }}
-          pr-url: ${{ inputs.pr_url }}
-          linear-api-key: ${{ secrets.LINEAR_API_KEY }}
           blocking: 'false'
 
   tech-debt:
@@ -586,9 +684,12 @@ jobs:
       # over the tracked .ts/.tsx tree, no installed node_modules or Node
       # runtime needed - just check out the repo, same as security-scan
       # above. tech-debt-report only computes metrics and emits a `report`
-      # output; posting it as a sticky PR comment (which does need Node/npx
-      # for `npx danger`) is the separate tech-debt-comment job below, kept
-      # off this minimal runner.
+      # output; posting it is now the `danger-comment` aggregator below's
+      # job (see that job's header comment) - the separate tech-debt-comment
+      # job this used to feed is gone. Never fails (metrics report, not a
+      # gate) and never files a Linear ticket - unlike every other job
+      # feeding the aggregator, it has no `outcome` output and no
+      # corresponding "File Linear ticket" step there.
       - uses: actions/checkout@v7
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
         id: tech-debt-report
@@ -597,20 +698,205 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
 
-  tech-debt-comment:
-    name: tech-debt-comment
-    needs: [tech-debt, changes]
-    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
+  # Single aggregator for every scan/gate job above that reports findings:
+  # peer-deps, security-scan, secret-scan, design-system, dead-code,
+  # duplicate-code, react-tech-debt, max-lines, tech-debt. Posts ONE sticky
+  # PR comment covering all nine and files (deduped, via
+  # scripts/file-linear-ticket.sh - already per-PR-per-job deduped, see that
+  # script's own header) a Linear ticket for whichever of the eight
+  # ticket-eligible checks failed (tech-debt is metrics-only and never
+  # fails, so it has no ticket step) - instead of each independently
+  # generating its own Dangerfile / posting its own sticky comment / filing
+  # its own ticket, which is what this repo did until now. See
+  # develop-node-ci.yml's identical `danger-comment` job for the pattern
+  # this was copied from.
+  #
+  # `if: always()` so this still runs (and can report) when an upstream job
+  # failed - same rationale as required-checks' identical `if: always()`
+  # below. The `needs.*.result != 'skipped'` check skips this job entirely
+  # only when ALL NINE were skipped - any one running is enough to comment.
+  #
+  # `outcome` on each upstream job's outputs is that job's OWN verdict, not
+  # `needs.<job>.result` - every job here except tech-debt is still a hard
+  # gate or advisory-continue-on-error job whose own final step still makes
+  # `needs.<job>.result` match `outputs.outcome` too, but using
+  # `outputs.outcome` uniformly keeps this job's logic identical regardless
+  # of which upstream jobs are blocking vs. advisory.
+  danger-comment:
+    name: danger-comment
+    needs:
+      [
+        peer-deps,
+        security-scan,
+        secret-scan,
+        design-system,
+        dead-code,
+        duplicate-code,
+        react-tech-debt,
+        max-lines,
+        tech-debt,
+      ]
+    if: |
+      always() &&
+      (needs.peer-deps.result != 'skipped' ||
+       needs.security-scan.result != 'skipped' ||
+       needs.secret-scan.result != 'skipped' ||
+       needs.design-system.result != 'skipped' ||
+       needs.dead-code.result != 'skipped' ||
+       needs.duplicate-code.result != 'skipped' ||
+       needs.react-tech-debt.result != 'skipped' ||
+       needs.max-lines.result != 'skipped' ||
+       needs.tech-debt.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-node]
     permissions:
       contents: read
       pull-requests: write
     steps:
+      # Checked out separately (not the caller repo) purely to get
+      # scripts/file-linear-ticket.sh, which lives in labone-actions
+      # regardless of which repo calls this workflow.
+      - name: Checkout labone-actions scripts
+        uses: actions/checkout@v7
+        with:
+          repository: PeterChauYEG/labone-actions
+          ref: main
+          path: labone-actions
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+      - name: Prepare reports
+        id: build
+        shell: bash
+        env:
+          PEER_DEPS_RESULT: ${{ needs.peer-deps.result }}
+          PEER_DEPS_REPORT: ${{ needs.peer-deps.outputs.report }}
+          SECURITY_SCAN_RESULT: ${{ needs.security-scan.result }}
+          SECURITY_SCAN_REPORT: ${{ needs.security-scan.outputs.report }}
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          SECRET_SCAN_REPORT: ${{ needs.secret-scan.outputs.report }}
+          DESIGN_SYSTEM_RESULT: ${{ needs.design-system.result }}
+          DESIGN_SYSTEM_REPORT: ${{ needs.design-system.outputs.report }}
+          DEAD_CODE_RESULT: ${{ needs.dead-code.result }}
+          DEAD_CODE_REPORT: ${{ needs.dead-code.outputs.report }}
+          DUPLICATE_CODE_RESULT: ${{ needs.duplicate-code.result }}
+          DUPLICATE_CODE_REPORT: ${{ needs.duplicate-code.outputs.report }}
+          REACT_TECH_DEBT_RESULT: ${{ needs.react-tech-debt.result }}
+          REACT_TECH_DEBT_REPORT: ${{ needs.react-tech-debt.outputs.report }}
+          MAX_LINES_RESULT: ${{ needs.max-lines.result }}
+          MAX_LINES_REPORT: ${{ needs.max-lines.outputs.report }}
+          TECH_DEBT_RESULT: ${{ needs.tech-debt.result }}
+          TECH_DEBT_REPORT: ${{ needs.tech-debt.outputs.report }}
+        run: |
+          set -uo pipefail
+          printf '%s\n' "$PEER_DEPS_REPORT" > /tmp/peer-deps-report.md
+          printf '%s\n' "$SECURITY_SCAN_REPORT" > /tmp/security-scan-report.md
+          printf '%s\n' "$SECRET_SCAN_REPORT" > /tmp/secret-scan-report.md
+          printf '%s\n' "$DESIGN_SYSTEM_REPORT" > /tmp/design-system-report.md
+          printf '%s\n' "$DEAD_CODE_REPORT" > /tmp/dead-code-report.md
+          printf '%s\n' "$DUPLICATE_CODE_REPORT" > /tmp/duplicate-code-report.md
+          printf '%s\n' "$REACT_TECH_DEBT_REPORT" > /tmp/react-tech-debt-report.md
+          printf '%s\n' "$MAX_LINES_REPORT" > /tmp/max-lines-report.md
+          {
+            echo "report<<DANGER_COMMENT_REPORT_EOF"
+            echo '## CI checks'
+            echo
+            [ "$PEER_DEPS_RESULT" != 'skipped' ] && { printf '%s\n\n' "$PEER_DEPS_REPORT"; }
+            [ "$SECURITY_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECURITY_SCAN_REPORT"; }
+            [ "$SECRET_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECRET_SCAN_REPORT"; }
+            [ "$DESIGN_SYSTEM_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DESIGN_SYSTEM_REPORT"; }
+            [ "$DEAD_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEAD_CODE_REPORT"; }
+            [ "$DUPLICATE_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DUPLICATE_CODE_REPORT"; }
+            [ "$REACT_TECH_DEBT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$REACT_TECH_DEBT_REPORT"; }
+            [ "$MAX_LINES_RESULT" != 'skipped' ] && { printf '%s\n\n' "$MAX_LINES_REPORT"; }
+            [ "$TECH_DEBT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$TECH_DEBT_REPORT"; }
+            echo "DANGER_COMMENT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
         with:
-          report: ${{ needs.tech-debt.outputs.report }}
-          sticky-header: tech-debt-report
+          report: ${{ steps.build.outputs.report }}
+          sticky-header: ci-scans
+      - name: File Linear ticket for peer-deps
+        if: ${{ needs.peer-deps.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh peer-deps /tmp/peer-deps-report.md
+      - name: File Linear ticket for security-scan
+        if: ${{ needs.security-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh security-scan /tmp/security-scan-report.md
+      - name: File Linear ticket for secret-scan
+        if: ${{ needs.secret-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh secret-scan /tmp/secret-scan-report.md
+      - name: File Linear ticket for design-system
+        if: ${{ needs.design-system.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh design-system /tmp/design-system-report.md
+      - name: File Linear ticket for dead-code
+        if: ${{ needs.dead-code.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh dead-code /tmp/dead-code-report.md
+      - name: File Linear ticket for duplicate-code
+        if: ${{ needs.duplicate-code.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh duplicate-code /tmp/duplicate-code-report.md
+      - name: File Linear ticket for react-tech-debt
+        if: ${{ needs.react-tech-debt.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh react-tech-debt /tmp/react-tech-debt-report.md
+      - name: File Linear ticket for max-lines
+        if: ${{ needs.max-lines.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh max-lines /tmp/max-lines-report.md
 
+  # `needs:` lists every job in this file that's currently a REAL (blocking)
+  # gate. Deliberately excludes `peer-deps` (see that job's own comment - it
+  # was already a hard gate before this PR too, just not required-status'd
+  # here; unchanged), `design-system`/`dead-code`/`duplicate-code`/
+  # `react-tech-debt`/`max-lines`/`tech-debt` (advisory/report-only,
+  # `blocking: 'false'` or metrics-only), and `danger-comment` (the
+  # aggregated sticky-comment/Linear-ticket job - purely advisory/reporting,
+  # never fails on its own). See develop-node-ci.yml's identical
+  # `required-checks` comment for the full rationale.
   required-checks:
     name: required-checks
     needs: [lint, ls-lint, typecheck, build, test, actionlint, security-scan, secret-scan]

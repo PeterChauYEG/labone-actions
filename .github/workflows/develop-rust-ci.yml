@@ -24,14 +24,16 @@ name: Develop Rust CI
 # boolean toggle, since there's no way to generalize "install my private
 # deps" into a fixed shape. Left empty (no-op) by default.
 #
-# Every scan job (dead-code/duplicate-code/file-size) follows the same
-# continue-on-error + sticky-PR-comment + file-linear-ticket.sh + explicit
-# `exit 1` pattern godot-develop-ci.yml already established, since both
-# source repos already file Linear tickets on these failures today - unlike
-# develop-node-ci.yml/develop-python-ci.yml, which are plain pass/fail
-# gates with no ticket filing. `pr_number`/`pr_url` are caller-supplied for
-# the same reason godot-develop-ci.yml takes them: a reusable workflow
-# can't always see github.event.pull_request directly.
+# Every job that reports findings (fmt, clippy, test, dead-code,
+# duplicate-code, file-size, security-scan, secret-scan, dependency-audit,
+# tech-debt) runs its own check with `continue-on-error: true` and exposes
+# `outcome`/`report` as job outputs, but no longer posts its own sticky
+# comment or files its own Linear ticket - that's centralized in the single
+# `danger-comment` aggregator job near the bottom of this file, which posts
+# ONE sticky comment per run and files a deduped ticket (via
+# scripts/file-linear-ticket.sh) per failing job. `pr_number`/`pr_url` are
+# caller-supplied since a reusable workflow can't always see
+# github.event.pull_request directly.
 
 on:
   workflow_call:
@@ -204,9 +206,11 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ needs.changes.outputs.rust_source == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment. Still a HARD gate via the final `exit 1` step.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -220,17 +224,29 @@ jobs:
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
-        run: cargo fmt -- --check
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh fmt
+        run: cargo fmt -- --check 2>&1 | tee /tmp/fmt.log
+      - name: Build fmt report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.scan.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<FMT_REPORT_EOF"
+            echo '### fmt'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ cargo fmt -- --check failed:'
+              echo '```'
+              tail -n 60 /tmp/fmt.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ Formatting OK.'
+            fi
+            echo "FMT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -239,9 +255,11 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see fmt's identical
+    # comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       # cache-key-prefix scopes this job's own cargo-clippy-${Cargo.lock
       # hash} entry, separate from the test/build jobs' cargo-test-/
@@ -261,17 +279,29 @@ jobs:
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
-        run: cargo clippy -- -D warnings
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh clippy
+        run: cargo clippy -- -D warnings 2>&1 | tee /tmp/clippy.log
+      - name: Build clippy report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.scan.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<CLIPPY_REPORT_EOF"
+            echo '### clippy'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ cargo clippy -- -D warnings failed:'
+              echo '```'
+              tail -n 60 /tmp/clippy.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ No clippy warnings.'
+            fi
+            echo "CLIPPY_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -280,9 +310,11 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ !inputs.is_dependabot }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see fmt's identical
+    # comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       # cache-key-prefix scopes this job's own cargo-test-${Cargo.lock
       # hash} entry, separate from clippy/build's own entries - see
@@ -297,17 +329,29 @@ jobs:
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
-        run: cargo test
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh test
+        run: cargo test 2>&1 | tee /tmp/test.log
+      - name: Build test report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.scan.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<TEST_REPORT_EOF"
+            echo '### test'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ cargo test failed:'
+              echo '```'
+              tail -n 60 /tmp/test.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ Tests passed.'
+            fi
+            echo "TEST_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -335,9 +379,13 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && (needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true') }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see that job's header
+    # comment and scan-with-report's own header comment (develop-node-ci.yml)
+    # for why this no longer posts its own sticky comment / files its own
+    # Linear ticket. Advisory-only, unchanged - never fails the job.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -353,48 +401,35 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: bash ${{ inputs.dead_code_script }}
-      - uses: actions/setup-node@v7
+      - name: Build dead-code report
+        id: result
         if: always()
-        with:
-          node-version: 22
-      - name: Generate Dangerfile
-        if: always()
+        shell: bash
         run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/dead-code-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/dead-code-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id dead-code-scan --dangerfile "$RUNNER_TEMP/dead-code-dangerfile.js"
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
+          set -uo pipefail
+          echo "outcome=${{ steps.scan.outcome }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<DEAD_CODE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/dead-code-report.md" ]; then
+              cat "${{ inputs.working-directory }}/dead-code-report.md"
+            else
+              echo '### dead-code'
+              echo
+              echo '(no report written - see the dead-code job'"'"'s own log)'
+            fi
+            echo "DEAD_CODE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
 
   duplicate-code:
     name: duplicate-code
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see dead-code's identical
+    # comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -416,48 +451,36 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: bash ${{ inputs.duplicate_code_script }}
-      - uses: actions/setup-node@v7
+      - name: Build duplicate-code report
+        id: result
         if: always()
-        with:
-          node-version: 22
-      - name: Generate Dangerfile
-        if: always()
+        shell: bash
         run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/duplicate-code-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/duplicate-code-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id duplicate-code-scan --dangerfile "$RUNNER_TEMP/duplicate-code-dangerfile.js"
-      - name: File Linear ticket for failure
-        if: steps.scan.outcome == 'failure'
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh duplicate-code duplicate-code-report.md
+          set -uo pipefail
+          echo "outcome=${{ steps.scan.outcome }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<DUPLICATE_CODE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/duplicate-code-report.md" ]; then
+              cat "${{ inputs.working-directory }}/duplicate-code-report.md"
+            else
+              echo '### duplicate-code'
+              echo
+              echo '(no report written - see the duplicate-code job'"'"'s own log)'
+            fi
+            echo "DUPLICATE_CODE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
 
   file-size:
     name: file-size
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_file_size && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see dead-code's identical
+    # comment above. Report-only by design, no ticket ever filed for this
+    # one (matches today's behavior - this job never had a ticket-filing
+    # step).
+    outputs:
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - id: scan
@@ -466,38 +489,39 @@ jobs:
         # Report-only by design - never fails the job, matching
         # ai-harness-cli's existing file-size-scan.sh behavior.
         run: bash ${{ inputs.file_size_script }}
-      - uses: actions/setup-node@v7
+      - name: Build file-size report
+        id: result
         if: always()
-        with:
-          node-version: 22
-      - name: Generate Dangerfile
-        if: always()
+        shell: bash
         run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/file-size-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/file-size-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id file-size-scan --dangerfile "$RUNNER_TEMP/file-size-dangerfile.js"
+          set -uo pipefail
+          {
+            echo "report<<FILE_SIZE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/file-size-report.md" ]; then
+              cat "${{ inputs.working-directory }}/file-size-report.md"
+            else
+              echo '### file-size'
+              echo
+              echo '(no report written - see the file-size job'"'"'s own log)'
+            fi
+            echo "FILE_SIZE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
 
   security-scan:
     name: security-scan
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.rust_deps == 'true' }}
+    # Feeds the `danger-comment` aggregator below - see fmt's identical
+    # comment further up. Still a HARD gate via the final `exit 1` step.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (vulnerabilities)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -506,15 +530,47 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: security-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build security-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECURITY_SCAN_REPORT_EOF"
+            echo '### security-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL vulnerabilities:'
+              echo '```'
+              cat security-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No HIGH/CRITICAL vulnerabilities found.'
+            fi
+            echo "SECURITY_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (secrets)
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -523,12 +579,42 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           format: table
+          output: secret-scan-report.txt
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - name: Build secret-scan report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.trivy.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<SECRET_SCAN_REPORT_EOF"
+            echo '### secret-scan'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Trivy found HIGH/CRITICAL secrets:'
+              echo '```'
+              cat secret-scan-report.txt 2>/dev/null || echo '(no report captured)'
+              echo '```'
+            else
+              echo '✅ No secrets found.'
+            fi
+            echo "SECRET_SCAN_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.trivy.outcome == 'failure' }}
+        run: exit 1
 
   dependency-audit:
     name: dependency-audit
     runs-on: [self-hosted, catfood, catfood-rust]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -536,8 +622,34 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           cache: 'false'
       - run: cargo install cargo-audit --locked
-      - working-directory: ${{ inputs.working-directory }}
-        run: cargo audit
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: cargo audit 2>&1 | tee /tmp/dependency-audit.log
+      - name: Build dependency-audit report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          outcome="${{ steps.scan.outcome }}"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<DEPENDENCY_AUDIT_REPORT_EOF"
+            echo '### dependency-audit'
+            echo
+            if [ "$outcome" = 'failure' ]; then
+              echo '❌ Known vulnerabilities found:'
+              echo '```'
+              tail -n 60 /tmp/dependency-audit.log 2>/dev/null || echo '(no log captured)'
+              echo '```'
+            else
+              echo '✅ No known vulnerabilities found.'
+            fi
+            echo "DEPENDENCY_AUDIT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
 
   tech-debt:
     name: tech-debt
@@ -552,9 +664,10 @@ jobs:
       # No setup-rust call, no setup-node either: this is a plain grep over
       # the tracked .rs tree, no built workspace or Node runtime needed -
       # just check out the repo. tech-debt-report-rust only computes
-      # metrics and emits a `report` output; posting it as a sticky PR
-      # comment (which does need Node/npx for `npx danger`) is the separate
-      # tech-debt-comment job below, kept off this minimal runner.
+      # metrics and emits a `report` output; posting it is now the
+      # `danger-comment` aggregator below's job (see that job's header
+      # comment) - the separate tech-debt-comment job this used to feed is
+      # gone.
       - uses: actions/checkout@v7
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report-rust@main
         id: tech-debt-report
@@ -563,23 +676,204 @@ jobs:
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
 
-  tech-debt-comment:
-    name: tech-debt-comment
-    needs: [tech-debt, changes]
-    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
-    # No catfood-rust/catfood-node label needed here — post-danger-comment
-    # brings its own actions/setup-node@v7 step, so plain catfood-minimal
-    # is enough for a job that only needs Node for `npx danger`.
+  # Single aggregator for every scan/gate job above that reports findings:
+  # fmt, clippy, test, dead-code, duplicate-code, file-size, security-scan,
+  # secret-scan, dependency-audit, tech-debt. Posts ONE sticky PR comment
+  # covering all of them and files (deduped, via scripts/file-linear-ticket.sh
+  # - already per-PR-per-job deduped, see that script's own header) a Linear
+  # ticket for whichever failed - instead of each independently generating
+  # its own Dangerfile / posting its own sticky comment / filing its own
+  # ticket, which is what this file did until now. `tech-debt` is
+  # metrics-only and never fails, so it's included in the comment but never
+  # gets a ticket; same for `file-size` (report-only by design, no ticket
+  # today either).
+  #
+  # `if: always()` so this still runs (and can report) when an upstream job
+  # failed - same rationale as required-checks' identical `if: always()`
+  # below. Skips entirely only when every one of the ten upstream jobs was
+  # skipped (e.g. a PR touching nothing Rust-related and every scan
+  # disabled).
+  #
+  # `outcome` on each upstream job's outputs is that job's OWN verdict, not
+  # `needs.<job>.result` - fmt/clippy/test/security-scan/secret-scan/
+  # dependency-audit are still hard gates (their own final `exit 1` step
+  # still makes `needs.<job>.result` 'failure' too), but dead-code/
+  # duplicate-code are advisory-only and their jobs never fail - only
+  # `outputs.outcome` reflects whether they actually found something.
+  danger-comment:
+    name: danger-comment
+    needs:
+      [
+        fmt,
+        clippy,
+        test,
+        dead-code,
+        duplicate-code,
+        file-size,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+        tech-debt,
+      ]
+    if: |
+      always() &&
+      (needs.fmt.result != 'skipped' ||
+       needs.clippy.result != 'skipped' ||
+       needs.test.result != 'skipped' ||
+       needs.dead-code.result != 'skipped' ||
+       needs.duplicate-code.result != 'skipped' ||
+       needs.file-size.result != 'skipped' ||
+       needs.security-scan.result != 'skipped' ||
+       needs.secret-scan.result != 'skipped' ||
+       needs.dependency-audit.result != 'skipped' ||
+       needs.tech-debt.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
       pull-requests: write
     steps:
+      # Checked out separately (not the caller repo) purely to get
+      # scripts/file-linear-ticket.sh, which lives in labone-actions
+      # regardless of which repo calls this workflow.
+      - name: Checkout labone-actions scripts
+        uses: actions/checkout@v7
+        with:
+          repository: PeterChauYEG/labone-actions
+          ref: main
+          path: labone-actions
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+      - name: Prepare reports
+        id: build
+        shell: bash
+        env:
+          FMT_RESULT: ${{ needs.fmt.result }}
+          FMT_REPORT: ${{ needs.fmt.outputs.report }}
+          CLIPPY_RESULT: ${{ needs.clippy.result }}
+          CLIPPY_REPORT: ${{ needs.clippy.outputs.report }}
+          TEST_RESULT: ${{ needs.test.result }}
+          TEST_REPORT: ${{ needs.test.outputs.report }}
+          DEAD_CODE_RESULT: ${{ needs.dead-code.result }}
+          DEAD_CODE_REPORT: ${{ needs.dead-code.outputs.report }}
+          DUPLICATE_CODE_RESULT: ${{ needs.duplicate-code.result }}
+          DUPLICATE_CODE_REPORT: ${{ needs.duplicate-code.outputs.report }}
+          FILE_SIZE_RESULT: ${{ needs.file-size.result }}
+          FILE_SIZE_REPORT: ${{ needs.file-size.outputs.report }}
+          SECURITY_SCAN_RESULT: ${{ needs.security-scan.result }}
+          SECURITY_SCAN_REPORT: ${{ needs.security-scan.outputs.report }}
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          SECRET_SCAN_REPORT: ${{ needs.secret-scan.outputs.report }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+          DEPENDENCY_AUDIT_REPORT: ${{ needs.dependency-audit.outputs.report }}
+          TECH_DEBT_RESULT: ${{ needs.tech-debt.result }}
+          TECH_DEBT_REPORT: ${{ needs.tech-debt.outputs.report }}
+        run: |
+          set -uo pipefail
+          printf '%s\n' "$FMT_REPORT" > /tmp/fmt-report.md
+          printf '%s\n' "$CLIPPY_REPORT" > /tmp/clippy-report.md
+          printf '%s\n' "$TEST_REPORT" > /tmp/test-report.md
+          printf '%s\n' "$DEAD_CODE_REPORT" > /tmp/dead-code-report.md
+          printf '%s\n' "$DUPLICATE_CODE_REPORT" > /tmp/duplicate-code-report.md
+          printf '%s\n' "$SECURITY_SCAN_REPORT" > /tmp/security-scan-report.md
+          printf '%s\n' "$SECRET_SCAN_REPORT" > /tmp/secret-scan-report.md
+          printf '%s\n' "$DEPENDENCY_AUDIT_REPORT" > /tmp/dependency-audit-report.md
+          {
+            echo "report<<DANGER_COMMENT_REPORT_EOF"
+            echo '## Rust checks'
+            echo
+            [ "$FMT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$FMT_REPORT"; }
+            [ "$CLIPPY_RESULT" != 'skipped' ] && { printf '%s\n\n' "$CLIPPY_REPORT"; }
+            [ "$TEST_RESULT" != 'skipped' ] && { printf '%s\n\n' "$TEST_REPORT"; }
+            [ "$DEAD_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEAD_CODE_REPORT"; }
+            [ "$DUPLICATE_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DUPLICATE_CODE_REPORT"; }
+            [ "$FILE_SIZE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$FILE_SIZE_REPORT"; }
+            [ "$SECURITY_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECURITY_SCAN_REPORT"; }
+            [ "$SECRET_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECRET_SCAN_REPORT"; }
+            [ "$DEPENDENCY_AUDIT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEPENDENCY_AUDIT_REPORT"; }
+            [ "$TECH_DEBT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$TECH_DEBT_REPORT"; }
+            echo "DANGER_COMMENT_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
         with:
-          report: ${{ needs.tech-debt.outputs.report }}
-          sticky-header: tech-debt-report-rust
+          report: ${{ steps.build.outputs.report }}
+          sticky-header: rust-checks
+      - name: File Linear ticket for fmt
+        if: ${{ needs.fmt.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh fmt /tmp/fmt-report.md
+      - name: File Linear ticket for clippy
+        if: ${{ needs.clippy.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh clippy /tmp/clippy-report.md
+      - name: File Linear ticket for test
+        if: ${{ needs.test.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh test /tmp/test-report.md
+      - name: File Linear ticket for dead-code
+        if: ${{ needs.dead-code.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh dead-code /tmp/dead-code-report.md
+      - name: File Linear ticket for duplicate-code
+        if: ${{ needs.duplicate-code.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh duplicate-code /tmp/duplicate-code-report.md
+      - name: File Linear ticket for security-scan
+        if: ${{ needs.security-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh security-scan /tmp/security-scan-report.md
+      - name: File Linear ticket for secret-scan
+        if: ${{ needs.secret-scan.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh secret-scan /tmp/secret-scan-report.md
+      - name: File Linear ticket for dependency-audit
+        if: ${{ needs.dependency-audit.outputs.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash labone-actions/scripts/file-linear-ticket.sh dependency-audit /tmp/dependency-audit-report.md
 
+  # `danger-comment` above is deliberately excluded from `needs:` below -
+  # purely advisory/reporting, like dead-code/duplicate-code/file-size, and
+  # never fails on its own either.
   required-checks:
     name: required-checks
     needs: [changes, actionlint, fmt, clippy, test, build, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
