@@ -313,6 +313,33 @@ runs:
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
           install_with_retry
+          # For a yarn workspaces monorepo, the node-modules linker creates
+          # RELATIVE symlinks for workspace packages, e.g.
+          # node_modules/@scope/pkg -> ../../packages/pkg, correctly
+          # pointing back into this working directory. Moving node_modules
+          # into the bundle a few lines down breaks these: the relative
+          # target then resolves relative to the BUNDLE's location instead
+          # (.../bundle-<hash>/packages/pkg), which doesn't exist there -
+          # only node_modules itself gets moved into the bundle, not the
+          # sibling packages/apps source trees. Root-caused live
+          # 2026-09-14 via company-system's "Cannot find module
+          # '@company-system/core'" CI failures, reproducing on every job
+          # that got a bundle hit after a cache-write run. Rewrite any
+          # symlink whose target escapes node_modules to an absolute path
+          # before the move - absolute targets keep resolving correctly
+          # regardless of where the bundle lives on disk.
+          abs_wd="$(pwd)"
+          while IFS= read -r -d '' link; do
+            target="$(readlink "$link")"
+            case "$target" in
+              /*) continue ;;
+            esac
+            resolved="$(cd "$(dirname "$link")" && realpath -m "$target")"
+            case "$resolved" in
+              "$abs_wd"/node_modules/*) continue ;;
+            esac
+            ln -sfn "$resolved" "$link"
+          done < <(find node_modules -type l -print0)
           # Only now, with a real (non-symlinked) node_modules fully
           # installed, move it into the scratch bundle and replace it with
           # the same kind of symlink every reader will use.
