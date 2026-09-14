@@ -258,9 +258,68 @@ runs:
           touch "$bundle/.last-used"
           while IFS= read -r rel; do
             [[ -z "$rel" ]] && continue
+            if [[ "$rel" == "node_modules" ]]; then
+              link_node_modules_shallow "$bundle/node_modules"
+              continue
+            fi
             mkdir -p "$(dirname "$rel")" "$(dirname "$bundle/$rel")"
             ln -sfn "$bundle/$rel" "$rel"
           done <<< "$REL_PATHS"
+          relink_workspaces
+        }
+
+        # node_modules gets a REAL, per-job local directory (not one
+        # top-level symlink straight into the shared bundle) containing one
+        # symlink per bundle top-level entry. This lets relink_workspaces
+        # (below) override just the workspace-package entries with this
+        # job's own local paths afterward without writing "through" a
+        # top-level symlink into (and racing every other concurrent reader
+        # over) the shared, immutable bundle. Cheap: one readdir + one
+        # symlink per top-level entry, no copying.
+        link_node_modules_shallow() {
+          local bundle_nm="$1"
+          mkdir -p node_modules
+          shopt -s dotglob nullglob
+          for entry in "$bundle_nm"/*; do
+            ln -sfn "$entry" "node_modules/$(basename "$entry")"
+          done
+          shopt -u dotglob nullglob
+        }
+
+        # Yarn's node-modules linker creates a symlink under
+        # node_modules/<pkg-name> for every local workspace package (e.g.
+        # node_modules/@scope/pkg -> ../../packages/pkg), pointing back
+        # into whichever checkout ran the install. Root-caused live
+        # 2026-09-14 via company-system's "Cannot find module
+        # '@company-system/core'" CI failures: once that node_modules gets
+        # shared through the bundle cache, that target is wrong for every
+        # job except the one that originally wrote it - the workspace
+        # source only exists in that one job's own (ephemeral, since
+        # deleted) checkout, not in the bundle and not in any other job's
+        # checkout at that same absolute path. There's no shared answer
+        # for where a workspace package "is"; every job's checkout is a
+        # different location. So skip trying to bundle these at all -
+        # every job (bundle-hit readers and the cache-write job's own
+        # final link_bundle call alike) instead recreates its own
+        # workspace-package entries fresh from `yarn workspaces list` (no
+        # network, package.json only) against ITS OWN real checkout. Safe
+        # against the write in link_node_modules_shallow above only
+        # because node_modules is now a real local directory there, not a
+        # symlink into shared state. No-op for a non-workspaces repo (the
+        # only row `yarn workspaces list` prints is the root itself,
+        # filtered out below).
+        relink_workspaces() {
+          command -v yarn >/dev/null 2>&1 || return 0
+          local abs_wd
+          abs_wd="$(pwd)"
+          yarn workspaces list --json 2>/dev/null \
+            | jq -r 'select(.location != ".") | "\(.name)\t\(.location)"' \
+            | while IFS=$'\t' read -r name loc; do
+                [[ -z "$name" ]] && continue
+                rm -rf "node_modules/$name"
+                mkdir -p "$(dirname "node_modules/$name")"
+                ln -sfn "$abs_wd/$loc" "node_modules/$name"
+              done
         }
 
         # Retries a fresh `yarn install --frozen-lockfile` up to 3 times as
@@ -313,33 +372,6 @@ runs:
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
           install_with_retry
-          # For a yarn workspaces monorepo, the node-modules linker creates
-          # RELATIVE symlinks for workspace packages, e.g.
-          # node_modules/@scope/pkg -> ../../packages/pkg, correctly
-          # pointing back into this working directory. Moving node_modules
-          # into the bundle a few lines down breaks these: the relative
-          # target then resolves relative to the BUNDLE's location instead
-          # (.../bundle-<hash>/packages/pkg), which doesn't exist there -
-          # only node_modules itself gets moved into the bundle, not the
-          # sibling packages/apps source trees. Root-caused live
-          # 2026-09-14 via company-system's "Cannot find module
-          # '@company-system/core'" CI failures, reproducing on every job
-          # that got a bundle hit after a cache-write run. Rewrite any
-          # symlink whose target escapes node_modules to an absolute path
-          # before the move - absolute targets keep resolving correctly
-          # regardless of where the bundle lives on disk.
-          abs_wd="$(pwd)"
-          while IFS= read -r -d '' link; do
-            target="$(readlink "$link")"
-            case "$target" in
-              /*) continue ;;
-            esac
-            resolved="$(cd "$(dirname "$link")" && realpath -m "$target")"
-            case "$resolved" in
-              "$abs_wd"/node_modules/*) continue ;;
-            esac
-            ln -sfn "$resolved" "$link"
-          done < <(find node_modules -type l -print0)
           # Only now, with a real (non-symlinked) node_modules fully
           # installed, move it into the scratch bundle and replace it with
           # the same kind of symlink every reader will use.
