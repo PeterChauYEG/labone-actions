@@ -27,8 +27,11 @@ name: Develop CI
 # other scan jobs it never fails the job (it's a metrics report, not a
 # gate) and doesn't need node_modules/yarn, so it's a plain
 # `.github/actions/tech-debt-report` call with no `setup-node-yarn` step
-# first. See that action's own header comment for the full metric list and
-# the `pr_base_sha` input for the optional delta-vs-base-branch column.
+# first. Posting the report is split into its own `tech-debt-comment` job
+# (via the shared `post-danger-comment` action), so the metrics job itself
+# never needs Node/npx either and can stay on catfood-minimal. See that
+# action's own header comment for the full metric list and the
+# `pr_base_sha` input for the optional delta-vs-base-branch column.
 #
 # Caching (LAB-1371): every job (not just `setup`) calls `setup-node-yarn`
 # directly, which restores node_modules from a cache keyed on yarn.lock's
@@ -576,17 +579,37 @@ jobs:
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
     permissions:
       contents: read
-      pull-requests: write
+    outputs:
+      report: ${{ steps.tech-debt-report.outputs.report }}
     steps:
-      # No setup-node-yarn call: this is a plain grep over the tracked
-      # .ts/.tsx tree, no installed node_modules needed - just check out
-      # the repo, same as security-scan above.
+      # No setup-node-yarn call, no setup-node either: this is a plain grep
+      # over the tracked .ts/.tsx tree, no installed node_modules or Node
+      # runtime needed - just check out the repo, same as security-scan
+      # above. tech-debt-report only computes metrics and emits a `report`
+      # output; posting it as a sticky PR comment (which does need Node/npx
+      # for `npx danger`) is the separate tech-debt-comment job below, kept
+      # off this minimal runner.
       - uses: actions/checkout@v7
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
+        id: tech-debt-report
         with:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
+
+  tech-debt-comment:
+    name: tech-debt-comment
+    needs: [tech-debt, changes]
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.web_source == 'true' }}
+    runs-on: [self-hosted, catfood, catfood-node]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
+        with:
+          report: ${{ needs.tech-debt.outputs.report }}
+          sticky-header: tech-debt-report
 
   required-checks:
     name: required-checks

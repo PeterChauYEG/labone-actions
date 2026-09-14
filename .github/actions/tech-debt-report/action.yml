@@ -7,22 +7,20 @@ description: >
   `@ts-ignore`/`@ts-expect-error` suppressions, `any` usage (": any" /
   "as any" / "@ts-nocheck"), TODO/FIXME/HACK comments, and `console.log`
   calls across every tracked `.ts`/`.tsx` file (excluding node_modules/
-  .next/dist/build/coverage/.expo/.git). Posts/updates a single sticky PR
-  comment via `danger ci --id` (same mechanism scan-with-report already
-  uses) with a markdown table of the current totals, and — when `base-sha`
-  is supplied — the delta against the PR's base branch, computed via a
-  throwaway `git worktree` checkout of that SHA instead of a second full
-  checkout. Repo-wide totals, not a diff-only count — see README.md. Unlike
-  scan-with-report, this never runs a yarn
-  script and doesn't need node_modules, so callers don't need the full
-  setup-node-yarn install first — just `actions/checkout@v7`. It does
-  still need a bare Node.js runtime for the `npx danger` sticky-comment
-  step below, which this action installs itself via `actions/setup-node@v7`
-  (no yarn install) so callers can run this job on a minimal/no-node
-  runner (e.g. catfood-minimal) - see develop-rust-ci.yml's JS-sibling job
-  for the same pattern; LAB-2330 hit `npx: command not found` here before
-  this step was added. Never fails the job; this is a metrics report, not
-  a pass/fail gate.
+  .next/dist/build/coverage/.expo/.git). Emits the markdown table (current
+  totals, and — when `base-sha` is supplied — the delta against the PR's
+  base branch, computed via a throwaway `git worktree` checkout of that SHA
+  instead of a second full checkout) as this action's `report` output.
+  Repo-wide totals, not a diff-only count — see README.md. This action only
+  computes metrics; it does not post anything itself — the caller is
+  responsible for posting `report` as a sticky PR comment via the separate
+  `post-danger-comment` action, so this action never runs a yarn script,
+  never needs node_modules, and never needs Node/npx either. That's the
+  point: callers can run this on a minimal/no-node runner (e.g.
+  catfood-minimal) — just `actions/checkout@v7` — and hand the `report`
+  output to a Node-capable job for the actual comment step. See
+  develop-ci.yml's `tech-debt`/`tech-debt-comment` jobs. Never fails the
+  job; this is a metrics report, not a pass/fail gate.
 
 inputs:
   working-directory:
@@ -46,10 +44,14 @@ inputs:
       only rather than failing the job.
     required: false
     default: ''
-  sticky-header:
-    description: Unique identifier for this job's sticky PR comment, passed as danger's `--id`.
-    required: false
-    default: tech-debt-report
+
+outputs:
+  report:
+    description: >
+      The full markdown tech-debt report (a `### Tech debt metrics` heading
+      plus a table). Pass this straight through to `post-danger-comment`'s
+      `report` input to post/update the sticky PR comment.
+    value: ${{ steps.report.outputs.report }}
 
 runs:
   using: composite
@@ -105,7 +107,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        report_file="$(mktemp)"
         has_base="${{ steps.base.outputs.use_effect != '' }}"
 
         fmt_row() {
@@ -121,6 +122,7 @@ runs:
         }
 
         {
+          echo "report<<TECH_DEBT_REPORT_EOF"
           echo '### Tech debt metrics'
           echo
           if [ "$has_base" = 'true' ]; then
@@ -137,34 +139,5 @@ runs:
           fmt_row '`any` usage' "${{ steps.current.outputs.any_usage }}" "${{ steps.base.outputs.any_usage }}"
           fmt_row 'TODO/FIXME/HACK comments' "${{ steps.current.outputs.todo }}" "${{ steps.base.outputs.todo }}"
           fmt_row '`console.log` calls' "${{ steps.current.outputs.console_log }}" "${{ steps.base.outputs.console_log }}"
-        } >> "$report_file"
-
-        echo "path=$report_file" >> "$GITHUB_OUTPUT"
-
-    - name: Generate Dangerfile
-      shell: bash
-      run: |
-        set -euo pipefail
-        cat > "$RUNNER_TEMP/tech-debt-report-dangerfile.js" <<'DANGERFILE'
-        const fs = require('fs')
-        const reportPath = process.env.DANGER_REPORT_PATH
-
-        if (reportPath && fs.existsSync(reportPath)) {
-          markdown(fs.readFileSync(reportPath, 'utf8'))
-        }
-        DANGERFILE
-
-    - name: Set up Node.js for danger
-      # Bare runtime only (no yarn install) — the calling job may run on a
-      # minimal/no-node runner (e.g. catfood-minimal), which doesn't have
-      # `npx` on PATH otherwise. See this action's header comment (LAB-2330).
-      uses: actions/setup-node@v7
-      with:
-        node-version: 22
-
-    - name: Post sticky report comment via danger
-      shell: bash
-      env:
-        DANGER_REPORT_PATH: ${{ steps.report.outputs.path }}
-        DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-      run: npx --yes danger@14.0.7 ci --id "${{ inputs.sticky-header }}" --dangerfile "$RUNNER_TEMP/tech-debt-report-dangerfile.js"
+          echo "TECH_DEBT_REPORT_EOF"
+        } >> "$GITHUB_OUTPUT"

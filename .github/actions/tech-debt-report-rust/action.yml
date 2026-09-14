@@ -4,15 +4,19 @@ description: >
   HACK comments and `#[allow(...)]`/`#![allow(...)]` lint-suppression
   attributes across every tracked `.rs` file (respecting the repo's own
   .gitignore — see count-metrics.sh). Rust sibling of
-  `tech-debt-report` (TS/TSX) — same sticky-PR-comment mechanism via
-  `danger ci --id`, same current-tree + optional base-sha delta shape,
-  scoped to the two metrics that have a direct Rust equivalent:
+  `tech-debt-report` (TS/TSX) — same current-tree + optional base-sha delta
+  shape, scoped to the two metrics that have a direct Rust equivalent:
   `#[allow(...)]` is Rust's `eslint-disable` (it suppresses a specific
   clippy/rustc lint at a specific call site), and TODO/FIXME/HACK comments
-  mean the same thing regardless of language. Never runs cargo or needs a
-  built workspace, so callers don't need setup-rust first — just
-  `actions/checkout@v7`. Never fails the job; this is a metrics report,
-  not a pass/fail gate.
+  mean the same thing regardless of language. Emits the markdown table as
+  this action's `report` output; it does not post anything itself — the
+  caller posts `report` as a sticky PR comment via the separate
+  `post-danger-comment` action. That split means this action never runs
+  cargo, never needs a built workspace, and never needs Node/npx, so
+  callers don't need setup-rust or setup-node first — just
+  `actions/checkout@v7` — and can run it on a minimal runner (e.g.
+  catfood-minimal); see develop-rust-ci.yml's `tech-debt`/`tech-debt-comment`
+  jobs. Never fails the job; this is a metrics report, not a pass/fail gate.
 
 inputs:
   working-directory:
@@ -36,10 +40,15 @@ inputs:
       only rather than failing the job.
     required: false
     default: ''
-  sticky-header:
-    description: Unique identifier for this job's sticky PR comment, passed as danger's `--id`.
-    required: false
-    default: tech-debt-report-rust
+
+outputs:
+  report:
+    description: >
+      The full markdown tech-debt report (a `### Rust tech debt metrics`
+      heading plus a table). Pass this straight through to
+      `post-danger-comment`'s `report` input to post/update the sticky PR
+      comment.
+    value: ${{ steps.report.outputs.report }}
 
 runs:
   using: composite
@@ -85,7 +94,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        report_file="$(mktemp)"
         has_base="${{ steps.base.outputs.todo != '' }}"
 
         fmt_row() {
@@ -101,6 +109,7 @@ runs:
         }
 
         {
+          echo "report<<TECH_DEBT_REPORT_RUST_EOF"
           echo '### Rust tech debt metrics'
           echo
           if [ "$has_base" = 'true' ]; then
@@ -112,26 +121,5 @@ runs:
           fi
           fmt_row 'TODO/FIXME/HACK comments' "${{ steps.current.outputs.todo }}" "${{ steps.base.outputs.todo }}"
           fmt_row '`#[allow(...)]`/`#![allow(...)]` suppressions' "${{ steps.current.outputs.allow_attrs }}" "${{ steps.base.outputs.allow_attrs }}"
-        } >> "$report_file"
-
-        echo "path=$report_file" >> "$GITHUB_OUTPUT"
-
-    - name: Generate Dangerfile
-      shell: bash
-      run: |
-        set -euo pipefail
-        cat > "$RUNNER_TEMP/tech-debt-report-rust-dangerfile.js" <<'DANGERFILE'
-        const fs = require('fs')
-        const reportPath = process.env.DANGER_REPORT_PATH
-
-        if (reportPath && fs.existsSync(reportPath)) {
-          markdown(fs.readFileSync(reportPath, 'utf8'))
-        }
-        DANGERFILE
-
-    - name: Post sticky report comment via danger
-      shell: bash
-      env:
-        DANGER_REPORT_PATH: ${{ steps.report.outputs.path }}
-        DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-      run: npx --yes danger@14.0.7 ci --id "${{ inputs.sticky-header }}" --dangerfile "$RUNNER_TEMP/tech-debt-report-rust-dangerfile.js"
+          echo "TECH_DEBT_REPORT_RUST_EOF"
+        } >> "$GITHUB_OUTPUT"

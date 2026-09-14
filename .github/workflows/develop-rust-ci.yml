@@ -546,24 +546,39 @@ jobs:
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     permissions:
       contents: read
-      pull-requests: write
+    outputs:
+      report: ${{ steps.tech-debt-report.outputs.report }}
     steps:
-      # No setup-rust call: this is a plain grep over the tracked .rs
-      # tree, no built workspace needed - just check out the repo. An
-      # explicit setup-node here (unlike develop-ci.yml's JS tech-debt
-      # job, which assumes node is already on PATH on catfood-minimal -
-      # untested, since no repo has enabled that job yet) matches
-      # file-size's own belt-and-suspenders approach above, since this
-      # job's own composite action needs npx for its danger comment step.
+      # No setup-rust call, no setup-node either: this is a plain grep over
+      # the tracked .rs tree, no built workspace or Node runtime needed -
+      # just check out the repo. tech-debt-report-rust only computes
+      # metrics and emits a `report` output; posting it as a sticky PR
+      # comment (which does need Node/npx for `npx danger`) is the separate
+      # tech-debt-comment job below, kept off this minimal runner.
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report-rust@main
+        id: tech-debt-report
         with:
           working-directory: ${{ inputs.working-directory }}
           pr-number: ${{ inputs.pr_number }}
           base-sha: ${{ inputs.pr_base_sha }}
+
+  tech-debt-comment:
+    name: tech-debt-comment
+    needs: [tech-debt, changes]
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
+    # No catfood-rust/catfood-node label needed here — post-danger-comment
+    # brings its own actions/setup-node@v7 step, so plain catfood-minimal
+    # is enough for a job that only needs Node for `npx danger`.
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
+        with:
+          report: ${{ needs.tech-debt.outputs.report }}
+          sticky-header: tech-debt-report-rust
 
   required-checks:
     name: required-checks
