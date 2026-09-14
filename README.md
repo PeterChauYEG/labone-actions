@@ -910,10 +910,17 @@ here — don't confuse them:
    happened in production on `laboratory-one-web`'s `main.yml` (2026-08-04) —
    it redeclared `main-ci-${{ github.repository }}` on top of `main-ci.yml`'s
    own, and every push-to-main deploy got canceled until the caller's
-   duplicate was removed. `develop-ci.yml` has no group of its own for this
-   reason — concurrency for PR runs is owned entirely by the caller instead
-   (grouped per PR number, which the reusable workflow can't see from its own
-   context anyway).
+   duplicate was removed. On the PR side, both the `*-pr.yml` caller
+   (grouped per PR number, since the reusable workflow can't see that from
+   its own context) and the `develop-*-ci.yml`/`godot-develop-ci.yml`
+   workflow it calls (grouped by `${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}`)
+   each declare their own group — safe, since the two group strings never
+   match, just redundant (both would independently cancel a superseded run
+   of the same PR). The deadlock only happens when a caller and the exact
+   reusable workflow it invokes resolve to the *same* group string, as in
+   the incident above — never when the two levels use genuinely different
+   groups, whether that's a deliberate design (`main-ci.yml`'s family) or
+   incidental redundancy (the PR-side pairs above).
 2. **The gha-runner host's job-concurrency semaphore** (`ci-semaphore-acquire.sh`
    / `ci-semaphore-release.sh`, provisioned by the `gha-runners` skill in ops)
    — a *global* cap (`GLOBAL_CI_CONCURRENCY`, default 8) and a *per-repo* cap

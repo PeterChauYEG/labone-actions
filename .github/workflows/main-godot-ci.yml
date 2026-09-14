@@ -51,6 +51,20 @@ on:
 permissions:
   contents: read
 
+# Unlike main-ci.yml/main-node-ci.yml/main-python-ci.yml/main-rust-ci.yml,
+# the workflow this wraps (godot-develop-ci.yml) keys its own concurrency
+# group off `${{ github.workflow }}` rather than a hardcoded string — it's
+# shared with the PR path (godot-pr.yml), where that resolves to the
+# top-level caller's name either way. Declaring an explicit, hardcoded
+# group here removes any dependency on that resolving the same way across
+# nesting depths, matching every sibling main-*-ci.yml's pattern. This is
+# a different (non-identical) group than godot-develop-ci.yml's own, so it
+# does not reproduce the same-group parent/child deadlock described in
+# main-ci.yml's comment and README.md "Concurrency".
+concurrency:
+  group: main-godot-ci-${{ github.repository }}
+  cancel-in-progress: true
+
 jobs:
   godot-ci:
     uses: PeterChauYEG/labone-actions/.github/workflows/godot-develop-ci.yml@main
