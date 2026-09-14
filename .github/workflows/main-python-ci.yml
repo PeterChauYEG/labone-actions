@@ -81,7 +81,7 @@ concurrency:
 jobs:
   lint:
     name: lint
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-python]
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
         with:
@@ -92,7 +92,7 @@ jobs:
 
   test:
     name: test
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-python]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
@@ -135,7 +135,7 @@ jobs:
 
   dependency-audit:
     name: dependency-audit
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-python]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main

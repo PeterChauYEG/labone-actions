@@ -9,3 +9,4 @@ self-hosted-runner:
     - catfood-node
     - catfood-rust
     - catfood-godot
+    - catfood-python

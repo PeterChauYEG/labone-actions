@@ -49,7 +49,7 @@ on:
         # actionlint job (which DOES pass self_hosted_labels explicitly)
         # isn't the one that scanned the repo - this bare-default nested
         # one was, and it only knew about "catfood".
-        default: 'catfood,catfood-minimal,catfood-node,catfood-rust,catfood-godot'
+        default: 'catfood,catfood-minimal,catfood-node,catfood-rust,catfood-godot,catfood-python'
       pr_number:
         type: number
         required: false
