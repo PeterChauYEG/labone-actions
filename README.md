@@ -327,8 +327,8 @@ dependencies.
 
 Jobs: `setup`, `lint`, `ls-lint`, `typecheck`, `build`, `test`,
 `design-system`, `dead-code`, `duplicate-code`,
-`react-tech-debt`, `max-lines`, `tech-debt` (opt-in, see "Tech debt metrics
-report" below). Scan jobs (`design-system`,
+`react-tech-debt`, `max-lines`, `tech-debt`/`tech-debt-comment` (opt-in,
+see "Tech debt metrics report" below). Scan jobs (`design-system`,
 `dead-code`, `duplicate-code`) post a sticky PR comment on
 every run and file/comment-on a Linear ticket (via
 `scripts/file-linear-ticket.sh`) when they fail; `react-tech-debt` and
@@ -1046,22 +1046,46 @@ job's `gh-token` input when non-empty (same per-repo secret forwarded to
 the scan step) or `github.token` otherwise — the same fallback
 `marocchino/sticky-pull-request-comment` used implicitly.
 
+## Shared danger comment posting — `.github/actions/post-danger-comment`
+
+Posts/updates a single sticky PR comment with arbitrary markdown via
+`danger ci --id` — the same underlying mechanism `scan-with-report` uses,
+extracted into its own action so a metrics-only action can hand off its
+`report` output without pulling `actions/setup-node@v7` into its own job.
+Inputs: `report` (required, the markdown body) and `sticky-header`
+(required, `danger ci`'s `--id`). Used by the `tech-debt`/
+`tech-debt-comment` job pairs in `develop-ci.yml` and
+`develop-rust-ci.yml` — see "Tech debt metrics report" below for why the
+split exists. Never fails the job.
+
 ## Tech debt metrics report — `.github/actions/tech-debt-report`
 
 `develop-ci.yml` and `develop-mobile-ci.yml` both have an opt-in `tech-debt`
 job (`enable_tech_debt`, default **false** — see each workflow's own
 section above) that greps the caller's tracked `.ts`/`.tsx` tree for seven
-tech-debt signals and posts the totals as a sticky PR comment, updated in
-place on every push rather than posted fresh each time (same `danger ci
---id` mechanism `scan-with-report` already uses — see "Sticky comments via
-`danger ci --id`" above). Unlike every scan job above, it never fails the job — it's a
-metrics report, not a gate — and it never runs a yarn script or needs
-`node_modules`, so the job just does a plain `actions/checkout@v7` before
-calling the action (no `setup-node-yarn` step) — but it does still need a
-plain `actions/setup-node@v7` first, since the action's final step shells
-out to `npx danger` to post the sticky comment and `catfood-minimal` isn't
-guaranteed to have `npx` on `PATH` otherwise (see the Rust equivalent
-below, and `develop-ci.yml`'s own `tech-debt` job).
+tech-debt signals and emits the totals as a `report` output. Split across
+two jobs, not one:
+
+- `tech-debt` computes the metrics (this action) and never runs a yarn
+  script or needs `node_modules` or a Node runtime at all, so it stays on
+  a minimal runner — just `actions/checkout@v7` before calling the action,
+  no `setup-node-yarn` and no `setup-node` either.
+- `tech-debt-comment` (`needs: tech-debt`) takes that `report` output and
+  posts/updates it as a sticky PR comment via the shared
+  `.github/actions/post-danger-comment` action, updated in place on every
+  push rather than posted fresh each time (same `danger ci --id` mechanism
+  `scan-with-report` already uses — see "Sticky comments via
+  `danger ci --id`" above). This is the only piece of the pipeline that
+  needs Node/npx (`npx danger`), so it's the only job that pays for it.
+
+This split exists because the original single-job shape assumed
+`catfood-minimal` had `npx` on `PATH` for the comment step — it doesn't,
+which is exactly what broke budget PR #330 (LAB-2328, see this repo's
+`fix/tech-debt-job-missing-node-setup` history). Rather than bolt
+`actions/setup-node@v7` onto the metrics job (which would defeat the point
+of a Node-free minimal runner), the danger-posting step moved into its own
+action and its own job. Unlike every scan job above, neither job ever
+fails the job — it's a metrics report, not a gate.
 
 Metrics (repo-wide totals, not diff-only counts):
 
@@ -1101,9 +1125,10 @@ inside a git working tree at all.
   failure (e.g. an unreachable SHA) degrades to current-totals-only
   instead of failing the job — this is a nice-to-have, not something worth
   blocking a PR over.
-- `sticky-header` (string, default `tech-debt-report`) — unique identifier
-  for this job's sticky PR comment, passed as `danger ci`'s `--id`, same
-  convention as `scan-with-report`'s `sticky-header` input.
+
+Output: `report` — the full markdown report, passed straight through to
+`.github/actions/post-danger-comment`'s `report` input by the
+`tech-debt-comment` job.
 
 The actual counting logic lives in one place,
 `.github/actions/tech-debt-report/count-metrics.sh <dir>`, invoked by both
@@ -1120,12 +1145,14 @@ To opt a repo in, set `enable_tech_debt: true` on the `develop-ci.yml`/
 `develop-rust-ci.yml` has an opt-in `tech-debt` job (`enable_tech_debt`,
 default **false**, same convention as `develop-ci.yml`'s equivalent above)
 that greps the caller's tracked `.rs` tree for two tech-debt signals and
-posts the totals as a sticky PR comment (same `danger ci --id` mechanism).
-Never fails the job — a metrics report, not a gate — and never runs cargo
-or needs a built workspace, so the job just does a plain
-`actions/checkout@v7` (plus an explicit `actions/setup-node@v7`, since
-unlike a Node-flavored runner this job's own `catfood-minimal` image isn't
-guaranteed to have `npx` on `PATH` already) before calling the action.
+emits the totals as a `report` output — same `tech-debt` /
+`tech-debt-comment` two-job split as the TS/TSX version above, for the
+same reason (the metrics job never runs cargo or needs a built workspace,
+so it stays on `catfood-minimal` with just `actions/checkout@v7`; posting
+via `npx danger` is the separate `tech-debt-comment` job, which is the
+only one of the two that needs `.github/actions/post-danger-comment`'s
+`actions/setup-node@v7` step). Neither job ever fails the job — a metrics
+report, not a gate.
 
 Metrics (repo-wide totals, not diff-only counts):
 
@@ -1141,11 +1168,11 @@ rather than a hardcoded exclude list. Falls back to a plain `find`
 inside a git working tree at all.
 
 `.github/actions/tech-debt-report-rust/action.yml` inputs mirror
-`tech-debt-report`'s exactly (`working-directory`, `pr-number`, `base-sha`,
-`sticky-header`) — see that section above for the full contract. The
-counting logic lives in `.github/actions/tech-debt-report-rust/
-count-metrics.sh <dir>`, invoked by both the "current tree" and "base
-branch worktree" steps.
+`tech-debt-report`'s exactly (`working-directory`, `pr-number`, `base-sha`)
+and it emits the same `report` output — see that section above for the
+full contract. The counting logic lives in
+`.github/actions/tech-debt-report-rust/count-metrics.sh <dir>`, invoked by
+both the "current tree" and "base branch worktree" steps.
 
 To opt a repo in, set `enable_tech_debt: true` on the `develop-rust-ci.yml`
 call and, for the delta column, also pass
