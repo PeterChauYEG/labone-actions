@@ -1057,7 +1057,11 @@ place on every push rather than posted fresh each time (same `danger ci
 `danger ci --id`" above). Unlike every scan job above, it never fails the job — it's a
 metrics report, not a gate — and it never runs a yarn script or needs
 `node_modules`, so the job just does a plain `actions/checkout@v7` before
-calling the action (no `setup-node-yarn` step).
+calling the action (no `setup-node-yarn` step) — but it does still need a
+plain `actions/setup-node@v7` first, since the action's final step shells
+out to `npx danger` to post the sticky comment and `catfood-minimal` isn't
+guaranteed to have `npx` on `PATH` otherwise (see the Rust equivalent
+below, and `develop-ci.yml`'s own `tech-debt` job).
 
 Metrics (repo-wide totals, not diff-only counts):
 
