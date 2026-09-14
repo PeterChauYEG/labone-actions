@@ -15,7 +15,11 @@ description: >
   checkout. Repo-wide totals, not a diff-only count — see README.md. Unlike
   scan-with-report, this never runs a yarn
   script and doesn't need node_modules, so callers don't need
-  setup-node-yarn first — just `actions/checkout@v7`. Never fails the job;
+  setup-node-yarn first — just `actions/checkout@v7` plus a plain
+  `actions/setup-node@v7` (the final step below still shells out to `npx
+  danger` to post the sticky comment, so Node/npx must be on PATH even
+  though yarn/node_modules aren't needed — see develop-ci.yml's
+  `tech-debt` job). Never fails the job;
   this is a metrics report, not a pass/fail gate.
 
 inputs:
