@@ -262,7 +262,7 @@ runs:
               link_node_modules_shallow "$bundle/node_modules"
               continue
             fi
-            mkdir -p "$(dirname "$rel")" "$(dirname "$bundle/$rel")"
+            mkdir -p "$(dirname "$rel")" "$bundle/$rel"
             ln -sfn "$bundle/$rel" "$rel"
           done <<< "$REL_PATHS"
           relink_workspaces
@@ -368,7 +368,7 @@ runs:
           # unaffected and still gets pre-symlinked as before.
           while IFS= read -r rel; do
             [[ -z "$rel" || "$rel" == "node_modules" ]] && continue
-            mkdir -p "$(dirname "$rel")" "$(dirname "$scratch/$rel")"
+            mkdir -p "$(dirname "$rel")" "$scratch/$rel"
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
           install_with_retry
