@@ -36,7 +36,20 @@ on:
           canonical .github/actionlint.yaml before scanning.
         type: string
         required: false
-        default: 'catfood'
+        # All catfood flavor labels, not just the bare "catfood" - this
+        # scans the WHOLE calling repo's .github/workflows/, not just
+        # whichever workflow file happens to invoke this job. An internal
+        # actionlint job called from inside another reusable workflow
+        # (e.g. develop-python-ci.yml's own `actionlint:` job, which has no
+        # `with:` block at all) silently falls back to this default and
+        # therefore only declares whatever it lists as known - confirmed
+        # live 2026-09-14: vdb-mcp's embedding-server-ci (develop-python-
+        # ci.yml) failed its nested actionlint job on "label catfood-
+        # minimal is unknown" because the caller-facing top-level
+        # actionlint job (which DOES pass self_hosted_labels explicitly)
+        # isn't the one that scanned the repo - this bare-default nested
+        # one was, and it only knew about "catfood".
+        default: 'catfood,catfood-minimal,catfood-node,catfood-rust,catfood-godot'
       pr_number:
         type: number
         required: false
