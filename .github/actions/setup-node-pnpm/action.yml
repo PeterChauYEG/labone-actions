@@ -145,6 +145,16 @@ runs:
         set -euo pipefail
         mkdir -p "$PNPM_STORE"
         pnpm config set store-dir "$PNPM_STORE"
+        # pnpm 11 defaults verifyDepsBeforeRun to 'install', which runs a
+        # pre-flight check before every `pnpm <script>` and refuses to
+        # touch node_modules when it's a symlink outside the project root
+        # (ERR_PNPM_UNSAFE_MODULES_DIR) - exactly what node_modules always
+        # is here, deliberately, once link_bundle runs. Root-caused live
+        # via info-sink's lint/typecheck/build/test jobs all failing
+        # identically post-setup. The bundle design already guarantees
+        # node_modules matches the lockfile, so this check is a false
+        # positive here, not a safety net worth keeping.
+        pnpm config set verify-deps-before-run false
 
         link_bundle() {
           # .last-used touched FIRST, before any symlink - see
