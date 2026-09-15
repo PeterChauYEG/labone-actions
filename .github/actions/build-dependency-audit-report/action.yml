@@ -1,0 +1,58 @@
+name: Build dependency-audit report
+description: >
+  Captures the outcome of an already-run dependency-audit tool step and
+  renders it as a markdown report, for a danger-comment-style aggregator to
+  consume. Previously copy-pasted identically across develop-node-ci.yml,
+  develop-python-ci.yml, develop-rust-ci.yml, and develop-mobile-ci.yml -
+  only the actual audit command (`yarn npm audit`/`pnpm audit`/`pip-audit`/
+  `cargo audit`) differs per language, which stays in the caller since it's
+  genuinely tool-specific; this only centralizes the report-building tail
+  every caller had in common.
+
+  Callers must `tee` their audit tool's output to `log-file` themselves
+  (this action doesn't run the audit) and invoke this action with
+  `if: always()` - the audit step itself stays `continue-on-error: true`
+  so this step is reached even on failure.
+
+inputs:
+  outcome:
+    description: The audit step's own outcome (`success`/`failure`), e.g. `steps.audit.outcome`.
+    required: true
+  log-file:
+    description: Path to the captured audit log (tee'd by the caller's own audit step).
+    required: false
+    default: '/tmp/dependency-audit.log'
+
+outputs:
+  outcome:
+    description: Passthrough of the `outcome` input, for a caller's own `outputs:` block.
+    value: ${{ inputs.outcome }}
+  report:
+    description: Markdown report for this audit.
+    value: ${{ steps.result.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build dependency-audit report
+      id: result
+      shell: bash
+      env:
+        OUTCOME: ${{ inputs.outcome }}
+        LOG_FILE: ${{ inputs.log-file }}
+      run: |
+        set -uo pipefail
+        {
+          echo "report<<DEPENDENCY_AUDIT_REPORT_EOF"
+          echo '### dependency-audit'
+          echo
+          if [ "$OUTCOME" = 'failure' ]; then
+            echo '❌ Known vulnerabilities found:'
+            echo '```'
+            tail -n 60 "$LOG_FILE" 2>/dev/null || echo '(no log captured)'
+            echo '```'
+          else
+            echo '✅ No known vulnerabilities found.'
+          fi
+          echo "DEPENDENCY_AUDIT_REPORT_EOF"
+        } >> "$GITHUB_OUTPUT"
