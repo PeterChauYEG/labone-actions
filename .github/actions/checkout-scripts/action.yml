@@ -1,0 +1,37 @@
+name: Checkout labone-actions scripts
+description: >
+  Sparse-checks-out this repo's own scripts/ directory into the caller
+  job's workspace, for scripts that live in labone-actions regardless of
+  which repo calls the containing reusable workflow/action (e.g.
+  scripts/file-linear-ticket.sh, scripts/<scan>-scan.mjs). Previously
+  copy-pasted identically (modulo `path`) across scan-with-report,
+  build-danger-comment, and every develop-*-ci.yml's file-linear-tickets
+  matrix job.
+
+  Any caller-side `if:` gating whether this checkout should even run
+  (e.g. only on script-source: labone-actions, or only for a matrix leg
+  that actually failed) stays on the calling `uses:` step itself - a
+  composite action's own steps can't see the caller's `inputs`/`needs`/
+  `matrix` context to make that decision internally.
+
+inputs:
+  path:
+    description: >
+      Checkout path, relative to the caller job's workspace. Different
+      callers use different paths so their own repo-relative script
+      references don't collide with a same-named directory in the
+      checked-out caller repo.
+    required: false
+    default: 'labone-actions'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+      with:
+        repository: PeterChauYEG/labone-actions
+        ref: main
+        path: ${{ inputs.path }}
+        sparse-checkout: |
+          scripts
+        sparse-checkout-cone-mode: true

@@ -812,14 +812,7 @@ jobs:
     steps:
       - name: Checkout labone-actions scripts
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
-        uses: actions/checkout@v7
-        with:
-          repository: PeterChauYEG/labone-actions
-          ref: main
-          path: labone-actions
-          sparse-checkout: |
-            scripts
-          sparse-checkout-cone-mode: true
+        uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
       - name: File Linear ticket
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:
