@@ -169,12 +169,31 @@ runs:
           echo "[setup-node-pnpm] cache-write run, bundle miss: $BUNDLE - installing into shared cache"
           scratch="${BUNDLE}.tmp-${RANDOM}-$$"
           mkdir -p "$scratch"
+          # node_modules is deliberately NOT pre-symlinked here, unlike
+          # every other rel-path (.next/cache, extra-paths) - same fix as
+          # setup-node-yarn's identical comment (yarnpkg/berry#6415): pnpm's
+          # node-modules linker doesn't fully support `node_modules` already
+          # being a symlink at install time either - root-caused live via
+          # info-sink's migration ("ENOTDIR: not a directory, mkdir
+          # '.../node_modules'"), this step used to symlink it to
+          # $scratch/node_modules BEFORE calling pnpm install.
           while IFS= read -r rel; do
-            [[ -z "$rel" ]] && continue
-            mkdir -p "$(dirname "$rel")" "$(dirname "$scratch/$rel")"
+            [[ -z "$rel" || "$rel" == "node_modules" ]] && continue
+            mkdir -p "$(dirname "$rel")" "$scratch/$rel"
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
           pnpm install --frozen-lockfile
+          # Only now, with a real (non-symlinked) node_modules fully
+          # installed, move it into the scratch bundle and replace it with
+          # the same kind of symlink every reader will use.
+          mkdir -p "$(dirname "$scratch/node_modules")"
+          rm -rf "$scratch/node_modules"
+          mv node_modules "$scratch/node_modules"
+          ln -sfn "$scratch/node_modules" node_modules
+          # Claim the final bundle name only if nothing else already did
+          # (two main runs racing on an identical hash) - otherwise this
+          # run's install was redundant work but not corrupting: just
+          # re-link to whichever copy won and discard this one.
           if [[ ! -d "$BUNDLE" ]]; then
             mv "$scratch" "$BUNDLE"
             touch "$BUNDLE/.complete"
