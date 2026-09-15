@@ -353,11 +353,8 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
-    # id-token: write is unused unless enable_coverage_upload + codecov_use_oidc
-    # are both true - see develop-node-ci.yml's identical comment.
-    permissions:
-      contents: read
-      id-token: write
+    # REVERTED (see #182) - see develop-node-ci.yml's identical comment.
+    # codecov_use_oidc is non-functional until this gets a real fix.
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
