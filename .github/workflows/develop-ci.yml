@@ -276,7 +276,15 @@ jobs:
   peer-deps:
     name: peer-deps
     needs: changes
-    runs-on: [self-hosted, catfood, catfood-minimal]
+    # catfood-node, not catfood-minimal: this job's own steps run
+    # `corepack enable` + `actions/setup-node@v7`, which need the Node
+    # toolchain catfood-minimal deliberately excludes (see images/minimal's
+    # own description in gha-runner-docker's README) - every job below that
+    # actually needs Node stays on catfood-node the same way. Confirmed live
+    # via gamecraft PR #305/#308: every peer-deps run failed immediately at
+    # `corepack enable` (`corepack: command not found`, exit 127) since it
+    # was scheduled on the Node-less image.
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ needs.changes.outputs.web_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below. This stays a HARD gate
     # (unchanged from before - the check step's own failure still fails the

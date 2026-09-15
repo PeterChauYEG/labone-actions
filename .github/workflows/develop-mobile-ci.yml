@@ -254,7 +254,13 @@ jobs:
   peer-deps:
     name: peer-deps
     needs: changes
-    runs-on: [self-hosted, catfood, catfood-minimal]
+    # catfood-node, not catfood-minimal: this job's own steps run
+    # `corepack enable` + `actions/setup-node@v7`, which need the Node
+    # toolchain catfood-minimal deliberately excludes (see images/minimal's
+    # own description in gha-runner-docker's README) - same fix as
+    # develop-ci.yml's identical peer-deps job, see that one's comment for
+    # the confirmed live failure this caused.
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ needs.changes.outputs.mobile_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment. Still a HARD gate (unchanged) via the final `exit 1` step.
