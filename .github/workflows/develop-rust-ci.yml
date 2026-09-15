@@ -696,82 +696,50 @@ jobs:
               {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}},
               {"name": "tech-debt", "result": ${{ toJSON(needs.tech-debt.result) }}, "report": ${{ toJSON(needs.tech-debt.outputs.report) }}}
             ]
-      - name: File Linear ticket for fmt
-        if: ${{ needs.fmt.outputs.outcome == 'failure' }}
+  # One matrix job replaces what used to be 8 nearly-identical
+  # "File Linear ticket for <job>" steps living inside `danger-comment`
+  # itself (only the job name / report path varied) - see develop-ci.yml's
+  # identical job for the full rationale, including why the `matrix`
+  # context can't gate this job's own `if:` (only step-level `if:`/`with:`/
+  # `run:`).
+  file-linear-tickets:
+    name: file-linear-ticket (${{ matrix.job }})
+    needs: [fmt, clippy, test, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit]
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [fmt, clippy, test, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout labone-actions scripts
+        if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
+        uses: actions/checkout@v7
+        with:
+          repository: PeterChauYEG/labone-actions
+          ref: main
+          path: labone-actions
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+      - name: File Linear ticket
+        if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           PR_URL: ${{ inputs.pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh fmt /tmp/fmt-report.md
-      - name: File Linear ticket for clippy
-        if: ${{ needs.clippy.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh clippy /tmp/clippy-report.md
-      - name: File Linear ticket for test
-        if: ${{ needs.test.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh test /tmp/test-report.md
-      - name: File Linear ticket for dead-code
-        if: ${{ needs.dead-code.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh dead-code /tmp/dead-code-report.md
-      - name: File Linear ticket for duplicate-code
-        if: ${{ needs.duplicate-code.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh duplicate-code /tmp/duplicate-code-report.md
-      - name: File Linear ticket for security-scan
-        if: ${{ needs.security-scan.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh security-scan /tmp/security-scan-report.md
-      - name: File Linear ticket for secret-scan
-        if: ${{ needs.secret-scan.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh secret-scan /tmp/secret-scan-report.md
-      - name: File Linear ticket for dependency-audit
-        if: ${{ needs.dependency-audit.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh dependency-audit /tmp/dependency-audit-report.md
+          REPORT: ${{ needs[matrix.job].outputs.report }}
+        run: |
+          printf '%s\n' "$REPORT" > /tmp/report.md
+          bash labone-actions/scripts/file-linear-ticket.sh ${{ matrix.job }} /tmp/report.md
 
-  # `danger-comment` above is deliberately excluded from `needs:` below -
-  # purely advisory/reporting, like dead-code/duplicate-code/file-size, and
-  # never fails on its own either.
+  # `danger-comment`/`file-linear-tickets` above are deliberately excluded
+  # from `needs:` below - purely advisory/reporting, like
+  # dead-code/duplicate-code/file-size, and neither fails on its own either.
   required-checks:
     name: required-checks
     needs: [changes, actionlint, fmt, clippy, test, build, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]

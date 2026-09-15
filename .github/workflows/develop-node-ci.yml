@@ -792,60 +792,46 @@ jobs:
               {"name": "dead-code", "result": ${{ toJSON(needs.dead-code.result) }}, "report": ${{ toJSON(needs.dead-code.outputs.report) }}},
               {"name": "duplicate-code", "result": ${{ toJSON(needs.duplicate-code.result) }}, "report": ${{ toJSON(needs.duplicate-code.outputs.report) }}}
             ]
-      - name: File Linear ticket for peer-deps
-        if: ${{ needs.peer-deps.outputs.outcome == 'failure' }}
+  # One matrix job replaces what used to be 6 nearly-identical
+  # "File Linear ticket for <job>" steps living inside `danger-comment`
+  # itself (only the job name / report path varied) - see develop-ci.yml's
+  # identical job for the full rationale, including why the `matrix`
+  # context can't gate this job's own `if:` (only step-level `if:`/`with:`/
+  # `run:`).
+  file-linear-tickets:
+    name: file-linear-ticket (${{ matrix.job }})
+    needs: [peer-deps, security-scan, secret-scan, dependency-audit, dead-code, duplicate-code]
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [peer-deps, security-scan, secret-scan, dependency-audit, dead-code, duplicate-code]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout labone-actions scripts
+        if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
+        uses: actions/checkout@v7
+        with:
+          repository: PeterChauYEG/labone-actions
+          ref: main
+          path: labone-actions
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+      - name: File Linear ticket
+        if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           PR_URL: ${{ inputs.pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh peer-deps /tmp/peer-deps-report.md
-      - name: File Linear ticket for security-scan
-        if: ${{ needs.security-scan.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh security-scan /tmp/security-scan-report.md
-      - name: File Linear ticket for secret-scan
-        if: ${{ needs.secret-scan.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh secret-scan /tmp/secret-scan-report.md
-      - name: File Linear ticket for dependency-audit
-        if: ${{ needs.dependency-audit.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh dependency-audit /tmp/dependency-audit-report.md
-      - name: File Linear ticket for dead-code
-        if: ${{ needs.dead-code.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh dead-code /tmp/dead-code-report.md
-      - name: File Linear ticket for duplicate-code
-        if: ${{ needs.duplicate-code.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_URL: ${{ inputs.pr_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh duplicate-code /tmp/duplicate-code-report.md
+          REPORT: ${{ needs[matrix.job].outputs.report }}
+        run: |
+          printf '%s\n' "$REPORT" > /tmp/report.md
+          bash labone-actions/scripts/file-linear-ticket.sh ${{ matrix.job }} /tmp/report.md
 
   # LAB-2103: single aggregator job so caller repos' branch protection can
   # require ONE context (`required-checks`) instead of a hand-maintained
@@ -873,9 +859,9 @@ jobs:
   #     `duplicate-code`: a peer range conflict is often outside the repo's
   #     own control (a transitive dependency's peer range), so it's
   #     surfaced but never blocks merges.
-  #   - `danger-comment` - the aggregated sticky-comment/Linear-ticket job
-  #     above, purely advisory/reporting like `dead-code`/`duplicate-code`;
-  #     it never fails on its own either.
+  #   - `danger-comment`/`file-linear-tickets` - the aggregated
+  #     sticky-comment/Linear-ticket jobs above, purely advisory/reporting
+  #     like `dead-code`/`duplicate-code`; neither fails on its own either.
   #
   # `if: always()` so this job still runs (and can report a real result)
   # even when an upstream gate job fails/is cancelled - without it, GitHub's
