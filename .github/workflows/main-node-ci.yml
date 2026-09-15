@@ -418,7 +418,7 @@ jobs:
 
   required-checks:
     name: required-checks
-    needs: [lint, typecheck, build, test, security-scan, secret-scan]
+    needs: [setup, lint, typecheck, build, test, security-scan, secret-scan]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:

@@ -1002,6 +1002,7 @@ jobs:
     name: required-checks
     needs:
       [
+        setup,
         lint,
         ls-lint,
         typecheck,
