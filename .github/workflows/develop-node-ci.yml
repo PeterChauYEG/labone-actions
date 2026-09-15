@@ -580,15 +580,15 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
-    # id-token: write is unused unless enable_coverage_upload + codecov_use_oidc
-    # are both true - harmless to grant unconditionally (a job-scoped
-    # permission that no step requests a token with is a no-op), but without
-    # it OIDC auth fails outright for every caller that sets codecov_use_oidc,
-    # since a job can't request an OIDC token beyond what its own (or the
-    # workflow's) permissions grant.
-    permissions:
-      contents: read
-      id-token: write
+    # REVERTED (see #182): declaring id-token: write here unconditionally
+    # broke Main CI validation entirely for any caller whose org/repo policy
+    # caps id-token at 'none' (business-ops-service, discovered live) -
+    # GitHub validates a reusable workflow's whole permission graph upfront,
+    # regardless of whether a step ever actually requests that token or
+    # whether codecov_use_oidc is even set. codecov_use_oidc is non-
+    # functional until this gets a real fix (a dedicated, separately-called
+    # workflow only OIDC-opted-in callers use, not a blanket permission on
+    # every caller's test job).
     steps:
       # Hard gate - does NOT enforce a coverage threshold itself. That's
       # each consumer's responsibility via their own jest/vitest config
