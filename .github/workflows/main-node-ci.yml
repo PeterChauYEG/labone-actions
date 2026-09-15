@@ -368,22 +368,10 @@ jobs:
       needs.changes.outputs.any == 'true' &&
       !inputs.is_dependabot && inputs.enable_deploy
     steps:
-      - uses: actions/checkout@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/deploy-dokku@main
         with:
-          fetch-depth: 0
-      - name: Push to Dokku
-        uses: dokku/github-action@master
-        with:
-          git_remote_url: ${{ inputs.dokku_remote_url }}
-          ssh_private_key: ${{ secrets.DOKKU_DEPLOY_SSH_KEY }}
-          # dokku/github-action's `branch` input defaults to "master" - every
-          # caller here checks out `main` (this workflow only runs on
-          # push-to-main), so without this the action pushed main's content
-          # to the dokku remote's `master` ref, which Dokku doesn't build
-          # from (it warns "you must push to main" and no-ops). The job
-          # still reported green because the git push itself succeeded -
-          # only the actual deploy silently never happened.
-          branch: main
+          dokku-remote-url: ${{ inputs.dokku_remote_url }}
+          ssh-private-key: ${{ secrets.DOKKU_DEPLOY_SSH_KEY }}
 
   slack-notification:
     name: slack-notification
@@ -391,12 +379,7 @@ jobs:
     if: ${{ always() && inputs.enable_slack_notification && needs.deploy.result == 'failure' }}
     runs-on: [self-hosted, catfood, catfood-minimal]
     steps:
-      - name: Notify Slack
-        uses: slackapi/slack-github-action@v4
+      - uses: PeterChauYEG/labone-actions/.github/actions/notify-slack-deploy@main
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            {
-              "text": "${{ github.repository }} deploy: ${{ needs.deploy.result }}"
-            }
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          deploy-result: ${{ needs.deploy.result }}

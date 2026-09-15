@@ -1,0 +1,35 @@
+name: Deploy to Dokku
+description: >
+  Checks out full history and pushes `main` to a Dokku git remote.
+  Previously copy-pasted identically as the `deploy` job body across
+  main-ci.yml and main-node-ci.yml.
+
+inputs:
+  dokku-remote-url:
+    description: >
+      Dokku git remote URL, e.g. ssh://dokku@192.168.1.31:22/<app-name>.
+    required: true
+  ssh-private-key:
+    description: SSH private key for the Dokku remote (e.g. secrets.DOKKU_DEPLOY_SSH_KEY).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Push to Dokku
+      uses: dokku/github-action@master
+      with:
+        git_remote_url: ${{ inputs.dokku-remote-url }}
+        ssh_private_key: ${{ inputs.ssh-private-key }}
+        # dokku/github-action's `branch` input defaults to "master" - every
+        # caller here checks out `main` (this only runs on push-to-main), so
+        # without this the action pushes main's content to the dokku
+        # remote's `master` ref, which Dokku doesn't build from (it warns
+        # "you must push to main" and no-ops). The job still reports green
+        # because the git push itself succeeded - only the actual deploy
+        # silently never happens.
+        branch: main
