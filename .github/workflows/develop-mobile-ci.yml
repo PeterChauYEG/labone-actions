@@ -234,7 +234,19 @@ jobs:
   setup:
     name: setup
     needs: changes
-    runs-on: [self-hosted, catfood]
+    # catfood-node, explicitly - this job (and every other Node/yarn job
+    # below: lint/ls-lint/typecheck/test/a11y/design-system/dead-code/
+    # duplicate-code/dependency-audit/danger-comment) used to omit the
+    # flavor label entirely (bare `[self-hosted, catfood]`), which only
+    # "worked" because every calling repo's own default image in
+    # gha-runner-docker's repos.json happens to be node - a labone-actions
+    # reusable workflow has no business depending on a caller's own default
+    # image, and setup-node-yarn's own `corepack enable` (run before
+    # `actions/setup-node@v7`, so it needs Node already on the base image -
+    # see peer-deps-check's identical ordering) would silently break the
+    # moment any future caller's default image is anything else. Pin it
+    # explicitly, matching every other develop-*-ci.yml file's convention.
+    runs-on: [self-hosted, catfood, catfood-node]
     steps:
       # cache-write: 'false' - unlike main-ci.yml/main-node-ci.yml's own
       # `setup` job, this workflow has no push-to-main trigger to gate a
@@ -278,7 +290,7 @@ jobs:
   lint:
     name: lint
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos in this repo,
@@ -310,7 +322,7 @@ jobs:
   ls-lint:
     name: ls-lint
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -327,7 +339,7 @@ jobs:
   typecheck:
     name: typecheck
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so the
       # tsbuildinfo script cache stays a plain restore+save (cache-write:
@@ -353,7 +365,7 @@ jobs:
   test:
     name: test
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so the
@@ -385,7 +397,7 @@ jobs:
   a11y:
     name: a11y
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_a11y && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
@@ -415,7 +427,7 @@ jobs:
   design-system:
     name: design-system
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_design_system && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
@@ -445,7 +457,7 @@ jobs:
   dead-code:
     name: dead-code
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
@@ -475,7 +487,7 @@ jobs:
   duplicate-code:
     name: duplicate-code
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
@@ -549,7 +561,11 @@ jobs:
   dependency-audit:
     name: dependency-audit
     needs: setup
-    runs-on: [self-hosted, catfood, catfood-minimal]
+    # catfood-node, not catfood-minimal: this job's own steps run
+    # `corepack enable` before `actions/setup-node@v7`, which needs the Node
+    # toolchain catfood-minimal deliberately excludes - same bug class as
+    # peer-deps' identical fix (confirmed live via gamecraft PR #305/#308).
+    runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
@@ -660,7 +676,7 @@ jobs:
        needs.secret-scan.result != 'skipped' ||
        needs.dependency-audit.result != 'skipped' ||
        needs.tech-debt.result != 'skipped')
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-node]
     permissions:
       contents: read
       pull-requests: write
