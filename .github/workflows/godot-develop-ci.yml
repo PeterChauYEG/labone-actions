@@ -168,25 +168,27 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
         run: npx --yes jscpd@5.0.12 -c .jscpd.json
-      - name: Generate Dangerfile
+      - name: Capture report
+        id: report
         if: always()
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/duplicate-code-dangerfile.js" <<'DANGERFILE'
-          const fs = require('fs')
-          const reportPath = process.env.DANGER_REPORT_PATH
-
-          if (reportPath && fs.existsSync(reportPath)) {
-            markdown(fs.readFileSync(reportPath, 'utf8'))
-          }
-          DANGERFILE
-      - name: Post sticky report comment via danger
-        if: always()
+        shell: bash
         working-directory: ${{ inputs.working-directory }}
-        env:
-          DANGER_REPORT_PATH: ${{ inputs.working-directory }}/report/jscpd-report.md
-          DANGER_GITHUB_API_TOKEN: ${{ github.token }}
-        run: npx --yes danger@14.0.7 ci --id duplicate-code-scan --dangerfile "$RUNNER_TEMP/duplicate-code-dangerfile.js"
+        run: |
+          set -uo pipefail
+          {
+            echo "report<<DUPLICATE_CODE_REPORT_EOF"
+            if [ -f report/jscpd-report.md ]; then
+              cat report/jscpd-report.md
+            else
+              echo "(no report written — see the duplicate-code job's own log)"
+            fi
+            echo "DUPLICATE_CODE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
+        if: always()
+        with:
+          report: ${{ steps.report.outputs.report }}
+          sticky-header: duplicate-code-scan
       - name: File Linear ticket for failure
         if: steps.scan.outcome == 'failure'
         env:
