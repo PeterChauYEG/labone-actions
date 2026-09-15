@@ -44,6 +44,32 @@ on:
         type: string
         required: false
         default: '.'
+      enable_fmt:
+        description: >
+          Run `ruff format --check <fmt_path>` as a hard gate - mirrors
+          develop-python-ci.yml's identical job (same tool as `lint`,
+          different command). Standardized on by default, same as the
+          PR-time job - see that file's `enable_fmt` for the full
+          rationale.
+        type: boolean
+        default: true
+      fmt_path:
+        description: Path (relative to working-directory) passed to `ruff format --check`.
+        type: string
+        required: false
+        default: '.'
+      enable_typecheck:
+        description: >
+          Run `mypy <typecheck_path>` as a hard gate - mirrors
+          develop-python-ci.yml's identical job. Standardized on by
+          default, same as the PR-time job.
+        type: boolean
+        default: true
+      typecheck_path:
+        description: Path (relative to working-directory) passed to `mypy`.
+        type: string
+        required: false
+        default: '.'
       enable_test:
         description: Run `test_command`.
         type: boolean
@@ -88,6 +114,30 @@ jobs:
           tool: ruff
           cache-key-prefix: lint
       - run: ruff check ${{ inputs.lint_path }}
+        working-directory: ${{ inputs.working-directory }}
+
+  fmt:
+    name: fmt
+    runs-on: [self-hosted, catfood, catfood-python]
+    if: ${{ inputs.enable_fmt }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: ruff
+          cache-key-prefix: fmt
+      - run: ruff format --check ${{ inputs.fmt_path }}
+        working-directory: ${{ inputs.working-directory }}
+
+  typecheck:
+    name: typecheck
+    runs-on: [self-hosted, catfood, catfood-python]
+    if: ${{ inputs.enable_typecheck }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: mypy
+          cache-key-prefix: typecheck
+      - run: mypy ${{ inputs.typecheck_path }}
         working-directory: ${{ inputs.working-directory }}
 
   test:
@@ -145,7 +195,7 @@ jobs:
 
   required-checks:
     name: required-checks
-    needs: [lint, test, security-scan, secret-scan, dependency-audit]
+    needs: [lint, fmt, typecheck, test, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
