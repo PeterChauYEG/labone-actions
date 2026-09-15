@@ -121,19 +121,25 @@ on:
         description: >
           Run `npx expo export` to build the JS bundle (Metro, every
           platform) - catches import/syntax/asset-resolution errors, not a
-          native `eas build`/app binary. Genuinely new - no source repo has
-          any build/bundle check in PR CI today - off by default until
-          proven clean against a real PR.
+          native `eas build`/app binary. Standardized on by default -
+          `labone-actions` sets the fleet-wide baseline, callers don't opt
+          into it piecemeal. No source repo has run this before, so the
+          first PR after adoption is the real test - if `expo export`
+          itself has a pre-existing break, this surfaces it.
         type: boolean
-        default: false
+        default: true
       enable_max_lines:
         description: >
           Run the max-lines scan, with PR sticky comment on failure (no
-          ticket - report-only). Off by default: needs a per-repo
-          `eslint.max-lines.config.mjs` (same as Web/Node's `max-lines` job)
-          that no Mobile repo has vendored yet.
+          ticket - report-only). Standardized on by default - `labone-actions`
+          sets the fleet-wide baseline, callers don't opt into it piecemeal.
+          Needs a per-repo `eslint.max-lines.config.mjs` (same as Web/Node's
+          `max-lines` job) that no Mobile repo has vendored yet, so this
+          reports `failure` (config not found) until each repo adds one -
+          report-only, so that never blocks a PR, just shows up in the
+          sticky comment as a prompt to add the config.
         type: boolean
-        default: false
+        default: true
       max_lines_script_source:
         description: >
           Passed straight through to scan-with-report's `script-source`
