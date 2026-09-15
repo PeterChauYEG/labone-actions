@@ -1,0 +1,94 @@
+name: Trivy scan
+description: >
+  Shared Trivy `fs` scan (vulnerabilities or secrets) — the body of every
+  security-scan/secret-scan job, previously copy-pasted nearly identically
+  across develop-ci.yml, develop-node-ci.yml, develop-rust-ci.yml,
+  develop-python-ci.yml, develop-mobile-ci.yml, main-ci.yml,
+  main-node-ci.yml, main-python-ci.yml, and main-rust-ci.yml.
+
+  Checks out the repo, runs Trivy with `continue-on-error: true`, and
+  always captures `outcome`/`report` outputs (same convention as
+  scan-with-report). Never fails the job on its own — a caller that wants
+  this to be a hard gate (every `develop-*-ci.yml` caller today) adds its
+  own `if: steps.<id>.outputs.outcome == 'failure' -> exit 1` step right
+  after; a caller that just wants the scan to gate directly with no report
+  (every `main-*-ci.yml` caller today) can ignore the outputs and do the
+  same `exit 1` step, or skip it — Trivy's own `exit-code: '1'` plus
+  `continue-on-error` is only there to let this action reach its own
+  report-capturing step instead of stopping dead.
+
+inputs:
+  scanners:
+    description: Trivy `scanners` value — `vuln` or `secret`.
+    required: true
+  label:
+    description: >
+      Human label for the report, e.g. `vulnerabilities` or `secrets`.
+      Used as-is in both the success line ("No HIGH/CRITICAL <label>
+      found.") and the failure line ("Trivy found HIGH/CRITICAL <label>:").
+    required: true
+  report-heading:
+    description: Markdown heading for this scan's own report section, e.g. `### security-scan`.
+    required: true
+  working-directory:
+    description: Directory (relative to the repo root) to scan.
+    required: false
+    default: '.'
+  trivyignores:
+    description: Path to a .trivyignore file, forwarded to trivy-action's own input of the same name.
+    required: false
+    default: ''
+
+outputs:
+  outcome:
+    description: The Trivy step's own outcome (`success`/`failure`).
+    value: ${{ steps.result.outputs.outcome }}
+  report:
+    description: Markdown report for this scan, for a `danger-comment`-style aggregator to consume.
+    value: ${{ steps.result.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+
+    - name: Run Trivy (${{ inputs.label }})
+      id: trivy
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        scan-type: fs
+        scan-ref: ${{ inputs.working-directory }}
+        scanners: ${{ inputs.scanners }}
+        severity: HIGH,CRITICAL
+        exit-code: '1'
+        format: table
+        output: trivy-${{ inputs.scanners }}-report.txt
+        trivyignores: ${{ inputs.trivyignores }}
+
+    - name: Build report
+      id: result
+      if: always()
+      shell: bash
+      env:
+        OUTCOME: ${{ steps.trivy.outcome }}
+        LABEL: ${{ inputs.label }}
+        HEADING: ${{ inputs.report-heading }}
+        REPORT_FILE: trivy-${{ inputs.scanners }}-report.txt
+      run: |
+        set -uo pipefail
+        echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+        {
+          echo "report<<TRIVY_SCAN_REPORT_EOF"
+          echo "$HEADING"
+          echo
+          if [ "$OUTCOME" = 'failure' ]; then
+            echo "❌ Trivy found HIGH/CRITICAL ${LABEL}:"
+            echo '```'
+            cat "$REPORT_FILE" 2>/dev/null || echo '(no report captured)'
+            echo '```'
+          else
+            echo "✅ No HIGH/CRITICAL ${LABEL} found."
+          fi
+          echo "TRIVY_SCAN_REPORT_EOF"
+        } >> "$GITHUB_OUTPUT"
