@@ -19,8 +19,24 @@ description: >
 
 inputs:
   script:
-    description: yarn script to run, e.g. `design-system`.
+    description: >
+      Scan name, e.g. `design-system` — used as the yarn script name
+      (`script-source: repo`, the default) or as the shared script's
+      basename, `<script>-scan.mjs` (`script-source: labone-actions`).
     required: true
+  script-source:
+    description: >
+      Where the scan's actual logic lives. `'repo'` (default) runs
+      `yarn <script>` in the caller repo, today's behavior for every
+      existing caller — the scan script is vendored into that repo under
+      `scripts/`. `'labone-actions'` instead checks out this repo's own
+      `scripts/<script>-scan.mjs` and runs it directly with `node`, so the
+      caller repo doesn't need its own copy — only `eslint.<script>.config.mjs`
+      (or equivalent) for repo-specific thresholds/excludes, since that stays
+      in the caller. Opt in per scan/per repo while migrating off vendored
+      copies; see max-lines' rollout via gamecraft for the pilot.
+    required: false
+    default: 'repo'
   working-directory:
     description: >
       Directory (relative to the repo root) the Next.js/yarn app lives in.
@@ -58,7 +74,7 @@ inputs:
 
 outputs:
   outcome:
-    description: '`success` or `failure` — the `yarn <script>` step''s own outcome.'
+    description: '`success` or `failure` — the scan step''s own outcome.'
     value: ${{ steps.scan.outcome }}
   report:
     description: Contents of `report-file` (or a placeholder if it wasn't written).
@@ -67,7 +83,29 @@ outputs:
 runs:
   using: composite
   steps:
-    - run: yarn ${{ inputs.script }}
+    # Only needed for script-source: labone-actions — sparse-checked-out
+    # to github.workspace (a sibling of the caller repo's own checkout, not
+    # nested under working-directory) so the run step below can reach it
+    # via an absolute path regardless of working-directory. Same pattern as
+    # develop-ci.yml's danger-comment job's identical checkout, for
+    # scripts/file-linear-ticket.sh.
+    - name: Checkout labone-actions scripts
+      if: inputs.script-source == 'labone-actions'
+      uses: actions/checkout@v7
+      with:
+        repository: PeterChauYEG/labone-actions
+        ref: main
+        path: labone-actions-scan-scripts
+        sparse-checkout: |
+          scripts
+        sparse-checkout-cone-mode: true
+
+    - run: |
+        if [ "${{ inputs.script-source }}" = "labone-actions" ]; then
+          node "${{ github.workspace }}/labone-actions-scan-scripts/scripts/${{ inputs.script }}-scan.mjs"
+        else
+          yarn ${{ inputs.script }}
+        fi
       id: scan
       shell: bash
       working-directory: ${{ inputs.working-directory }}

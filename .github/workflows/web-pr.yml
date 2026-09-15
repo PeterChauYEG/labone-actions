@@ -27,6 +27,14 @@ on:
         type: string
         required: false
         default: ''
+      max_lines_script_source:
+        description: >
+          Passed straight through to develop-ci.yml's identical input — see
+          that workflow's description. Default 'repo' keeps today's
+          behavior for every caller.
+        type: string
+        required: false
+        default: 'repo'
 
 permissions:
   contents: read
@@ -58,6 +66,7 @@ jobs:
       enable_duplicate_code: true
       enable_react_tech_debt: true
       enable_max_lines: true
+      max_lines_script_source: ${{ inputs.max_lines_script_source }}
       enable_tech_debt: true
       enable_security_scan: true
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
