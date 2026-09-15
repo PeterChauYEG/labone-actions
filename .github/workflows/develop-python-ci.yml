@@ -59,13 +59,14 @@ on:
       enable_fmt:
         description: >
           Run `ruff format --check <fmt_path>` as a hard gate - same tool
-          as `lint` (`ruff check`), different command. Off by default: no
-          caller has been proven `ruff format`-clean fleet-wide yet, so
-          flipping this on unannounced would break every Python repo's
-          next PR. See the CI doc's Migration plan for the "Python has no
-          fmt job" gap this closes.
+          as `lint` (`ruff check`), different command. Standardized on by
+          default - `labone-actions` sets the fleet-wide baseline, callers
+          don't opt into it piecemeal. A caller not yet `ruff format`-clean
+          will go red on its next PR until it runs `ruff format .` once
+          locally - a one-time fix, not an ongoing cost. See the CI doc's
+          Migration plan for the "Python has no fmt job" gap this closes.
         type: boolean
-        default: false
+        default: true
       fmt_path:
         description: Path (relative to working-directory) passed to `ruff format --check`.
         type: string
@@ -73,13 +74,17 @@ on:
         default: '.'
       enable_typecheck:
         description: >
-          Run `mypy <typecheck_path>` as a hard gate. Off by default - no
-          established mypy/pyright convention across Python callers yet
-          (unlike Node's `tsc --noEmit`, which every TS repo already runs).
-          See the CI doc's Migration plan for the "Python has no typecheck
+          Run `mypy <typecheck_path>` as a hard gate. Standardized on by
+          default - `labone-actions` sets the fleet-wide baseline, callers
+          don't opt into it piecemeal. A caller with no mypy config and
+          pre-existing type errors will go red on its next PR until fixed
+          (or a `mypy.ini`/`[tool.mypy]` narrows scope) - unlike Node's
+          `tsc --noEmit`, there's no established mypy/pyright convention
+          across Python callers yet, so this is expected, not a bug. See
+          the CI doc's Migration plan for the "Python has no typecheck
           job" gap this closes.
         type: boolean
-        default: false
+        default: true
       typecheck_path:
         description: Path (relative to working-directory) passed to `mypy`.
         type: string
@@ -120,11 +125,16 @@ on:
         default: 'requirements.txt'
       enable_dead_code:
         description: >
-          Run a dead-code scan via `dead_code_script` (vulture). Off by
-          default - only `robot-7` has this scripted today; every other
-          Python caller needs a matching script before opting in.
+          Run a dead-code scan via `dead_code_script` (vulture).
+          Standardized on by default - `labone-actions` sets the
+          fleet-wide baseline, callers don't opt into it piecemeal. Only
+          `robot-7` has `scripts/dead_code_scan.py` today - every other
+          Python caller will see this job report `failure` (script not
+          found) until it adds one, same one-time-fix framing as
+          `enable_fmt` above. Advisory-only (see `danger-comment`) - never
+          fails the job itself, just files a ticket.
         type: boolean
-        default: false
+        default: true
       dead_code_script:
         description: Path (relative to working-directory) to the dead-code-scan script.
         type: string
@@ -133,10 +143,13 @@ on:
       enable_duplicate_code:
         description: >
           Run a duplicate-code scan via `duplicate_code_script` (jscpd, Python
-          tokenizer, needs a `.jscpd.json`). Off by default - only `robot-7`
-          has this scripted today.
+          tokenizer, needs a `.jscpd.json`). Standardized on by default -
+          same rationale as `enable_dead_code` above; only `robot-7` has
+          `scripts/duplicate-code-scan.sh`/`.jscpd.json` today, every other
+          caller reports `failure` until it adds them. Advisory-only, never
+          fails the job itself.
         type: boolean
-        default: false
+        default: true
       duplicate_code_script:
         description: Path (relative to working-directory) to the duplicate-code-scan script.
         type: string
@@ -145,10 +158,12 @@ on:
       enable_file_size:
         description: >
           Run a file-size scan via `file_size_script` (pylint's `too-many-lines`
-          C0302). Report-only by design - never fails the job. Off by default
-          - only `robot-7` has this scripted today.
+          C0302). Report-only by design - never fails the job. Standardized
+          on by default - same rationale as `enable_dead_code` above; only
+          `robot-7` has `scripts/file_size_scan.py` today, every other
+          caller reports `failure` (script not found) until it adds one.
         type: boolean
-        default: false
+        default: true
       file_size_script:
         description: Path (relative to working-directory) to the file-size-scan script.
         type: string

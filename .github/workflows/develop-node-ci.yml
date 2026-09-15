@@ -146,11 +146,13 @@ on:
           @ts-ignore/any/TODO-FIXME-HACK/console.log counts - see
           `.github/actions/tech-debt-report-node`'s own header for why
           `useEffect`/RN `Animated.*` are dropped from the Web/Mobile
-          version) and post it as a sticky PR comment. Opt-in, matching
-          develop-ci.yml's/develop-mobile-ci.yml's identical input -
-          defaults false since no consumer repo has this today.
+          version) and post it as a sticky PR comment. Standardized on by
+          default - `labone-actions` sets the fleet-wide baseline, callers
+          don't opt into it piecemeal. Metrics-only and never fails the job
+          (see that action's own header) - pure reporting, zero risk to
+          flip on immediately.
         type: boolean
-        default: false
+        default: true
       enable_ls_lint:
         description: >
           Run the ls-lint file naming check (`yarn lint:ls`), gated on the
