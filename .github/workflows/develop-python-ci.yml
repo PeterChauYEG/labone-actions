@@ -56,6 +56,35 @@ on:
         type: string
         required: false
         default: '.'
+      enable_fmt:
+        description: >
+          Run `ruff format --check <fmt_path>` as a hard gate - same tool
+          as `lint` (`ruff check`), different command. Off by default: no
+          caller has been proven `ruff format`-clean fleet-wide yet, so
+          flipping this on unannounced would break every Python repo's
+          next PR. See the CI doc's Migration plan for the "Python has no
+          fmt job" gap this closes.
+        type: boolean
+        default: false
+      fmt_path:
+        description: Path (relative to working-directory) passed to `ruff format --check`.
+        type: string
+        required: false
+        default: '.'
+      enable_typecheck:
+        description: >
+          Run `mypy <typecheck_path>` as a hard gate. Off by default - no
+          established mypy/pyright convention across Python callers yet
+          (unlike Node's `tsc --noEmit`, which every TS repo already runs).
+          See the CI doc's Migration plan for the "Python has no typecheck
+          job" gap this closes.
+        type: boolean
+        default: false
+      typecheck_path:
+        description: Path (relative to working-directory) passed to `mypy`.
+        type: string
+        required: false
+        default: '.'
       enable_test:
         description: Run `test_command`.
         type: boolean
@@ -166,6 +195,32 @@ jobs:
           tool: ruff
           cache-key-prefix: lint
       - run: ruff check ${{ inputs.lint_path }}
+        working-directory: ${{ inputs.working-directory }}
+
+  fmt:
+    name: fmt
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-python]
+    if: ${{ inputs.enable_fmt && needs.changes.outputs.python == 'true' }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: ruff
+          cache-key-prefix: fmt
+      - run: ruff format --check ${{ inputs.fmt_path }}
+        working-directory: ${{ inputs.working-directory }}
+
+  typecheck:
+    name: typecheck
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-python]
+    if: ${{ inputs.enable_typecheck && needs.changes.outputs.python == 'true' }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: mypy
+          cache-key-prefix: typecheck
+      - run: mypy ${{ inputs.typecheck_path }}
         working-directory: ${{ inputs.working-directory }}
 
   test:
@@ -465,7 +520,7 @@ jobs:
   # fail this job - only `failure`/`cancelled` should.
   required-checks:
     name: required-checks
-    needs: [changes, actionlint, lint, test, security-scan, secret-scan, dependency-audit]
+    needs: [changes, actionlint, lint, fmt, typecheck, test, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
