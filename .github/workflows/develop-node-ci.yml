@@ -203,6 +203,24 @@ on:
         type: string
         required: false
         default: 'repo'
+      enable_max_lines:
+        description: >
+          Run a file-size scan (`yarn max-lines`) with a sticky PR comment +
+          Linear ticket filing on failure, advisory-only (never blocks the
+          job - see `scan-with-report`'s `blocking` input). Opt-in, same
+          rationale as `enable_dead_code` above. Mirrors develop-ci.yml's
+          `max-lines` job - see that file for the fleet-wide "some repos
+          only" gap this closes for Service/Node.
+        type: boolean
+        required: false
+        default: false
+      max_lines_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the max-lines job - see dead_code_script_source above.
+        type: string
+        required: false
+        default: 'repo'
       security_scan_trivyignores:
         description: >
           Comma-separated list of relative paths to .trivyignore file(s), or
@@ -704,22 +722,52 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           blocking: 'false'
 
+  max-lines:
+    name: max-lines
+    needs: [setup, changes]
+    runs-on: [self-hosted, catfood, catfood-node]
+    if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
+    # Feeds the `danger-comment` aggregator below - see dead-code's identical
+    # comment above.
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          cache-key-prefix: max-lines
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
+        with:
+          script: max-lines
+          script-source: ${{ inputs.max_lines_script_source }}
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/max-lines-report.md
+          working-directory: ${{ inputs.working-directory }}
+          blocking: 'false'
+
   # Single aggregator for every scan/gate job above that reports findings:
   # peer-deps, security-scan, secret-scan, dependency-audit, dead-code,
-  # duplicate-code. Posts ONE sticky PR comment covering all six and files
+  # duplicate-code, max-lines. Posts ONE sticky PR comment covering all seven and files
   # (deduped, via scripts/file-linear-ticket.sh - already per-PR-per-job
   # deduped, see that script's own header) a Linear ticket for whichever of
-  # them failed - instead of each of the six independently generating its
+  # them failed - instead of each of the seven independently generating its
   # own Dangerfile / posting its own sticky comment / filing its own ticket,
   # which is what this repo did until now (still true for develop-ci.yml's
-  # design-system/react-tech-debt/max-lines/tech-debt jobs and
-  # develop-rust-ci.yml's fmt/clippy/test - being migrated to this same
-  # pattern separately).
+  # design-system/react-tech-debt/tech-debt jobs and develop-rust-ci.yml's
+  # fmt/clippy/test - being migrated to this same pattern separately).
   #
   # `if: always()` so this still runs (and can report) when an upstream job
   # failed - same rationale as required-checks' identical `if: always()`
   # below. The `needs.*.result != 'skipped'` check skips this job entirely
-  # only when ALL SIX were skipped (e.g. a PR that touches no dependency or
+  # only when ALL SEVEN were skipped (e.g. a PR that touches no dependency or
   # source files at all) - any one of them running is enough to post a
   # comment.
   #
@@ -740,6 +788,7 @@ jobs:
         dependency-audit,
         dead-code,
         duplicate-code,
+        max-lines,
       ]
     if: |
       always() &&
@@ -748,7 +797,8 @@ jobs:
        needs.secret-scan.result != 'skipped' ||
        needs.dependency-audit.result != 'skipped' ||
        needs.dead-code.result != 'skipped' ||
-       needs.duplicate-code.result != 'skipped')
+       needs.duplicate-code.result != 'skipped' ||
+       needs.max-lines.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-node]
     permissions:
       contents: read
@@ -769,9 +819,10 @@ jobs:
               {"name": "secret-scan", "result": ${{ toJSON(needs.secret-scan.result) }}, "report": ${{ toJSON(needs.secret-scan.outputs.report) }}},
               {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}},
               {"name": "dead-code", "result": ${{ toJSON(needs.dead-code.result) }}, "report": ${{ toJSON(needs.dead-code.outputs.report) }}},
-              {"name": "duplicate-code", "result": ${{ toJSON(needs.duplicate-code.result) }}, "report": ${{ toJSON(needs.duplicate-code.outputs.report) }}}
+              {"name": "duplicate-code", "result": ${{ toJSON(needs.duplicate-code.result) }}, "report": ${{ toJSON(needs.duplicate-code.outputs.report) }}},
+              {"name": "max-lines", "result": ${{ toJSON(needs.max-lines.result) }}, "report": ${{ toJSON(needs.max-lines.outputs.report) }}}
             ]
-  # One matrix job replaces what used to be 6 nearly-identical
+  # One matrix job replaces what used to be 7 nearly-identical
   # "File Linear ticket for <job>" steps living inside `danger-comment`
   # itself (only the job name / report path varied) - see develop-ci.yml's
   # identical job for the full rationale, including why the `matrix`
@@ -779,12 +830,12 @@ jobs:
   # `run:`).
   file-linear-tickets:
     name: file-linear-ticket (${{ matrix.job }})
-    needs: [peer-deps, security-scan, secret-scan, dependency-audit, dead-code, duplicate-code]
+    needs: [peer-deps, security-scan, secret-scan, dependency-audit, dead-code, duplicate-code, max-lines]
     if: always()
     strategy:
       fail-fast: false
       matrix:
-        job: [peer-deps, security-scan, secret-scan, dependency-audit, dead-code, duplicate-code]
+        job: [peer-deps, security-scan, secret-scan, dependency-audit, dead-code, duplicate-code, max-lines]
     runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read

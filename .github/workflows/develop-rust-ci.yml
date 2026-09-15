@@ -476,10 +476,12 @@ jobs:
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_file_size && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     # Feeds the `danger-comment` aggregator below - see dead-code's identical
-    # comment above. Report-only by design, no ticket ever filed for this
-    # one (matches today's behavior - this job never had a ticket-filing
-    # step).
+    # comment above. Report-only by design (never fails the job), but now
+    # exposes `outcome` like every other advisory job so file-linear-tickets
+    # can actually file a ticket on a real finding - previously this was the
+    # one scan job fleet-wide with no ticket-filing path at all.
     outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
       report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
@@ -495,6 +497,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          echo "outcome=${{ steps.scan.outcome }}" >> "$GITHUB_OUTPUT"
           {
             echo "report<<FILE_SIZE_REPORT_EOF"
             if [ -f "${{ inputs.working-directory }}/file-size-report.md" ]; then
@@ -687,12 +690,12 @@ jobs:
   # `run:`).
   file-linear-tickets:
     name: file-linear-ticket (${{ matrix.job }})
-    needs: [fmt, clippy, test, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit]
+    needs: [fmt, clippy, test, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
     if: always()
     strategy:
       fail-fast: false
       matrix:
-        job: [fmt, clippy, test, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit]
+        job: [fmt, clippy, test, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
@@ -714,11 +717,16 @@ jobs:
           bash labone-actions/scripts/file-linear-ticket.sh ${{ matrix.job }} /tmp/report.md
 
   # `danger-comment`/`file-linear-tickets` above are deliberately excluded
-  # from `needs:` below - purely advisory/reporting, like
-  # dead-code/duplicate-code/file-size, and neither fails on its own either.
+  # from `needs:` below, same as `dead-code`/`duplicate-code`/`file-size` now
+  # are too - all five are purely advisory/reporting and none of them fails
+  # on its own, so none belongs in a required-status gate. (Previously
+  # dead-code/duplicate-code/file-size were listed here anyway - harmless
+  # since none of them can resolve to `failure`/`cancelled`, but inconsistent
+  # with every other stack's `required-checks` convention, and fragile if a
+  # future `exit 1` were ever added to one of them.)
   required-checks:
     name: required-checks
-    needs: [changes, actionlint, fmt, clippy, test, build, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
+    needs: [changes, actionlint, fmt, clippy, test, build, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
