@@ -117,6 +117,51 @@ on:
         description: Run `yarn test:coverage` + upload to Codecov.
         type: boolean
         default: true
+      enable_build:
+        description: >
+          Run `npx expo export` to build the JS bundle (Metro, every
+          platform) - catches import/syntax/asset-resolution errors, not a
+          native `eas build`/app binary. Genuinely new - no source repo has
+          any build/bundle check in PR CI today - off by default until
+          proven clean against a real PR.
+        type: boolean
+        default: false
+      enable_max_lines:
+        description: >
+          Run the max-lines scan, with PR sticky comment on failure (no
+          ticket - report-only). Off by default: needs a per-repo
+          `eslint.max-lines.config.mjs` (same as Web/Node's `max-lines` job)
+          that no Mobile repo has vendored yet.
+        type: boolean
+        default: false
+      max_lines_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the max-lines job - see dead_code_script_source above.
+          `'labone-actions'` default here (unlike dead-code/duplicate-code's
+          `'repo'` default) since no Mobile repo has its own vendored
+          max-lines-scan script to fall back to.
+        type: string
+        required: false
+        default: 'labone-actions'
+      enable_react_tech_debt:
+        description: >
+          Run `yarn react-tech-debt`, with PR sticky comment + Linear
+          ticket filing on failure. Safe to default true (unlike max-lines
+          above): the underlying scan reads whatever `lab-react-standards/*`
+          rules the caller's own eslint.config already gives it - a caller
+          with none configured just gets a clean "no findings" report, no
+          vendored file required.
+        type: boolean
+        default: true
+      react_tech_debt_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the react-tech-debt job - see max_lines_script_source
+          above for why this defaults to `'labone-actions'` too.
+        type: string
+        required: false
+        default: 'labone-actions'
       codecov_use_oidc:
         description: >
           Use Codecov's OIDC auth instead of a token. Both modes exist
@@ -412,6 +457,28 @@ jobs:
           token: ${{ !inputs.codecov_use_oidc && secrets.CODECOV_TOKEN || '' }}
           working-directory: ${{ inputs.working-directory }}
 
+  build:
+    name: build
+    needs: [setup, changes]
+    runs-on: [self-hosted, catfood, catfood-node]
+    if: ${{ inputs.enable_build }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          cache-key-prefix: build
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - name: Export JS bundle
+        working-directory: ${{ inputs.working-directory }}
+        # JS-bundle-only check (Metro), not a native `eas build`/app binary
+        # - see enable_build's own description above for why. Output goes
+        # to a run-scoped tmp dir - nothing here is published anywhere,
+        # this only proves the bundle builds cleanly.
+        run: npx expo export --output-dir /tmp/expo-export-${{ github.run_id }} --platform all
+
   a11y:
     name: a11y
     needs: [setup, changes]
@@ -471,6 +538,7 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
+          blocking: 'false'
 
   dead-code:
     name: dead-code
@@ -502,6 +570,7 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/dead-code-report.md
           working-directory: ${{ inputs.working-directory }}
+          blocking: 'false'
 
   duplicate-code:
     name: duplicate-code
@@ -533,6 +602,71 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/report/jscpd-report.md
           working-directory: ${{ inputs.working-directory }}
+          blocking: 'false'
+
+  max-lines:
+    name: max-lines
+    needs: [setup, changes]
+    runs-on: [self-hosted, catfood, catfood-node]
+    if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see duplicate-code's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          cache-key-prefix: max-lines
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
+        with:
+          script: max-lines
+          script-source: ${{ inputs.max_lines_script_source }}
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/max-lines-report.md
+          working-directory: ${{ inputs.working-directory }}
+          blocking: 'false'
+
+  react-tech-debt:
+    name: react-tech-debt
+    needs: [setup, changes]
+    runs-on: [self-hosted, catfood, catfood-node]
+    if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    # Feeds the `danger-comment` aggregator below - see duplicate-code's
+    # identical comment above.
+    outputs:
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          cache-key-prefix: react-tech-debt
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
+        with:
+          script: react-tech-debt
+          script-source: ${{ inputs.react_tech_debt_script_source }}
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
+          working-directory: ${{ inputs.working-directory }}
+          blocking: 'false'
 
   security-scan:
     name: security-scan
@@ -663,6 +797,8 @@ jobs:
         design-system,
         dead-code,
         duplicate-code,
+        max-lines,
+        react-tech-debt,
         security-scan,
         secret-scan,
         dependency-audit,
@@ -675,6 +811,8 @@ jobs:
        needs.design-system.result != 'skipped' ||
        needs.dead-code.result != 'skipped' ||
        needs.duplicate-code.result != 'skipped' ||
+       needs.max-lines.result != 'skipped' ||
+       needs.react-tech-debt.result != 'skipped' ||
        needs.security-scan.result != 'skipped' ||
        needs.secret-scan.result != 'skipped' ||
        needs.dependency-audit.result != 'skipped' ||
@@ -698,12 +836,14 @@ jobs:
               {"name": "design-system", "result": ${{ toJSON(needs.design-system.result) }}, "report": ${{ toJSON(needs.design-system.outputs.report) }}},
               {"name": "dead-code", "result": ${{ toJSON(needs.dead-code.result) }}, "report": ${{ toJSON(needs.dead-code.outputs.report) }}},
               {"name": "duplicate-code", "result": ${{ toJSON(needs.duplicate-code.result) }}, "report": ${{ toJSON(needs.duplicate-code.outputs.report) }}},
+              {"name": "max-lines", "result": ${{ toJSON(needs.max-lines.result) }}, "report": ${{ toJSON(needs.max-lines.outputs.report) }}},
+              {"name": "react-tech-debt", "result": ${{ toJSON(needs.react-tech-debt.result) }}, "report": ${{ toJSON(needs.react-tech-debt.outputs.report) }}},
               {"name": "security-scan", "result": ${{ toJSON(needs.security-scan.result) }}, "report": ${{ toJSON(needs.security-scan.outputs.report) }}},
               {"name": "secret-scan", "result": ${{ toJSON(needs.secret-scan.result) }}, "report": ${{ toJSON(needs.secret-scan.outputs.report) }}},
               {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}},
               {"name": "tech-debt", "result": ${{ toJSON(needs.tech-debt.result) }}, "report": ${{ toJSON(needs.tech-debt.outputs.report) }}}
             ]
-  # One matrix job replaces what used to be 8 nearly-identical
+  # One matrix job replaces what used to be nearly-identical
   # "File Linear ticket for <job>" steps living inside `danger-comment`
   # itself (only the job name / report path varied) - see develop-ci.yml's
   # identical job for the full rationale, including why the `matrix`
@@ -711,12 +851,12 @@ jobs:
   # `run:`).
   file-linear-tickets:
     name: file-linear-ticket (${{ matrix.job }})
-    needs: [peer-deps, a11y, design-system, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit]
+    needs: [peer-deps, a11y, design-system, dead-code, duplicate-code, max-lines, react-tech-debt, security-scan, secret-scan, dependency-audit]
     if: always()
     strategy:
       fail-fast: false
       matrix:
-        job: [peer-deps, a11y, design-system, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit]
+        job: [peer-deps, a11y, design-system, dead-code, duplicate-code, max-lines, react-tech-debt, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
@@ -737,9 +877,17 @@ jobs:
           printf '%s\n' "$REPORT" > /tmp/report.md
           bash labone-actions/scripts/file-linear-ticket.sh ${{ matrix.job }} /tmp/report.md
 
+  # design-system/dead-code/duplicate-code/max-lines/react-tech-debt/
+  # tech-debt deliberately excluded - all six are advisory-only
+  # (`blocking: 'false'`, or metrics-only for tech-debt) and none of them
+  # fails on its own, so none belongs in a required-status gate. `a11y`
+  # stays - it's a genuine hard gate (`blocking` defaults 'true', never
+  # overridden). `build` is included even though it defaults off today -
+  # same skip-safe pattern every other stack's required-checks already
+  # uses.
   required-checks:
     name: required-checks
-    needs: [changes, actionlint, setup, peer-deps, lint, ls-lint, typecheck, test, a11y, design-system, dead-code, duplicate-code, security-scan, secret-scan, dependency-audit, tech-debt]
+    needs: [changes, actionlint, setup, peer-deps, lint, ls-lint, typecheck, build, test, a11y, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
