@@ -848,7 +848,7 @@ jobs:
   # `required-checks` comment for the full rationale.
   required-checks:
     name: required-checks
-    needs: [lint, ls-lint, typecheck, build, test, actionlint, security-scan, secret-scan]
+    needs: [setup, lint, ls-lint, typecheck, build, test, actionlint, security-scan, secret-scan]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
