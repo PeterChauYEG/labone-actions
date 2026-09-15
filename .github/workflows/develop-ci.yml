@@ -115,6 +115,19 @@ on:
         description: Run `yarn design-system`, with PR sticky comment + Linear ticket filing on failure.
         type: boolean
         default: true
+      design_system_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the design-system job - see dead_code_script_source's
+          identical pattern below. `'repo'` (default) keeps today's
+          behavior; `'labone-actions'` runs this repo's shared
+          scripts/design-system-scan.mjs instead (labone-eslint-plugin's
+          no-raw-text-element/no-theme-color-literal rules - no per-repo
+          config needed, just wire those rules up in the caller's own
+          eslint.config).
+        type: string
+        required: false
+        default: 'repo'
       enable_dead_code:
         description: Run `yarn dead-code`, with PR sticky comment + Linear ticket filing on failure.
         type: boolean
@@ -150,6 +163,19 @@ on:
         description: Run `yarn react-tech-debt`, with PR sticky comment on failure (no ticket).
         type: boolean
         default: true
+      react_tech_debt_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the react-tech-debt job - see
+          design_system_script_source's identical pattern above.
+          `'repo'` (default) keeps today's behavior; `'labone-actions'`
+          runs this repo's shared scripts/react-tech-debt-scan.mjs
+          instead (every labone-eslint-plugin `lab-react-standards/*`
+          rule, whatever severity the caller's own eslint.config gives
+          it - no per-repo config needed).
+        type: string
+        required: false
+        default: 'repo'
       enable_max_lines:
         description: Run the max-lines scan, with PR sticky comment on failure (no ticket).
         type: boolean
@@ -502,6 +528,7 @@ jobs:
         id: scan
         with:
           script: design-system
+          script-source: ${{ inputs.design_system_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
@@ -593,6 +620,7 @@ jobs:
         id: scan
         with:
           script: react-tech-debt
+          script-source: ${{ inputs.react_tech_debt_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/react-tech-debt-report.md
           working-directory: ${{ inputs.working-directory }}
