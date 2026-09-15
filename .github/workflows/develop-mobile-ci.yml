@@ -427,8 +427,8 @@ jobs:
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment.
     outputs:
-      outcome: ${{ steps.scan.outcome }}
-      report: ${{ steps.report.outputs.report }}
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -438,27 +438,13 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - id: scan
-        continue-on-error: true
-        working-directory: ${{ inputs.working-directory }}
-        run: yarn a11y
-      - name: Capture report
-        id: report
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          {
-            echo "report<<A11Y_REPORT_EOF"
-            if [ -f "${{ inputs.working-directory }}/a11y-report.md" ]; then
-              cat "${{ inputs.working-directory }}/a11y-report.md"
-            else
-              echo "(no report written — see the a11y job's own log)"
-            fi
-            echo "A11Y_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
+        with:
+          script: a11y
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/a11y-report.md
+          working-directory: ${{ inputs.working-directory }}
 
   design-system:
     name: design-system
@@ -471,8 +457,8 @@ jobs:
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment.
     outputs:
-      outcome: ${{ steps.scan.outcome }}
-      report: ${{ steps.report.outputs.report }}
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -482,27 +468,13 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - id: scan
-        continue-on-error: true
-        working-directory: ${{ inputs.working-directory }}
-        run: yarn design-system
-      - name: Capture report
-        id: report
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          {
-            echo "report<<DESIGN_SYSTEM_REPORT_EOF"
-            if [ -f "${{ inputs.working-directory }}/design-system-report.md" ]; then
-              cat "${{ inputs.working-directory }}/design-system-report.md"
-            else
-              echo "(no report written — see the design-system job's own log)"
-            fi
-            echo "DESIGN_SYSTEM_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
+        with:
+          script: design-system
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/design-system-report.md
+          working-directory: ${{ inputs.working-directory }}
 
   dead-code:
     name: dead-code
@@ -515,8 +487,8 @@ jobs:
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment.
     outputs:
-      outcome: ${{ steps.scan.outcome }}
-      report: ${{ steps.report.outputs.report }}
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -526,27 +498,13 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - id: scan
-        continue-on-error: true
-        working-directory: ${{ inputs.working-directory }}
-        run: yarn dead-code
-      - name: Capture report
-        id: report
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          {
-            echo "report<<DEAD_CODE_REPORT_EOF"
-            if [ -f "${{ inputs.working-directory }}/dead-code-report.md" ]; then
-              cat "${{ inputs.working-directory }}/dead-code-report.md"
-            else
-              echo "(no report written — see the dead-code job's own log)"
-            fi
-            echo "DEAD_CODE_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
+        with:
+          script: dead-code
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/dead-code-report.md
+          working-directory: ${{ inputs.working-directory }}
 
   duplicate-code:
     name: duplicate-code
@@ -559,8 +517,8 @@ jobs:
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment.
     outputs:
-      outcome: ${{ steps.scan.outcome }}
-      report: ${{ steps.report.outputs.report }}
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -570,27 +528,13 @@ jobs:
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
-      - id: scan
-        continue-on-error: true
-        working-directory: ${{ inputs.working-directory }}
-        run: yarn duplicate-code
-      - name: Capture report
-        id: report
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          {
-            echo "report<<DUPLICATE_CODE_REPORT_EOF"
-            if [ -f "${{ inputs.working-directory }}/report/jscpd-report.md" ]; then
-              cat "${{ inputs.working-directory }}/report/jscpd-report.md"
-            else
-              echo "(no report written — see the duplicate-code job's own log)"
-            fi
-            echo "DUPLICATE_CODE_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - if: steps.scan.outcome == 'failure'
-        run: exit 1
+      - uses: PeterChauYEG/labone-actions/.github/actions/scan-with-report@main
+        id: scan
+        with:
+          script: duplicate-code
+          gh-token: ${{ secrets.GH_PAT }}
+          report-file: ${{ inputs.working-directory }}/report/jscpd-report.md
+          working-directory: ${{ inputs.working-directory }}
 
   security-scan:
     name: security-scan
