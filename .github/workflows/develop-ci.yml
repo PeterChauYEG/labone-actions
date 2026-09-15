@@ -292,48 +292,14 @@ jobs:
     # the job reach its own report/outcome-capturing step instead of
     # stopping dead, same pattern as security-scan/secret-scan below.
     outputs:
-      outcome: ${{ steps.result.outputs.outcome }}
-      report: ${{ steps.result.outputs.report }}
+      outcome: ${{ steps.check.outputs.outcome }}
+      report: ${{ steps.check.outputs.report }}
     steps:
-      - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: ${{ inputs.working-directory }}/package.json
-      - name: Check for peer dependency conflicts
+      - uses: PeterChauYEG/labone-actions/.github/actions/peer-deps-check@main
         id: check
-        continue-on-error: true
-        working-directory: ${{ inputs.working-directory }}
-        run: |
-          yarn install --immutable 2>&1 | tee /tmp/peer-deps-check.log
-          if grep -q "YN0060" /tmp/peer-deps-check.log; then
-            echo "Peer dependency conflicts detected:"
-            grep "YN0060" /tmp/peer-deps-check.log
-            exit 1
-          fi
-      - name: Build peer-deps report
-        id: result
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          outcome="${{ steps.check.outcome }}"
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
-          {
-            echo "report<<PEER_DEPS_REPORT_EOF"
-            echo '### peer-deps'
-            echo
-            if [ "$outcome" = 'failure' ]; then
-              echo '❌ Peer dependency conflicts detected:'
-              echo '```'
-              tail -n 60 /tmp/peer-deps-check.log 2>/dev/null || echo '(no log captured)'
-              echo '```'
-            else
-              echo '✅ No peer dependency conflicts detected.'
-            fi
-            echo "PEER_DEPS_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - if: ${{ steps.check.outcome == 'failure' }}
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - if: ${{ steps.check.outputs.outcome == 'failure' }}
         run: exit 1
 
   security-scan:
