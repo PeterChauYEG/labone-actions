@@ -25,6 +25,18 @@ inputs:
     description: Directory (relative to the repo root) the package.json lives in.
     required: false
     default: '.'
+  gh-token:
+    description: >
+      GitHub token (e.g. secrets.GH_PAT) exposed as GH_TOKEN to the
+      install steps only — needed whenever the repo's package.json (or a
+      transitive dependency) pulls a private package from GitHub Packages
+      (npm.pkg.github.com). Without this, a yarn `.yarnrc.yml` scope like
+      `npmAuthToken: "${GH_TOKEN:-}"` falls back to empty and the install
+      fails as an anonymous user (yarn YN0041) rather than surfacing an
+      actual peer-dependency conflict. Leave empty (default) for repos
+      with no such private-registry dependency.
+    required: false
+    default: ''
 
 outputs:
   outcome:
@@ -52,6 +64,8 @@ runs:
       continue-on-error: true
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.gh-token }}
       run: |
         yarn install --immutable 2>&1 | tee /tmp/peer-deps-check.log
         if grep -q "YN0060" /tmp/peer-deps-check.log; then
@@ -66,6 +80,8 @@ runs:
       continue-on-error: true
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.gh-token }}
       run: pnpm install --frozen-lockfile --strict-peer-dependencies 2>&1 | tee /tmp/peer-deps-check.log
 
     - name: Build report
