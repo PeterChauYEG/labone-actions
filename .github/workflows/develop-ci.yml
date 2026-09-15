@@ -128,9 +128,22 @@ on:
         type: boolean
         default: true
       enable_max_lines:
-        description: Run `yarn max-lines`, with PR sticky comment on failure (no ticket).
+        description: Run the max-lines scan, with PR sticky comment on failure (no ticket).
         type: boolean
         default: true
+      max_lines_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the max-lines job (see that action's own description).
+          `'repo'` (default) keeps today's behavior — `yarn max-lines`,
+          vendored into the caller repo. `'labone-actions'` runs this repo's
+          shared scripts/max-lines-scan.mjs instead, so the caller only
+          needs eslint.max-lines.config.mjs. Opt-in per caller while this
+          migrates off vendored copies (pilot: gamecraft) — every other
+          `enable_*`/scan job is unaffected.
+        type: string
+        required: false
+        default: 'repo'
       enable_tech_debt:
         description: >
           Run the grep-based tech-debt metrics report (useEffect/Animated/
@@ -665,6 +678,7 @@ jobs:
         id: scan
         with:
           script: max-lines
+          script-source: ${{ inputs.max_lines_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/max-lines-report.md
           working-directory: ${{ inputs.working-directory }}
