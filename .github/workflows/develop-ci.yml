@@ -517,6 +517,11 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
+    # id-token: write is unused unless enable_coverage_upload + codecov_use_oidc
+    # are both true - see develop-node-ci.yml's identical comment.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       # test_script_args (default Jest's cache flags) is passed through to
       # the caller's `test:coverage` script (yarn forwards extra CLI args) —
