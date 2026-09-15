@@ -1,0 +1,85 @@
+name: Build danger-comment report
+description: >
+  Builds and posts the aggregated sticky-PR-comment used by every
+  develop-*-ci.yml's `danger-comment` job. Replaces the "Checkout
+  labone-actions scripts" + "Prepare reports" steps that were previously
+  copy-pasted nearly identically (only the job list differs per language)
+  across develop-ci.yml, develop-node-ci.yml, develop-rust-ci.yml,
+  develop-python-ci.yml, and develop-mobile-ci.yml.
+
+  Also writes each entry's own report to /tmp/<name>-report.md — same paths
+  the existing per-job "File Linear ticket for <job>" steps already read
+  from — so those keep working unchanged.
+
+inputs:
+  heading:
+    description: Markdown heading for the aggregated comment, e.g. "## CI checks".
+    required: true
+  entries:
+    description: >
+      JSON array of {name, result, report} objects, one per upstream job.
+      Build it with toJSON() so arbitrary report markdown (quotes,
+      newlines) round-trips safely as a JSON string, e.g.:
+        entries: |
+          [
+            {"name": "peer-deps", "result": ${{ toJSON(needs.peer-deps.result) }}, "report": ${{ toJSON(needs.peer-deps.outputs.report) }}},
+            {"name": "security-scan", "result": ${{ toJSON(needs.security-scan.result) }}, "report": ${{ toJSON(needs.security-scan.outputs.report) }}}
+          ]
+    required: true
+  sticky-header:
+    description: Passed straight through to post-danger-comment's sticky-header input.
+    required: true
+
+outputs:
+  report:
+    description: The built aggregated report markdown.
+    value: ${{ steps.build.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    # Checked out separately (not the caller repo) purely to get
+    # scripts/file-linear-ticket.sh, which lives in labone-actions
+    # regardless of which repo calls this workflow. Composite-action steps
+    # share the calling job's workspace, so this `labone-actions/` checkout
+    # is still there for that job's own later "File Linear ticket for <job>"
+    # steps, same as when this checkout lived directly in each caller.
+    - name: Checkout labone-actions scripts
+      uses: actions/checkout@v7
+      with:
+        repository: PeterChauYEG/labone-actions
+        ref: main
+        path: labone-actions
+        sparse-checkout: |
+          scripts
+        sparse-checkout-cone-mode: true
+
+    - name: Build aggregated report
+      id: build
+      shell: bash
+      env:
+        ENTRIES_JSON: ${{ inputs.entries }}
+        HEADING: ${{ inputs.heading }}
+      run: |
+        set -uo pipefail
+
+        # One file per entry (unconditionally, skipped included, matching
+        # the old per-caller "Prepare reports" step) for the ticket-filing
+        # steps downstream to read.
+        echo "$ENTRIES_JSON" | jq -c '.[]' | while IFS= read -r entry; do
+          name=$(jq -r '.name' <<<"$entry")
+          report=$(jq -r '.report' <<<"$entry")
+          printf '%s\n' "$report" > "/tmp/${name}-report.md"
+        done
+
+        {
+          echo "report<<DANGER_COMMENT_REPORT_EOF"
+          echo "$HEADING"
+          echo
+          echo "$ENTRIES_JSON" | jq -r '.[] | select(.result != "skipped") | .report + "\n"'
+          echo "DANGER_COMMENT_REPORT_EOF"
+        } >> "$GITHUB_OUTPUT"
+    - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
+      with:
+        report: ${{ steps.build.outputs.report }}
+        sticky-header: ${{ inputs.sticky-header }}
