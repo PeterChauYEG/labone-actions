@@ -170,6 +170,16 @@ on:
         type: boolean
         required: false
         default: false
+      dead_code_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the dead-code job - see develop-ci.yml's identical
+          input for the full description. `'repo'` (default) keeps today's
+          behavior; `'labone-actions'` runs this repo's shared
+          scripts/dead-code-scan.mjs instead.
+        type: string
+        required: false
+        default: 'repo'
       enable_duplicate_code:
         description: >
           Run a duplicate-code scan (`yarn duplicate-code`) with a sticky
@@ -185,6 +195,14 @@ on:
         type: boolean
         required: false
         default: false
+      duplicate_code_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the duplicate-code job - see dead_code_script_source
+          above.
+        type: string
+        required: false
+        default: 'repo'
       security_scan_trivyignores:
         description: >
           Comma-separated list of relative paths to .trivyignore file(s), or
@@ -665,6 +683,7 @@ jobs:
         id: scan
         with:
           script: dead-code
+          script-source: ${{ inputs.dead_code_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/dead-code-report.md
           working-directory: ${{ inputs.working-directory }}
@@ -700,6 +719,7 @@ jobs:
         id: scan
         with:
           script: duplicate-code
+          script-source: ${{ inputs.duplicate_code_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
           working-directory: ${{ inputs.working-directory }}

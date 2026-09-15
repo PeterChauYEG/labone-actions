@@ -35,6 +35,16 @@ on:
         type: string
         required: false
         default: 'repo'
+      dead_code_script_source:
+        description: Passed straight through to develop-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'repo'
+      duplicate_code_script_source:
+        description: Passed straight through to develop-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'repo'
 
 permissions:
   contents: read
@@ -63,7 +73,9 @@ jobs:
       enable_test: true
       enable_design_system: true
       enable_dead_code: true
+      dead_code_script_source: ${{ inputs.dead_code_script_source }}
       enable_duplicate_code: true
+      duplicate_code_script_source: ${{ inputs.duplicate_code_script_source }}
       enable_react_tech_debt: true
       enable_max_lines: true
       max_lines_script_source: ${{ inputs.max_lines_script_source }}

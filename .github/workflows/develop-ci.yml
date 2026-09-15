@@ -119,10 +119,33 @@ on:
         description: Run `yarn dead-code`, with PR sticky comment + Linear ticket filing on failure.
         type: boolean
         default: true
+      dead_code_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the dead-code job (see that action's own description
+          and max_lines_script_source's identical pattern below). `'repo'`
+          (default) keeps today's behavior — `yarn dead-code`, vendored
+          into the caller repo. `'labone-actions'` runs this repo's shared
+          scripts/dead-code-scan.mjs instead, so the caller only needs
+          knip.json.
+        type: string
+        required: false
+        default: 'repo'
       enable_duplicate_code:
         description: Run `yarn duplicate-code`, with PR sticky comment + Linear ticket filing on failure.
         type: boolean
         default: true
+      duplicate_code_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the duplicate-code job - see dead_code_script_source's
+          identical pattern above. `'repo'` (default) keeps today's
+          behavior; `'labone-actions'` runs this repo's shared
+          scripts/duplicate-code-scan.mjs instead, so the caller only needs
+          .jscpd.json.
+        type: string
+        required: false
+        default: 'repo'
       enable_react_tech_debt:
         description: Run `yarn react-tech-debt`, with PR sticky comment on failure (no ticket).
         type: boolean
@@ -507,6 +530,7 @@ jobs:
         id: scan
         with:
           script: dead-code
+          script-source: ${{ inputs.dead_code_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/dead-code-report.md
           working-directory: ${{ inputs.working-directory }}
@@ -535,6 +559,7 @@ jobs:
         id: scan
         with:
           script: duplicate-code
+          script-source: ${{ inputs.duplicate_code_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
           working-directory: ${{ inputs.working-directory }}

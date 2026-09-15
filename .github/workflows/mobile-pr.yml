@@ -31,6 +31,16 @@ on:
         description: Only turn on if this repo has a .jscpd.json config.
         type: boolean
         default: false
+      dead_code_script_source:
+        description: Passed straight through to develop-mobile-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'repo'
+      duplicate_code_script_source:
+        description: Passed straight through to develop-mobile-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'repo'
       security_scan_trivyignores:
         type: string
         required: false
@@ -70,7 +80,9 @@ jobs:
       enable_a11y: true
       enable_design_system: true
       enable_dead_code: true
+      dead_code_script_source: ${{ inputs.dead_code_script_source }}
       enable_duplicate_code: ${{ inputs.enable_duplicate_code }}
+      duplicate_code_script_source: ${{ inputs.duplicate_code_script_source }}
       enable_security_scan: true
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       enable_dependency_audit: false
