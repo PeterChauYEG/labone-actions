@@ -260,9 +260,12 @@ jobs:
       - working-directory: ${{ inputs.working-directory }}
         run: cargo audit
 
+  # dead-code/duplicate-code/file-size deliberately excluded - advisory-only,
+  # same convention every other stack's required-checks already follows
+  # (see develop-rust-ci.yml's identical fix for the PR-time equivalent).
   required-checks:
     name: required-checks
-    needs: [fmt, clippy, test, build, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
+    needs: [fmt, clippy, test, build, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:

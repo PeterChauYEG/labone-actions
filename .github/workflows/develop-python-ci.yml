@@ -89,6 +89,42 @@ on:
         type: string
         required: false
         default: 'requirements.txt'
+      enable_dead_code:
+        description: >
+          Run a dead-code scan via `dead_code_script` (vulture). Off by
+          default - only `robot-7` has this scripted today; every other
+          Python caller needs a matching script before opting in.
+        type: boolean
+        default: false
+      dead_code_script:
+        description: Path (relative to working-directory) to the dead-code-scan script.
+        type: string
+        required: false
+        default: 'scripts/dead_code_scan.py'
+      enable_duplicate_code:
+        description: >
+          Run a duplicate-code scan via `duplicate_code_script` (jscpd, Python
+          tokenizer, needs a `.jscpd.json`). Off by default - only `robot-7`
+          has this scripted today.
+        type: boolean
+        default: false
+      duplicate_code_script:
+        description: Path (relative to working-directory) to the duplicate-code-scan script.
+        type: string
+        required: false
+        default: 'scripts/duplicate-code-scan.sh'
+      enable_file_size:
+        description: >
+          Run a file-size scan via `file_size_script` (pylint's `too-many-lines`
+          C0302). Report-only by design - never fails the job. Off by default
+          - only `robot-7` has this scripted today.
+        type: boolean
+        default: false
+      file_size_script:
+        description: Path (relative to working-directory) to the file-size-scan script.
+        type: string
+        required: false
+        default: 'scripts/file_size_scan.py'
 
 permissions:
   contents: read
@@ -215,29 +251,152 @@ jobs:
       - if: ${{ steps.audit.outcome == 'failure' }}
         run: exit 1
 
+  dead-code:
+    name: dead-code
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-python]
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see security-scan's
+    # identical comment above. Advisory-only - never fails the job.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: vulture
+          cache-key-prefix: dead-code
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: python3 ${{ inputs.dead_code_script }} 2>&1 | tee /tmp/dead-code.log
+      - name: Build dead-code report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "outcome=${{ steps.scan.outcome }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<DEAD_CODE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/dead-code-report.md" ]; then
+              cat "${{ inputs.working-directory }}/dead-code-report.md"
+            else
+              echo '### dead-code'
+              echo
+              echo '(no report written - see the dead-code job'"'"'s own log)'
+            fi
+            echo "DEAD_CODE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  duplicate-code:
+    name: duplicate-code
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-node]
+    if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see dead-code's identical
+    # comment above. jscpd's Python tokenizer needs Node, not uv - same
+    # reason `robot-7`'s own equivalent job runs on catfood-node.
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install jscpd
+        run: |
+          tmp="$(mktemp -d)"
+          echo "JSCPD_TMP=${tmp}" >> "$GITHUB_ENV"
+          NPM_CONFIG_CACHE="${tmp}/npm-cache" npm install --prefix "${tmp}/jscpd" jscpd --silent
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          PATH="${JSCPD_TMP}/jscpd/node_modules/.bin:$PATH" bash ${{ inputs.duplicate_code_script }} duplicate-code-report.md
+      - name: Build duplicate-code report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "outcome=${{ steps.scan.outcome }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<DUPLICATE_CODE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/duplicate-code-report.md" ]; then
+              cat "${{ inputs.working-directory }}/duplicate-code-report.md"
+            else
+              echo '### duplicate-code'
+              echo
+              echo '(no report written - see the duplicate-code job'"'"'s own log)'
+            fi
+            echo "DUPLICATE_CODE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  file-size:
+    name: file-size
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-python]
+    if: ${{ inputs.enable_file_size && !inputs.is_dependabot }}
+    # Feeds the `danger-comment` aggregator below - see dead-code's identical
+    # comment above. Report-only by design - `steps.scan` has no `exit 1`
+    # step, so this job itself never fails; `outputs.outcome` still reflects
+    # a real finding so danger-comment/file-linear-tickets can report on it
+    # like every other advisory job (fixes the fleet-wide "file-size never
+    # files a ticket" gap - see the CI doc's Migration plan).
+    outputs:
+      outcome: ${{ steps.result.outputs.outcome }}
+      report: ${{ steps.result.outputs.report }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
+        with:
+          tool: pylint
+          cache-key-prefix: file-size
+      - id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: python3 ${{ inputs.file_size_script }}
+      - name: Build file-size report
+        id: result
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "outcome=${{ steps.scan.outcome }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<FILE_SIZE_REPORT_EOF"
+            if [ -f "${{ inputs.working-directory }}/file-size-report.md" ]; then
+              cat "${{ inputs.working-directory }}/file-size-report.md"
+            else
+              echo '### file-size'
+              echo
+              echo '(no report written - see the file-size job'"'"'s own log)'
+            fi
+            echo "FILE_SIZE_REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
   # Single aggregator for every scan/gate job above that reports findings:
-  # security-scan, secret-scan, dependency-audit. Posts ONE sticky PR
-  # comment covering all three and files (deduped, via
-  # scripts/file-linear-ticket.sh - already per-PR-per-job deduped, see that
-  # script's own header) a Linear ticket for whichever of them failed -
-  # instead of each independently generating its own Dangerfile / posting
-  # its own sticky comment / filing its own ticket. Mirrors
-  # develop-node-ci.yml's identical `danger-comment` job - see that file for
-  # the full rationale (this file has no dead-code/duplicate-code/
-  # peer-deps-equivalent job to also feed in).
+  # security-scan, secret-scan, dependency-audit, dead-code, duplicate-code,
+  # file-size. Posts ONE sticky PR comment covering all six and files
+  # (deduped, via scripts/file-linear-ticket.sh - already per-PR-per-job
+  # deduped, see that script's own header) a Linear ticket for whichever of
+  # them failed - instead of each independently generating its own
+  # Dangerfile / posting its own sticky comment / filing its own ticket.
+  # Mirrors develop-node-ci.yml's identical `danger-comment` job.
   #
   # `if: always()` so this still runs (and can report) when an upstream job
   # failed - same rationale as required-checks' identical `if: always()`
   # below. The `needs.*.result != 'skipped'` check skips this job entirely
-  # only when ALL THREE were skipped.
+  # only when every one of the six was skipped.
   danger-comment:
     name: danger-comment
-    needs: [security-scan, secret-scan, dependency-audit]
+    needs: [security-scan, secret-scan, dependency-audit, dead-code, duplicate-code, file-size]
     if: |
       always() &&
       (needs.security-scan.result != 'skipped' ||
        needs.secret-scan.result != 'skipped' ||
-       needs.dependency-audit.result != 'skipped')
+       needs.dependency-audit.result != 'skipped' ||
+       needs.dead-code.result != 'skipped' ||
+       needs.duplicate-code.result != 'skipped' ||
+       needs.file-size.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-python]
     permissions:
       contents: read
@@ -254,9 +413,12 @@ jobs:
             [
               {"name": "security-scan", "result": ${{ toJSON(needs.security-scan.result) }}, "report": ${{ toJSON(needs.security-scan.outputs.report) }}},
               {"name": "secret-scan", "result": ${{ toJSON(needs.secret-scan.result) }}, "report": ${{ toJSON(needs.secret-scan.outputs.report) }}},
-              {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}}
+              {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}},
+              {"name": "dead-code", "result": ${{ toJSON(needs.dead-code.result) }}, "report": ${{ toJSON(needs.dead-code.outputs.report) }}},
+              {"name": "duplicate-code", "result": ${{ toJSON(needs.duplicate-code.result) }}, "report": ${{ toJSON(needs.duplicate-code.outputs.report) }}},
+              {"name": "file-size", "result": ${{ toJSON(needs.file-size.result) }}, "report": ${{ toJSON(needs.file-size.outputs.report) }}}
             ]
-  # One matrix job replaces what used to be 3 nearly-identical
+  # One matrix job replaces what used to be nearly-identical
   # "File Linear ticket for <job>" steps living inside `danger-comment`
   # itself (only the job name / report path varied) - see develop-ci.yml's
   # identical job for the full rationale, including why the `matrix`
@@ -264,12 +426,12 @@ jobs:
   # `run:`).
   file-linear-tickets:
     name: file-linear-ticket (${{ matrix.job }})
-    needs: [security-scan, secret-scan, dependency-audit]
+    needs: [security-scan, secret-scan, dependency-audit, dead-code, duplicate-code, file-size]
     if: always()
     strategy:
       fail-fast: false
       matrix:
-        job: [security-scan, secret-scan, dependency-audit]
+        job: [security-scan, secret-scan, dependency-audit, dead-code, duplicate-code, file-size]
     runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
