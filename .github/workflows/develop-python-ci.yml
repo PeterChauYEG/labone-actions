@@ -273,39 +273,53 @@ jobs:
               {"name": "secret-scan", "result": ${{ toJSON(needs.secret-scan.result) }}, "report": ${{ toJSON(needs.secret-scan.outputs.report) }}},
               {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}}
             ]
-      - name: File Linear ticket for security-scan
-        if: ${{ needs.security-scan.outputs.outcome == 'failure' }}
+  # One matrix job replaces what used to be 3 nearly-identical
+  # "File Linear ticket for <job>" steps living inside `danger-comment`
+  # itself (only the job name / report path varied) - see develop-ci.yml's
+  # identical job for the full rationale, including why the `matrix`
+  # context can't gate this job's own `if:` (only step-level `if:`/`with:`/
+  # `run:`).
+  file-linear-tickets:
+    name: file-linear-ticket (${{ matrix.job }})
+    needs: [security-scan, secret-scan, dependency-audit]
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [security-scan, secret-scan, dependency-audit]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout labone-actions scripts
+        if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
+        uses: actions/checkout@v7
+        with:
+          repository: PeterChauYEG/labone-actions
+          ref: main
+          path: labone-actions
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+      - name: File Linear ticket
+        if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh security-scan /tmp/security-scan-report.md
-      - name: File Linear ticket for secret-scan
-        if: ${{ needs.secret-scan.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh secret-scan /tmp/secret-scan-report.md
-      - name: File Linear ticket for dependency-audit
-        if: ${{ needs.dependency-audit.outputs.outcome == 'failure' }}
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash labone-actions/scripts/file-linear-ticket.sh dependency-audit /tmp/dependency-audit-report.md
+          REPORT: ${{ needs[matrix.job].outputs.report }}
+        run: |
+          printf '%s\n' "$REPORT" > /tmp/report.md
+          bash labone-actions/scripts/file-linear-ticket.sh ${{ matrix.job }} /tmp/report.md
 
   # `needs:` lists every job in this file that's currently a REAL (blocking)
   # gate: `lint`, `test`, `security-scan`, `secret-scan`, `dependency-audit`.
   # Deliberately excludes `changes` (infra/plumbing, not a gate itself) and
-  # `danger-comment` (the aggregated sticky-comment/Linear-ticket job above -
-  # purely advisory/reporting, never fails on its own).
+  # `danger-comment`/`file-linear-tickets` (the aggregated sticky-comment/
+  # Linear-ticket jobs above - purely advisory/reporting, neither fails on
+  # its own).
   #
   # `if: always()` so this job still runs (and can report a real result)
   # even when an upstream gate job fails/is cancelled - a `skipped` result on
