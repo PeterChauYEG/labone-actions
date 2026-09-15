@@ -19,11 +19,18 @@ inputs:
     description: >
       JSON array of {name, result, report} objects, one per upstream job.
       Build it with toJSON() so arbitrary report markdown (quotes,
-      newlines) round-trips safely as a JSON string, e.g.:
+      newlines) round-trips safely as a JSON string. Wrap each toJSON(...)
+      call below in expression delimiters when writing the real `with:`
+      block in a caller workflow (omitted here on purpose - a literal,
+      unbroken expression-delimited sequence anywhere in an action.yml,
+      even inside a plain description field, gets parsed and evaluated by
+      the runner, and `needs` isn't in scope for a composite action, so
+      writing the real delimiters in this example previously broke every
+      caller with "Unrecognized named-value: 'needs'"), e.g.:
         entries: |
           [
-            {"name": "peer-deps", "result": ${{ toJSON(needs.peer-deps.result) }}, "report": ${{ toJSON(needs.peer-deps.outputs.report) }}},
-            {"name": "security-scan", "result": ${{ toJSON(needs.security-scan.result) }}, "report": ${{ toJSON(needs.security-scan.outputs.report) }}}
+            {"name": "peer-deps", "result": toJSON(needs.peer-deps.result), "report": toJSON(needs.peer-deps.outputs.report)},
+            {"name": "security-scan", "result": toJSON(needs.security-scan.result), "report": toJSON(needs.security-scan.outputs.report)}
           ]
     required: true
   sticky-header:
