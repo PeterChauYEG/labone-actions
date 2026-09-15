@@ -129,6 +129,28 @@ on:
         type: string
         required: false
         default: ''
+      pr_base_sha:
+        description: >
+          github.event.pull_request.base.sha from the caller. Only used by
+          the `tech-debt` job (when `enable_tech_debt` is true) to compute
+          a delta vs. the PR's base branch - see
+          `.github/actions/tech-debt-report-node`'s `base-sha` input.
+          Harmless to leave unset for every caller that doesn't enable
+          `tech-debt`.
+        type: string
+        required: false
+        default: ''
+      enable_tech_debt:
+        description: >
+          Run the grep-based tech-debt metrics report (lint-disable/
+          @ts-ignore/any/TODO-FIXME-HACK/console.log counts - see
+          `.github/actions/tech-debt-report-node`'s own header for why
+          `useEffect`/RN `Animated.*` are dropped from the Web/Mobile
+          version) and post it as a sticky PR comment. Opt-in, matching
+          develop-ci.yml's/develop-mobile-ci.yml's identical input -
+          defaults false since no consumer repo has this today.
+        type: boolean
+        default: false
       enable_ls_lint:
         description: >
           Run the ls-lint file naming check (`yarn lint:ls`), gated on the
@@ -753,21 +775,48 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           blocking: 'false'
 
+  tech-debt:
+    name: tech-debt
+    needs: [changes]
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
+    permissions:
+      contents: read
+    outputs:
+      report: ${{ steps.tech-debt-report.outputs.report }}
+    steps:
+      # No setup-node-yarn call: this is a plain grep over the tracked
+      # .ts/.tsx tree, no installed node_modules or Node runtime needed -
+      # just check out the repo, same as develop-rust-ci.yml's identical
+      # tech-debt job. tech-debt-report-node only computes metrics and
+      # emits a `report` output; posting it is the `danger-comment`
+      # aggregator below's job. Never fails the job and never files a
+      # Linear ticket - metrics report, not a gate.
+      - uses: actions/checkout@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report-node@main
+        id: tech-debt-report
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          pr-number: ${{ inputs.pr_number }}
+          base-sha: ${{ inputs.pr_base_sha }}
+
   # Single aggregator for every scan/gate job above that reports findings:
   # peer-deps, security-scan, secret-scan, dependency-audit, dead-code,
-  # duplicate-code, max-lines. Posts ONE sticky PR comment covering all seven and files
-  # (deduped, via scripts/file-linear-ticket.sh - already per-PR-per-job
-  # deduped, see that script's own header) a Linear ticket for whichever of
-  # them failed - instead of each of the seven independently generating its
-  # own Dangerfile / posting its own sticky comment / filing its own ticket,
-  # which is what this repo did until now (still true for develop-ci.yml's
-  # design-system/react-tech-debt/tech-debt jobs and develop-rust-ci.yml's
-  # fmt/clippy/test - being migrated to this same pattern separately).
+  # duplicate-code, max-lines, tech-debt. Posts ONE sticky PR comment
+  # covering all eight and files (deduped, via scripts/file-linear-ticket.sh
+  # - already per-PR-per-job deduped, see that script's own header) a Linear
+  # ticket for whichever of them failed - instead of each of the eight
+  # independently generating its own Dangerfile / posting its own sticky
+  # comment / filing its own ticket, which is what this repo did until now
+  # (still true for develop-ci.yml's design-system/react-tech-debt jobs and
+  # develop-rust-ci.yml's fmt/clippy/test - being migrated to this same
+  # pattern separately). `tech-debt` is metrics-only and never fails, so it
+  # never gets a ticket - same as develop-rust-ci.yml's identical job.
   #
   # `if: always()` so this still runs (and can report) when an upstream job
   # failed - same rationale as required-checks' identical `if: always()`
   # below. The `needs.*.result != 'skipped'` check skips this job entirely
-  # only when ALL SEVEN were skipped (e.g. a PR that touches no dependency or
+  # only when ALL EIGHT were skipped (e.g. a PR that touches no dependency or
   # source files at all) - any one of them running is enough to post a
   # comment.
   #
@@ -789,6 +838,7 @@ jobs:
         dead-code,
         duplicate-code,
         max-lines,
+        tech-debt,
       ]
     if: |
       always() &&
@@ -798,7 +848,8 @@ jobs:
        needs.dependency-audit.result != 'skipped' ||
        needs.dead-code.result != 'skipped' ||
        needs.duplicate-code.result != 'skipped' ||
-       needs.max-lines.result != 'skipped')
+       needs.max-lines.result != 'skipped' ||
+       needs.tech-debt.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-node]
     permissions:
       contents: read
@@ -820,7 +871,8 @@ jobs:
               {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}},
               {"name": "dead-code", "result": ${{ toJSON(needs.dead-code.result) }}, "report": ${{ toJSON(needs.dead-code.outputs.report) }}},
               {"name": "duplicate-code", "result": ${{ toJSON(needs.duplicate-code.result) }}, "report": ${{ toJSON(needs.duplicate-code.outputs.report) }}},
-              {"name": "max-lines", "result": ${{ toJSON(needs.max-lines.result) }}, "report": ${{ toJSON(needs.max-lines.outputs.report) }}}
+              {"name": "max-lines", "result": ${{ toJSON(needs.max-lines.result) }}, "report": ${{ toJSON(needs.max-lines.outputs.report) }}},
+              {"name": "tech-debt", "result": ${{ toJSON(needs.tech-debt.result) }}, "report": ${{ toJSON(needs.tech-debt.outputs.report) }}}
             ]
   # One matrix job replaces what used to be 7 nearly-identical
   # "File Linear ticket for <job>" steps living inside `danger-comment`
