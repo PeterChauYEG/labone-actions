@@ -48,6 +48,17 @@ on:
         type: string
         required: false
         default: 'tests'
+      security_scan_trivyignores:
+        description: >
+          Comma-separated list of relative paths to .trivyignore file(s), or
+          a single .trivyignore.yaml file, passed straight through to
+          trivy-action's `trivyignores` input. Empty by default - this
+          shared workflow ships no default ignore baseline. No enable_*
+          toggle, same as format/lint/duplicate-code above - see this
+          file's header comment for why every job here is mandatory.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -202,6 +213,39 @@ jobs:
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
+  security-scan:
+    name: security-scan
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
+        with:
+          scanners: vuln
+          label: vulnerabilities
+          report-heading: '### security-scan'
+          working-directory: ${{ inputs.working-directory }}
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - if: ${{ steps.scan.outputs.outcome == 'failure' }}
+        run: exit 1
+
+  secret-scan:
+    name: secret-scan
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    if: ${{ !inputs.is_dependabot }}
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
+        with:
+          scanners: secret
+          label: secrets
+          report-heading: '### secret-scan'
+          working-directory: ${{ inputs.working-directory }}
+          trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - if: ${{ steps.scan.outputs.outcome == 'failure' }}
+        run: exit 1
+
   test:
     name: test
     needs: changes
@@ -236,7 +280,7 @@ jobs:
 
   required-checks:
     name: required-checks
-    needs: [changes, actionlint, format, lint, duplicate-code, test]
+    needs: [changes, actionlint, format, lint, duplicate-code, security-scan, secret-scan, test]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:

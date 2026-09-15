@@ -47,6 +47,11 @@ on:
         type: string
         required: false
         default: 'tests'
+      security_scan_trivyignores:
+        description: Passed straight through to godot-develop-ci.yml's identical input.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -74,3 +79,4 @@ jobs:
       is_dependabot: ${{ inputs.is_dependabot }}
       enable_test: ${{ inputs.enable_test }}
       tests-path: ${{ inputs.tests-path }}
+      security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
