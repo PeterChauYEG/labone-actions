@@ -814,66 +814,22 @@ jobs:
       # Checked out separately (not the caller repo) purely to get
       # scripts/file-linear-ticket.sh, which lives in labone-actions
       # regardless of which repo calls this workflow.
-      - name: Checkout labone-actions scripts
-        uses: actions/checkout@v7
+      - uses: PeterChauYEG/labone-actions/.github/actions/build-danger-comment@main
         with:
-          repository: PeterChauYEG/labone-actions
-          ref: main
-          path: labone-actions
-          sparse-checkout: |
-            scripts
-          sparse-checkout-cone-mode: true
-      - name: Prepare reports
-        id: build
-        shell: bash
-        env:
-          PEER_DEPS_RESULT: ${{ needs.peer-deps.result }}
-          PEER_DEPS_REPORT: ${{ needs.peer-deps.outputs.report }}
-          A11Y_RESULT: ${{ needs.a11y.result }}
-          A11Y_REPORT: ${{ needs.a11y.outputs.report }}
-          DESIGN_SYSTEM_RESULT: ${{ needs.design-system.result }}
-          DESIGN_SYSTEM_REPORT: ${{ needs.design-system.outputs.report }}
-          DEAD_CODE_RESULT: ${{ needs.dead-code.result }}
-          DEAD_CODE_REPORT: ${{ needs.dead-code.outputs.report }}
-          DUPLICATE_CODE_RESULT: ${{ needs.duplicate-code.result }}
-          DUPLICATE_CODE_REPORT: ${{ needs.duplicate-code.outputs.report }}
-          SECURITY_SCAN_RESULT: ${{ needs.security-scan.result }}
-          SECURITY_SCAN_REPORT: ${{ needs.security-scan.outputs.report }}
-          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
-          SECRET_SCAN_REPORT: ${{ needs.secret-scan.outputs.report }}
-          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
-          DEPENDENCY_AUDIT_REPORT: ${{ needs.dependency-audit.outputs.report }}
-          TECH_DEBT_RESULT: ${{ needs.tech-debt.result }}
-          TECH_DEBT_REPORT: ${{ needs.tech-debt.outputs.report }}
-        run: |
-          set -uo pipefail
-          printf '%s\n' "$PEER_DEPS_REPORT" > /tmp/peer-deps-report.md
-          printf '%s\n' "$A11Y_REPORT" > /tmp/a11y-report.md
-          printf '%s\n' "$DESIGN_SYSTEM_REPORT" > /tmp/design-system-report.md
-          printf '%s\n' "$DEAD_CODE_REPORT" > /tmp/dead-code-report.md
-          printf '%s\n' "$DUPLICATE_CODE_REPORT" > /tmp/duplicate-code-report.md
-          printf '%s\n' "$SECURITY_SCAN_REPORT" > /tmp/security-scan-report.md
-          printf '%s\n' "$SECRET_SCAN_REPORT" > /tmp/secret-scan-report.md
-          printf '%s\n' "$DEPENDENCY_AUDIT_REPORT" > /tmp/dependency-audit-report.md
-          {
-            echo "report<<DANGER_COMMENT_REPORT_EOF"
-            echo '## Dependency & code-health checks'
-            echo
-            [ "$PEER_DEPS_RESULT" != 'skipped' ] && { printf '%s\n\n' "$PEER_DEPS_REPORT"; }
-            [ "$A11Y_RESULT" != 'skipped' ] && { printf '%s\n\n' "$A11Y_REPORT"; }
-            [ "$DESIGN_SYSTEM_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DESIGN_SYSTEM_REPORT"; }
-            [ "$DEAD_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEAD_CODE_REPORT"; }
-            [ "$DUPLICATE_CODE_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DUPLICATE_CODE_REPORT"; }
-            [ "$SECURITY_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECURITY_SCAN_REPORT"; }
-            [ "$SECRET_SCAN_RESULT" != 'skipped' ] && { printf '%s\n\n' "$SECRET_SCAN_REPORT"; }
-            [ "$DEPENDENCY_AUDIT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$DEPENDENCY_AUDIT_REPORT"; }
-            [ "$TECH_DEBT_RESULT" != 'skipped' ] && { printf '%s\n\n' "$TECH_DEBT_REPORT"; }
-            echo "DANGER_COMMENT_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - uses: PeterChauYEG/labone-actions/.github/actions/post-danger-comment@main
-        with:
-          report: ${{ steps.build.outputs.report }}
+          heading: '## Dependency & code-health checks'
           sticky-header: dependency-checks
+          entries: |
+            [
+              {"name": "peer-deps", "result": ${{ toJSON(needs.peer-deps.result) }}, "report": ${{ toJSON(needs.peer-deps.outputs.report) }}},
+              {"name": "a11y", "result": ${{ toJSON(needs.a11y.result) }}, "report": ${{ toJSON(needs.a11y.outputs.report) }}},
+              {"name": "design-system", "result": ${{ toJSON(needs.design-system.result) }}, "report": ${{ toJSON(needs.design-system.outputs.report) }}},
+              {"name": "dead-code", "result": ${{ toJSON(needs.dead-code.result) }}, "report": ${{ toJSON(needs.dead-code.outputs.report) }}},
+              {"name": "duplicate-code", "result": ${{ toJSON(needs.duplicate-code.result) }}, "report": ${{ toJSON(needs.duplicate-code.outputs.report) }}},
+              {"name": "security-scan", "result": ${{ toJSON(needs.security-scan.result) }}, "report": ${{ toJSON(needs.security-scan.outputs.report) }}},
+              {"name": "secret-scan", "result": ${{ toJSON(needs.secret-scan.result) }}, "report": ${{ toJSON(needs.secret-scan.outputs.report) }}},
+              {"name": "dependency-audit", "result": ${{ toJSON(needs.dependency-audit.result) }}, "report": ${{ toJSON(needs.dependency-audit.outputs.report) }}},
+              {"name": "tech-debt", "result": ${{ toJSON(needs.tech-debt.result) }}, "report": ${{ toJSON(needs.tech-debt.outputs.report) }}}
+            ]
       - name: File Linear ticket for peer-deps
         if: ${{ needs.peer-deps.outputs.outcome == 'failure' }}
         env:
