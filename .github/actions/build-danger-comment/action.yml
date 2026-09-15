@@ -45,14 +45,7 @@ runs:
     # is still there for that job's own later "File Linear ticket for <job>"
     # steps, same as when this checkout lived directly in each caller.
     - name: Checkout labone-actions scripts
-      uses: actions/checkout@v7
-      with:
-        repository: PeterChauYEG/labone-actions
-        ref: main
-        path: labone-actions
-        sparse-checkout: |
-          scripts
-        sparse-checkout-cone-mode: true
+      uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
 
     - name: Build aggregated report
       id: build

@@ -1,0 +1,20 @@
+name: Fail if any required job failed
+description: >
+  The single step every `required-checks` job in this repo's
+  develop-*-ci.yml/main-*-ci.yml/godot-*-ci.yml files was carrying,
+  byte-for-byte identical, save for the `needs:` list that job-level check
+  is unavoidably still declared per-file (a composite action can't
+  contribute to another job's `needs:` graph — those edges have to be
+  literal job names GitHub can parse ahead of time). This action only
+  centralizes the body: fail if anything that job needed failed or was
+  cancelled. The caller's `required-checks` job itself must still set
+  `if: always()` (so it runs even when an upstream gate failed) and list
+  every real gate in its own `needs:`.
+
+runs:
+  using: composite
+  steps:
+    - name: Fail if any required job failed or was cancelled
+      if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      shell: bash
+      run: exit 1

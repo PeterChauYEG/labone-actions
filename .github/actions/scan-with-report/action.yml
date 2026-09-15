@@ -91,14 +91,9 @@ runs:
     # scripts/file-linear-ticket.sh.
     - name: Checkout labone-actions scripts
       if: inputs.script-source == 'labone-actions'
-      uses: actions/checkout@v7
+      uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
       with:
-        repository: PeterChauYEG/labone-actions
-        ref: main
         path: labone-actions-scan-scripts
-        sparse-checkout: |
-          scripts
-        sparse-checkout-cone-mode: true
 
     - run: |
         if [ "${{ inputs.script-source }}" = "labone-actions" ]; then
