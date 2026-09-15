@@ -25,6 +25,17 @@ on:
         type: string
         required: false
         default: '.'
+      package_manager:
+        description: >
+          Package manager the caller repo uses - 'yarn' or 'pnpm'
+          (LAB-1268). Mirrors develop-node-ci.yml's identical input - this
+          file just never got it when that one did, so a pnpm caller's
+          PR CI worked but its Main CI failed outright at dispatch time
+          (`package_manager` rejected as an unknown input). Defaults to
+          'yarn' so every existing caller keeps working with zero changes.
+        type: string
+        required: false
+        default: 'yarn'
       is_dependabot:
         description: >
           Whether the triggering commit was authored by dependabot[bot].
@@ -219,7 +230,14 @@ jobs:
     needs: changes
     runs-on: [self-hosted, catfood, catfood-node]
     steps:
-      - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+      # package_manager (LAB-1268) branch, mirroring develop-node-ci.yml's
+      # identical setup job - this file never got that support when
+      # develop-node-ci.yml did, so every pnpm caller's Main CI failed
+      # outright at dispatch time (`package_manager` rejected as an unknown
+      # input) even though its PR CI worked fine. Found via info-sink's
+      # migration.
+      - if: inputs.package_manager == 'yarn'
+        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
           cache-key-prefix: setup
           working-directory: ${{ inputs.working-directory }}
@@ -246,6 +264,17 @@ jobs:
           # runs (develop-node-ci.yml) only read it. See setup-node-yarn's
           # cache-write input description and README.md "Caching strategy".
           cache-write: 'true'
+      - if: inputs.package_manager == 'pnpm'
+        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
+        with:
+          cache-key-prefix: setup
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'true'
 
   lint:
     name: lint
@@ -270,6 +299,7 @@ jobs:
           extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
+          package-manager: ${{ inputs.package_manager }}
           script: lint
           script-args: --cache --cache-location .eslintcache
           cache-path: .eslintcache
@@ -292,6 +322,7 @@ jobs:
           extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
+          package-manager: ${{ inputs.package_manager }}
           script: typecheck
           script-args: --incremental --tsBuildInfoFile tsconfig.tsbuildinfo
           cache-path: tsconfig.tsbuildinfo
@@ -314,6 +345,7 @@ jobs:
           extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
+          package-manager: ${{ inputs.package_manager }}
           script: build
 
   test:
@@ -339,6 +371,7 @@ jobs:
           extra-deps-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
           gh-token: ${{ secrets.GH_PAT }}
+          package-manager: ${{ inputs.package_manager }}
           script: test:coverage
           script-args: ${{ inputs.test_script_args }}
           cache-path: .jestcache
