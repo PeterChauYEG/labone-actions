@@ -600,46 +600,18 @@ jobs:
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment. Still a HARD gate (unchanged) via the final `exit 1` step.
     outputs:
-      outcome: ${{ steps.result.outputs.outcome }}
-      report: ${{ steps.result.outputs.report }}
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
-      - uses: actions/checkout@v7
-      - name: Run Trivy (vulnerabilities)
-        id: trivy
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
         with:
-          scan-type: fs
-          scan-ref: ${{ inputs.working-directory }}
           scanners: vuln
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
-          output: security-scan-report.txt
+          label: vulnerabilities
+          report-heading: '### security-scan'
+          working-directory: ${{ inputs.working-directory }}
           trivyignores: ${{ inputs.security_scan_trivyignores }}
-      - name: Build security-scan report
-        id: result
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          outcome="${{ steps.trivy.outcome }}"
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
-          {
-            echo "report<<SECURITY_SCAN_REPORT_EOF"
-            echo '### security-scan'
-            echo
-            if [ "$outcome" = 'failure' ]; then
-              echo '❌ Trivy found HIGH/CRITICAL vulnerabilities:'
-              echo '```'
-              cat security-scan-report.txt 2>/dev/null || echo '(no report captured)'
-              echo '```'
-            else
-              echo '✅ No HIGH/CRITICAL vulnerabilities found.'
-            fi
-            echo "SECURITY_SCAN_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - if: ${{ steps.trivy.outcome == 'failure' }}
+      - if: ${{ steps.scan.outputs.outcome == 'failure' }}
         run: exit 1
 
   secret-scan:
@@ -650,46 +622,18 @@ jobs:
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
     outputs:
-      outcome: ${{ steps.result.outputs.outcome }}
-      report: ${{ steps.result.outputs.report }}
+      outcome: ${{ steps.scan.outputs.outcome }}
+      report: ${{ steps.scan.outputs.report }}
     steps:
-      - uses: actions/checkout@v7
-      - name: Run Trivy (secrets)
-        id: trivy
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
         with:
-          scan-type: fs
-          scan-ref: ${{ inputs.working-directory }}
           scanners: secret
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
-          output: secret-scan-report.txt
+          label: secrets
+          report-heading: '### secret-scan'
+          working-directory: ${{ inputs.working-directory }}
           trivyignores: ${{ inputs.security_scan_trivyignores }}
-      - name: Build secret-scan report
-        id: result
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          outcome="${{ steps.trivy.outcome }}"
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
-          {
-            echo "report<<SECRET_SCAN_REPORT_EOF"
-            echo '### secret-scan'
-            echo
-            if [ "$outcome" = 'failure' ]; then
-              echo '❌ Trivy found HIGH/CRITICAL secrets:'
-              echo '```'
-              cat secret-scan-report.txt 2>/dev/null || echo '(no report captured)'
-              echo '```'
-            else
-              echo '✅ No secrets found.'
-            fi
-            echo "SECRET_SCAN_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - if: ${{ steps.trivy.outcome == 'failure' }}
+      - if: ${{ steps.scan.outputs.outcome == 'failure' }}
         run: exit 1
 
   dependency-audit:

@@ -199,34 +199,32 @@ jobs:
     # No path-based skip on main - see lint's comment above.
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
-      - uses: actions/checkout@v7
-      - name: Run Trivy (vulnerabilities)
-        uses: aquasecurity/trivy-action@v0.36.0
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
         with:
-          scan-type: fs
-          scan-ref: ${{ inputs.working-directory }}
           scanners: vuln
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
+          label: vulnerabilities
+          report-heading: '### security-scan'
+          working-directory: ${{ inputs.working-directory }}
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - if: ${{ steps.scan.outputs.outcome == 'failure' }}
+        run: exit 1
 
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
-      - uses: actions/checkout@v7
-      - name: Run Trivy (secrets)
-        uses: aquasecurity/trivy-action@v0.36.0
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
         with:
-          scan-type: fs
-          scan-ref: ${{ inputs.working-directory }}
           scanners: secret
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
+          label: secrets
+          report-heading: '### secret-scan'
+          working-directory: ${{ inputs.working-directory }}
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+      - if: ${{ steps.scan.outputs.outcome == 'failure' }}
+        run: exit 1
 
   required-checks:
     name: required-checks
