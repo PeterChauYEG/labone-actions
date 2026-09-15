@@ -363,67 +363,22 @@ jobs:
     # (unchanged, still advisory-only - see below), so the job itself never
     # fails and `needs.peer-deps.result` would always read 'success'.
     outputs:
-      outcome: ${{ steps.result.outputs.outcome }}
-      report: ${{ steps.result.outputs.report }}
+      outcome: ${{ steps.check.outputs.outcome }}
+      report: ${{ steps.check.outputs.report }}
     steps:
-      - uses: actions/checkout@v7
-      - run: corepack enable
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: ${{ inputs.working-directory }}/package.json
       # Advisory-only, like dead-code/duplicate-code above (see this file's
       # required-checks comment): a peer dependency conflict is real signal
       # worth surfacing, but blocking merges on it with no fix-forward path
       # (e.g. a transitive dependency's own peer range, not something the
-      # repo controls) is exactly the failure mode `continue-on-error`
-      # exists to prevent here.
-      - name: Check for peer dependency conflicts (yarn)
-        id: check-yarn
-        if: ${{ inputs.package_manager == 'yarn' }}
-        working-directory: ${{ inputs.working-directory }}
-        continue-on-error: true
-        run: |
-          yarn install --immutable 2>&1 | tee /tmp/peer-deps-check.log
-          if grep -q "YN0060" /tmp/peer-deps-check.log; then
-            echo "Peer dependency conflicts detected:"
-            grep "YN0060" /tmp/peer-deps-check.log
-            exit 1
-          fi
-      - name: Check for peer dependency conflicts (pnpm)
-        id: check-pnpm
-        if: ${{ inputs.package_manager == 'pnpm' }}
-        working-directory: ${{ inputs.working-directory }}
-        continue-on-error: true
-        run: pnpm install --frozen-lockfile --strict-peer-dependencies 2>&1 | tee /tmp/peer-deps-check.log
-      # Multi-line `report` output uses the same heredoc-into-$GITHUB_OUTPUT
-      # convention as tech-debt-report's `report` output - see that action
-      # for the pattern this was copied from.
-      - name: Build peer-deps report
-        id: result
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          if [ "${{ inputs.package_manager }}" = "yarn" ]; then
-            outcome="${{ steps.check-yarn.outcome }}"
-          else
-            outcome="${{ steps.check-pnpm.outcome }}"
-          fi
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
-          {
-            echo "report<<PEER_DEPS_REPORT_EOF"
-            echo '### peer-deps'
-            echo
-            if [ "$outcome" = 'failure' ]; then
-              echo '❌ Peer dependency conflicts detected:'
-              echo '```'
-              tail -n 60 /tmp/peer-deps-check.log 2>/dev/null || echo '(no log captured)'
-              echo '```'
-            else
-              echo '✅ No peer dependency conflicts detected.'
-            fi
-            echo "PEER_DEPS_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
+      # repo controls) is exactly the failure mode peer-deps-check's
+      # internal `continue-on-error` exists to prevent here - unlike
+      # develop-ci.yml/develop-mobile-ci.yml's identical action usage, this
+      # caller deliberately has no follow-up `exit 1` step.
+      - uses: PeterChauYEG/labone-actions/.github/actions/peer-deps-check@main
+        id: check
+        with:
+          package-manager: ${{ inputs.package_manager }}
+          working-directory: ${{ inputs.working-directory }}
 
   lint:
     name: lint

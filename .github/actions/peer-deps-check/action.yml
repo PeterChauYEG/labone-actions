@@ -1,0 +1,93 @@
+name: Peer-deps check
+description: >
+  Checks out the repo, enables Corepack, sets up Node from the caller's own
+  package.json, runs a fresh install, and reports whether it surfaced a
+  peer-dependency conflict (yarn: `YN0060` in `yarn install --immutable`'s
+  output; pnpm: any non-zero exit from `pnpm install --frozen-lockfile
+  --strict-peer-dependencies`). Previously copy-pasted nearly identically as
+  the `peer-deps` job body across develop-ci.yml, develop-node-ci.yml, and
+  develop-mobile-ci.yml — only the package manager (yarn-only vs. yarn/pnpm
+  branching) differed.
+
+  Always uses `continue-on-error: true` internally and never fails the job
+  on its own — same convention as trivy-scan/scan-with-report. A caller
+  that wants this to be a hard gate (develop-ci.yml, develop-mobile-ci.yml)
+  adds its own `if: steps.<id>.outputs.outcome == 'failure' -> exit 1` step
+  right after; a caller that wants it advisory-only (develop-node-ci.yml)
+  just doesn't.
+
+inputs:
+  package-manager:
+    description: '`yarn` or `pnpm`. Defaults to `yarn`.'
+    required: false
+    default: 'yarn'
+  working-directory:
+    description: Directory (relative to the repo root) the package.json lives in.
+    required: false
+    default: '.'
+
+outputs:
+  outcome:
+    description: The install/check step's own outcome (`success`/`failure`).
+    value: ${{ steps.result.outputs.outcome }}
+  report:
+    description: Markdown report for this check, for a `danger-comment`-style aggregator to consume.
+    value: ${{ steps.result.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+
+    - run: corepack enable
+      shell: bash
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: ${{ inputs.working-directory }}/package.json
+
+    - name: Check for peer dependency conflicts (yarn)
+      id: check-yarn
+      if: inputs.package-manager == 'yarn'
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        yarn install --immutable 2>&1 | tee /tmp/peer-deps-check.log
+        if grep -q "YN0060" /tmp/peer-deps-check.log; then
+          echo "Peer dependency conflicts detected:"
+          grep "YN0060" /tmp/peer-deps-check.log
+          exit 1
+        fi
+
+    - name: Check for peer dependency conflicts (pnpm)
+      id: check-pnpm
+      if: inputs.package-manager == 'pnpm'
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: pnpm install --frozen-lockfile --strict-peer-dependencies 2>&1 | tee /tmp/peer-deps-check.log
+
+    - name: Build report
+      id: result
+      if: always()
+      shell: bash
+      env:
+        OUTCOME: ${{ inputs.package-manager == 'yarn' && steps.check-yarn.outcome || steps.check-pnpm.outcome }}
+      run: |
+        set -uo pipefail
+        echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+        {
+          echo "report<<PEER_DEPS_REPORT_EOF"
+          echo '### peer-deps'
+          echo
+          if [ "$OUTCOME" = 'failure' ]; then
+            echo '❌ Peer dependency conflicts detected:'
+            echo '```'
+            tail -n 60 /tmp/peer-deps-check.log 2>/dev/null || echo '(no log captured)'
+            echo '```'
+          else
+            echo '✅ No peer dependency conflicts detected.'
+          fi
+          echo "PEER_DEPS_REPORT_EOF"
+        } >> "$GITHUB_OUTPUT"
