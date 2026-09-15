@@ -1,0 +1,26 @@
+name: Notify Slack of deploy result
+description: >
+  Posts a one-line Slack message reporting a deploy job's result.
+  Previously copy-pasted identically as the `slack-notification` job body
+  across main-ci.yml and main-node-ci.yml.
+
+inputs:
+  webhook-url:
+    description: Slack incoming-webhook URL (e.g. secrets.SLACK_WEBHOOK_URL).
+    required: true
+  deploy-result:
+    description: The deploy job's own result (e.g. needs.deploy.result), e.g. `failure`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Notify Slack
+      uses: slackapi/slack-github-action@v4
+      with:
+        webhook: ${{ inputs.webhook-url }}
+        webhook-type: incoming-webhook
+        payload: |
+          {
+            "text": "${{ github.repository }} deploy: ${{ inputs.deploy-result }}"
+          }
