@@ -67,7 +67,7 @@ function buildReport(results) {
   const lines = ['## Max-lines scan (eslint)', ''];
 
   if (violations.length === 0) {
-    lines.push('✅ No max-lines / max-lines-per-function violations found.');
+    lines.push('✅ No max-lines / max-lines-per-function violations found.', '');
     return { markdown: lines.join('\n'), totalIssues: 0 };
   }
 
@@ -75,7 +75,7 @@ function buildReport(results) {
   lines.push(`<details><summary><strong>Violations</strong> — ${violations.length}</summary>`, '');
   lines.push(...violations.map(formatViolation));
   lines.push('', '</details>', '');
-  lines.push('See eslint.max-lines.config.mjs to tune thresholds.');
+  lines.push('See eslint.max-lines.config.mjs to tune thresholds.', '');
 
   return { markdown: lines.join('\n'), totalIssues: violations.length };
 }
