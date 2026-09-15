@@ -582,8 +582,8 @@ jobs:
     # identical comment above (still a HARD gate, via the final `exit 1`
     # step).
     outputs:
-      outcome: ${{ steps.result.outputs.outcome }}
-      report: ${{ steps.result.outputs.report }}
+      outcome: ${{ steps.report.outputs.outcome }}
+      report: ${{ steps.report.outputs.report }}
     # `yarn npm audit`/`pnpm audit` resolve advisory data against the real
     # registry, including for scoped packages published to GitHub Packages
     # (e.g. @peterchauyeg/api-components) - .yarnrc.yml's npmAuthToken:
@@ -623,32 +623,11 @@ jobs:
         continue-on-error: true
         run: pnpm audit 2>&1 | tee /tmp/dependency-audit.log
         working-directory: ${{ inputs.working-directory }}
-      - name: Build dependency-audit report
-        id: result
+      - uses: PeterChauYEG/labone-actions/.github/actions/build-dependency-audit-report@main
+        id: report
         if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          if [ "${{ inputs.package_manager }}" = "yarn" ]; then
-            outcome="${{ steps.audit-yarn.outcome }}"
-          else
-            outcome="${{ steps.audit-pnpm.outcome }}"
-          fi
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
-          {
-            echo "report<<DEPENDENCY_AUDIT_REPORT_EOF"
-            echo '### dependency-audit'
-            echo
-            if [ "$outcome" = 'failure' ]; then
-              echo '❌ Known vulnerabilities found:'
-              echo '```'
-              tail -n 60 /tmp/dependency-audit.log 2>/dev/null || echo '(no log captured)'
-              echo '```'
-            else
-              echo '✅ No known vulnerabilities found.'
-            fi
-            echo "DEPENDENCY_AUDIT_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
+        with:
+          outcome: ${{ inputs.package_manager == 'yarn' && steps.audit-yarn.outcome || steps.audit-pnpm.outcome }}
       - if: ${{ (inputs.package_manager == 'yarn' && steps.audit-yarn.outcome == 'failure') || (inputs.package_manager == 'pnpm' && steps.audit-pnpm.outcome == 'failure') }}
         run: exit 1
 

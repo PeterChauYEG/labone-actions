@@ -590,8 +590,8 @@ jobs:
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
     outputs:
-      outcome: ${{ steps.result.outputs.outcome }}
-      report: ${{ steps.result.outputs.report }}
+      outcome: ${{ steps.report.outputs.outcome }}
+      report: ${{ steps.report.outputs.report }}
     steps:
       # `yarn npm audit` resolves entirely from yarn.lock against the
       # registry - no installed node_modules tree needed, just the yarn
@@ -607,28 +607,11 @@ jobs:
         continue-on-error: true
         run: yarn npm audit 2>&1 | tee /tmp/dependency-audit.log
         working-directory: ${{ inputs.working-directory }}
-      - name: Build dependency-audit report
-        id: result
+      - uses: PeterChauYEG/labone-actions/.github/actions/build-dependency-audit-report@main
+        id: report
         if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          outcome="${{ steps.audit.outcome }}"
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
-          {
-            echo "report<<DEPENDENCY_AUDIT_REPORT_EOF"
-            echo '### dependency-audit'
-            echo
-            if [ "$outcome" = 'failure' ]; then
-              echo '❌ Known vulnerabilities found:'
-              echo '```'
-              tail -n 60 /tmp/dependency-audit.log 2>/dev/null || echo '(no log captured)'
-              echo '```'
-            else
-              echo '✅ No known vulnerabilities found.'
-            fi
-            echo "DEPENDENCY_AUDIT_REPORT_EOF"
-          } >> "$GITHUB_OUTPUT"
+        with:
+          outcome: ${{ steps.audit.outcome }}
       - if: ${{ steps.audit.outcome == 'failure' }}
         run: exit 1
 
