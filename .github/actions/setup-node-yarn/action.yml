@@ -310,6 +310,18 @@ runs:
         # filtered out below).
         relink_workspaces() {
           command -v yarn >/dev/null 2>&1 || return 0
+          # Skip entirely for a repo with no `workspaces` field - confirmed
+          # live via contractors-api: `yarn workspaces list --json` can
+          # print a non-JSON notice to stdout instead of `[]` (e.g. a
+          # corepack "about to download" banner, seen when the caller's
+          # package.json has no `packageManager` field pinning a version),
+          # and this function's jq pipeline had no way to tell that apart
+          # from real output - it just crashed the whole job with jq's own
+          # "parse error" (exit 4). Checking package.json directly first
+          # (guaranteed valid JSON, unlike yarn's own stdout) sidesteps the
+          # problem outright: a non-workspaces repo never needs this
+          # function's workspace-relinking at all.
+          jq -e '.workspaces' package.json >/dev/null 2>&1 || return 0
           local abs_wd
           abs_wd="$(pwd)"
           yarn workspaces list --json 2>/dev/null \
