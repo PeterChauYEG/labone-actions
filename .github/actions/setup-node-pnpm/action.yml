@@ -242,12 +242,21 @@ runs:
           done <<< "$REL_PATHS"
           pnpm install --frozen-lockfile
           # Only now, with a real (non-symlinked) node_modules fully
-          # installed, move it into the scratch bundle and replace it with
-          # the same kind of symlink every reader will use.
+          # installed, move it into the scratch bundle. Deliberately NOT
+          # re-symlinked to $scratch/node_modules here - same fix as
+          # setup-node-yarn's identical comment (#188): link_bundle below
+          # already re-links node_modules against the FINAL $BUNDLE path a
+          # few lines down via the shallow-link scheme, and $scratch itself
+          # is about to be renamed to $BUNDLE or deleted either way - a
+          # symlink created here goes dangling the instant that happens,
+          # and link_node_modules_shallow's own `mkdir -p node_modules`
+          # then fails outright over a dangling symlink. This class of bug
+          # was reintroduced here when link_bundle switched from a single
+          # `ln -sfn` (safe to force-overwrite) to the shallow-link +
+          # relink_workspaces scheme (#190) without removing this line too.
           mkdir -p "$(dirname "$scratch/node_modules")"
           rm -rf "$scratch/node_modules"
           mv node_modules "$scratch/node_modules"
-          ln -sfn "$scratch/node_modules" node_modules
           # Claim the final bundle name only if nothing else already did
           # (two main runs racing on an identical hash) - otherwise this
           # run's install was redundant work but not corrupting: just
