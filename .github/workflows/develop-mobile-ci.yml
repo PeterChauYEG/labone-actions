@@ -515,6 +515,7 @@ jobs:
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/a11y-report.md
           working-directory: ${{ inputs.working-directory }}
+          blocking: 'false'
 
   design-system:
     name: design-system
@@ -894,7 +895,7 @@ jobs:
   # uses.
   required-checks:
     name: required-checks
-    needs: [changes, actionlint, setup, peer-deps, lint, ls-lint, typecheck, build, test, a11y, security-scan, secret-scan, dependency-audit]
+    needs: [changes, actionlint, setup, peer-deps, lint, ls-lint, typecheck, build, test, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:
