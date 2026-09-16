@@ -472,6 +472,7 @@ jobs:
         with:
           package-manager: ${{ inputs.package_manager }}
           working-directory: ${{ inputs.working-directory }}
+          gh-token: ${{ secrets.GH_PAT }}
 
   lint:
     name: lint
