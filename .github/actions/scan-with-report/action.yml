@@ -115,13 +115,20 @@ runs:
       shell: bash
       run: |
         set -uo pipefail
+        # Also written to $GITHUB_STEP_SUMMARY - see trivy-scan's identical
+        # change for the rationale (a finding needs to be visible on the
+        # job run itself, not only via a `danger-comment`-style aggregator
+        # that may not exist for every caller).
         {
-          echo "report<<SCAN_WITH_REPORT_EOF"
           if [ -f "${{ inputs.report-file }}" ]; then
             cat "${{ inputs.report-file }}"
           else
             echo "(no report written — see the ${{ inputs.script }} job's own log)"
           fi
+        } | tee -a "$GITHUB_STEP_SUMMARY" > /tmp/scan-with-report-body.txt
+        {
+          echo "report<<SCAN_WITH_REPORT_EOF"
+          cat /tmp/scan-with-report-body.txt
           echo "SCAN_WITH_REPORT_EOF"
         } >> "$GITHUB_OUTPUT"
 
