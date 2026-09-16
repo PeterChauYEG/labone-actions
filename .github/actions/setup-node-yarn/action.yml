@@ -373,12 +373,23 @@ runs:
           done <<< "$REL_PATHS"
           install_with_retry
           # Only now, with a real (non-symlinked) node_modules fully
-          # installed, move it into the scratch bundle and replace it with
-          # the same kind of symlink every reader will use.
+          # installed, move it into the scratch bundle. Deliberately NOT
+          # re-symlinked to $scratch/node_modules here (unlike every other
+          # rel-path) - link_bundle below already re-links node_modules
+          # against the FINAL $BUNDLE path a few lines down, and $scratch
+          # itself is about to be renamed to $BUNDLE or deleted either way.
+          # Root-caused live via ai-harness-web's Main CI ("mkdir: cannot
+          # create directory 'node_modules': File exists"): a symlink
+          # created here pointing at $scratch/node_modules goes dangling
+          # the instant $scratch is moved/removed below, and
+          # link_node_modules_shallow's `mkdir -p node_modules` then fails
+          # outright over a dangling symlink (unlike setup-node-pnpm's
+          # link_bundle, which uses `ln -sfn` directly and so force-
+          # overwrites a dangling symlink without erroring - this bug is
+          # specific to yarn's shallow-link strategy).
           mkdir -p "$(dirname "$scratch/node_modules")"
           rm -rf "$scratch/node_modules"
           mv node_modules "$scratch/node_modules"
-          ln -sfn "$scratch/node_modules" node_modules
           # Claim the final bundle name only if nothing else already did
           # (two main runs racing on an identical hash) - otherwise this
           # run's install was redundant work but not corrupting: just
