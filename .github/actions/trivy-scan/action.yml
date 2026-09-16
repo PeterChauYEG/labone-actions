@@ -44,7 +44,12 @@ outputs:
     description: The Trivy step's own outcome (`success`/`failure`).
     value: ${{ steps.result.outputs.outcome }}
   report:
-    description: Markdown report for this scan, for a `danger-comment`-style aggregator to consume.
+    description: >
+      Markdown report for this scan, for a `danger-comment`-style
+      aggregator to consume. Also always written to $GITHUB_STEP_SUMMARY
+      directly, so a finding is visible on the job run itself even for a
+      caller (e.g. every `main-*-ci.yml`) with no PR to post an
+      aggregated comment on.
     value: ${{ steps.result.outputs.report }}
 
 runs:
@@ -78,8 +83,13 @@ runs:
       run: |
         set -uo pipefail
         echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+        # Written to $GITHUB_STEP_SUMMARY (not just the `report` output)
+        # so a real finding is visible directly on the job run itself -
+        # confirmed live that Main CI callers have no danger-comment
+        # aggregator to consume `report` at all (no PR to comment on), so
+        # a failing security-scan/secret-scan there previously surfaced
+        # zero detail about what was actually found, anywhere in the UI.
         {
-          echo "report<<TRIVY_SCAN_REPORT_EOF"
           echo "$HEADING"
           echo
           if [ "$OUTCOME" = 'failure' ]; then
@@ -90,5 +100,9 @@ runs:
           else
             echo "✅ No HIGH/CRITICAL ${LABEL} found."
           fi
+        } | tee -a "$GITHUB_STEP_SUMMARY" > /tmp/trivy-scan-report-body.txt
+        {
+          echo "report<<TRIVY_SCAN_REPORT_EOF"
+          cat /tmp/trivy-scan-report-body.txt
           echo "TRIVY_SCAN_REPORT_EOF"
         } >> "$GITHUB_OUTPUT"
