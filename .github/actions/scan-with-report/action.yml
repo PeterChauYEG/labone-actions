@@ -122,6 +122,17 @@ runs:
         {
           if [ -f "${{ inputs.report-file }}" ]; then
             cat "${{ inputs.report-file }}"
+            # Guarantees a trailing newline even when the report file
+            # itself doesn't end in one - without this, the *EOF
+            # delimiter line below can land glued onto the report's last
+            # line instead of on its own line, which breaks
+            # $GITHUB_OUTPUT's multiline parser outright ("Unable to
+            # process file command 'output' successfully... Matching
+            # delimiter not found"). Root-caused live via ml-pipeline-web's
+            # dead-code job. trivy-scan's identical change isn't affected -
+            # its own version always ends with an `echo`, never a raw
+            # `cat` of external content.
+            echo
           else
             echo "(no report written — see the ${{ inputs.script }} job's own log)"
           fi
