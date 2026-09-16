@@ -381,6 +381,7 @@ jobs:
         id: check
         with:
           working-directory: ${{ inputs.working-directory }}
+          gh-token: ${{ secrets.GH_PAT }}
       - if: ${{ steps.check.outputs.outcome == 'failure' }}
         run: exit 1
 

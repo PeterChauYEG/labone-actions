@@ -67,10 +67,23 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
       run: |
+        set +e
         yarn install --immutable 2>&1 | tee /tmp/peer-deps-check.log
+        install_exit="${PIPESTATUS[0]}"
+        set -e
         if grep -q "YN0060" /tmp/peer-deps-check.log; then
           echo "Peer dependency conflicts detected:"
           grep "YN0060" /tmp/peer-deps-check.log
+          echo "peer-conflict" > /tmp/peer-deps-check.reason
+          exit 1
+        elif [ "$install_exit" -ne 0 ]; then
+          # confirmed live via ai-harness-web PR #270: yarn install failed
+          # on an unrelated private-repo SDK download (missing gh-token),
+          # and this step's own -e -o pipefail default aborted before ever
+          # reaching the YN0060 grep above - silently mislabeling any
+          # unrelated install failure as a peer-dependency conflict.
+          echo "yarn install failed for a reason other than a peer-dependency conflict (no YN0060 - exit $install_exit)"
+          echo "install-failed" > /tmp/peer-deps-check.reason
           exit 1
         fi
 
@@ -82,7 +95,19 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
-      run: pnpm install --frozen-lockfile --strict-peer-dependencies 2>&1 | tee /tmp/peer-deps-check.log
+      run: |
+        set +e
+        pnpm install --frozen-lockfile --strict-peer-dependencies 2>&1 | tee /tmp/peer-deps-check.log
+        install_exit="${PIPESTATUS[0]}"
+        set -e
+        if [ "$install_exit" -ne 0 ]; then
+          if grep -qi "ERR_PNPM_PEER_DEP_ISSUES\|peer dependenc" /tmp/peer-deps-check.log; then
+            echo "peer-conflict" > /tmp/peer-deps-check.reason
+          else
+            echo "install-failed" > /tmp/peer-deps-check.reason
+          fi
+          exit 1
+        fi
 
     - name: Build report
       id: result
@@ -93,12 +118,17 @@ runs:
       run: |
         set -uo pipefail
         echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+        reason="$(cat /tmp/peer-deps-check.reason 2>/dev/null || echo '')"
         {
           echo "report<<PEER_DEPS_REPORT_EOF"
           echo '### peer-deps'
           echo
           if [ "$OUTCOME" = 'failure' ]; then
-            echo '❌ Peer dependency conflicts detected:'
+            if [ "$reason" = 'peer-conflict' ]; then
+              echo '❌ Peer dependency conflicts detected:'
+            else
+              echo '❌ Install failed (not a peer-dependency conflict - see the log below for the real cause, e.g. a missing gh-token for a private-repo install script):'
+            fi
             echo '```'
             tail -n 60 /tmp/peer-deps-check.log 2>/dev/null || echo '(no log captured)'
             echo '```'
