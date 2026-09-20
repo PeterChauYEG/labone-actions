@@ -94,6 +94,7 @@ runs:
       uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
       with:
         path: labone-actions-scan-scripts
+        token: ${{ inputs.gh-token }}
 
     - run: |
         if [ "${{ inputs.script-source }}" = "labone-actions" ]; then

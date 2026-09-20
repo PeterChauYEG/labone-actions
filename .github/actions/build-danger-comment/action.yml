@@ -36,6 +36,14 @@ inputs:
   sticky-header:
     description: Passed straight through to post-danger-comment's sticky-header input.
     required: true
+  token:
+    description: >
+      Passed straight through to checkout-scripts' own `token` input below
+      (e.g. secrets.GH_PAT) — see that action's `token` input description
+      for why the ambient GITHUB_TOKEN alone isn't reliable for this
+      cross-repo checkout (LAB-2929).
+    required: false
+    default: ''
 
 outputs:
   report:
@@ -53,6 +61,8 @@ runs:
     # steps, same as when this checkout lived directly in each caller.
     - name: Checkout labone-actions scripts
       uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+      with:
+        token: ${{ inputs.token }}
 
     - name: Build aggregated report
       id: build

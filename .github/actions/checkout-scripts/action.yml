@@ -23,6 +23,18 @@ inputs:
       checked-out caller repo.
     required: false
     default: 'labone-actions'
+  token:
+    description: >
+      Token used to check out this (private) repo. Defaults to the caller
+      job's ambient GITHUB_TOKEN, which relies on this repo's Settings ->
+      Actions -> General -> Access grant covering the caller repo/org for
+      cross-repo checkout to succeed. That grant has proven fragile
+      (LAB-2929 - every caller of this action started failing with
+      "Repository not found" with zero changes on either side), so pass
+      an explicit PAT (e.g. secrets.GH_PAT, already used fleet-wide for
+      this same cross-repo-access problem) here instead of relying on it.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -32,6 +44,7 @@ runs:
         repository: PeterChauYEG/labone-actions
         ref: main
         path: ${{ inputs.path }}
+        token: ${{ inputs.token || github.token }}
         sparse-checkout: |
           scripts
         sparse-checkout-cone-mode: true
