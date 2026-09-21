@@ -479,6 +479,7 @@ jobs:
         with:
           heading: '## Dependency & security checks'
           sticky-header: dependency-checks
+          token: ${{ secrets.GH_PAT }}
           entries: |
             [
               {"name": "security-scan", "result": ${{ toJSON(needs.security-scan.result) }}, "report": ${{ toJSON(needs.security-scan.outputs.report) }}},
@@ -509,6 +510,8 @@ jobs:
       - name: Checkout labone-actions scripts
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
       - name: File Linear ticket
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:

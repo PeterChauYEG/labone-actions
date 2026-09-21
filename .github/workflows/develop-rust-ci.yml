@@ -669,6 +669,7 @@ jobs:
         with:
           heading: '## Rust checks'
           sticky-header: rust-checks
+          token: ${{ secrets.GH_PAT }}
           entries: |
             [
               {"name": "fmt", "result": ${{ toJSON(needs.fmt.result) }}, "report": ${{ toJSON(needs.fmt.outputs.report) }}},
@@ -703,6 +704,8 @@ jobs:
       - name: Checkout labone-actions scripts
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
       - name: File Linear ticket
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:

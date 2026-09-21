@@ -914,6 +914,7 @@ jobs:
         with:
           heading: '## Dependency & code-health checks'
           sticky-header: dependency-checks
+          token: ${{ secrets.GH_PAT }}
           entries: |
             [
               {"name": "peer-deps", "result": ${{ toJSON(needs.peer-deps.result) }}, "report": ${{ toJSON(needs.peer-deps.outputs.report) }}},
@@ -946,6 +947,8 @@ jobs:
       - name: Checkout labone-actions scripts
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
       - name: File Linear ticket
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:
