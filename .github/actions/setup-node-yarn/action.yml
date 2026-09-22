@@ -150,8 +150,6 @@ runs:
       id: cache-key
       shell: bash
       run: |
-        # Path-safe slug: namespaces the shared per-repo mount by
-        # working-directory, so two apps in one monorepo never collide.
         slug=$(echo "${{ inputs.working-directory }}" | tr -c 'A-Za-z0-9_.-' '-')
         hash="${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), (inputs.extra-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-1)) || '', (inputs.extra-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-cache-key-glob-2)) || '') }}"
         base="/root/.cache/dep-cache-main/wd-${slug}"
@@ -159,16 +157,6 @@ runs:
         echo "bundle=${base}/bundle-${hash}" >> "$GITHUB_OUTPUT"
         echo "yarn-pkg-cache=${base}/yarn-pkg-cache" >> "$GITHUB_OUTPUT"
 
-        # .next/cache is only relevant to a Next.js app - confirmed live
-        # 2026-09-13 that this used to be added unconditionally, so every
-        # repo (NestJS backends included) got an empty top-level `.next/`
-        # directory materialized just from running this action, with
-        # nothing ever populating it (only a real `next build` writes
-        # there). On payments-service (pure NestJS, no `next` dependency
-        # at all) that stray `.next` directory then failed ls-lint's
-        # `.dir: kebab-case` rule (a leading-dot name isn't kebab-case),
-        # breaking the `ls-lint` job for a repo that was never a Next.js
-        # app in the first place.
         wd="${{ inputs.working-directory }}"
         is_nextjs=false
         if [[ -f "$wd/next.config.js" || -f "$wd/next.config.mjs" || -f "$wd/next.config.ts" || -f "$wd/next.config.cjs" ]]; then
@@ -196,9 +184,6 @@ runs:
         ssh-private-key: ${{ inputs.ssh-deploy-key }}
 
     - name: Trust github.com host key
-      # Self-hosted Docker runners (unlike GitHub-hosted ones) don't ship
-      # github.com pre-populated in known_hosts, so the git-dependency
-      # clone above would otherwise fail host-key verification.
       if: inputs.ssh-deploy-key != ''
       shell: bash
       run: ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
@@ -215,20 +200,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
         YARN_NETWORK_CONCURRENCY: '4'
-        # Yarn's taskPoolConcurrency (extraction worker pool) defaults to
-        # os.cpus().length, which reports the HOST's real core count (12 on
-        # the runner box) even though gha-runner-docker throttles this
-        # container to a `--cpus` CFS quota of 1. Tried live 2026-09-13 as
-        # a fix for the "While persisting .../node_modules/@scope/pkg ...
-        # ENOTDIR" error below -- turned out NOT to be the actual cause
-        # (the error still reproduced with this pinned to 1; see the
-        # node_modules-symlink comment further down for the real fix).
-        # Left in place anyway since capping install concurrency to the
-        # container's real budget is correct on its own merits, just not
-        # load-bearing for this particular bug.
         YARN_TASK_POOL_CONCURRENCY: '1'
-        # Content-addressed, safe to share read+write across every job
-        # regardless of cache-write - see this action's own description.
         YARN_CACHE_FOLDER: ${{ steps.cache-key.outputs.yarn-pkg-cache }}
         BUNDLE: ${{ steps.cache-key.outputs.bundle }}
         REL_PATHS: ${{ steps.cache-key.outputs.rel-paths }}
@@ -238,22 +210,6 @@ runs:
         mkdir -p "$(dirname "$YARN_CACHE_FOLDER")" "$YARN_CACHE_FOLDER"
 
         link_bundle() {
-          # Symlinks every rel-path (node_modules, .next/cache, extra-paths)
-          # from the working directory into the given (already-complete)
-          # bundle. Safe to call from any number of concurrent readers -
-          # the bundle is never mutated after its .complete marker exists.
-          #
-          # .last-used is touched FIRST, before any symlink is created: this
-          # is what gha-cleanup-daily.sh's 7-day prune reads to decide
-          # whether a bundle is still in use, so a reader must claim it
-          # before starting to depend on it, not after - touching it last
-          # left a narrow window where a bundle could be pruned out from
-          # under a job that had just started reading it (the reader's own
-          # touch hadn't landed yet). Still not airtight against a prune
-          # running in the few milliseconds between this touch and the
-          # first symlink, but that's an unavoidable TOCTOU inherent to any
-          # mtime-based "still in use" signal on a cron cadence measured in
-          # days, not a design gap worth adding real locking for.
           local bundle="$1"
           touch "$bundle/.last-used"
           while IFS= read -r rel; do
@@ -268,14 +224,6 @@ runs:
           relink_workspaces
         }
 
-        # node_modules gets a REAL, per-job local directory (not one
-        # top-level symlink straight into the shared bundle) containing one
-        # symlink per bundle top-level entry. This lets relink_workspaces
-        # (below) override just the workspace-package entries with this
-        # job's own local paths afterward without writing "through" a
-        # top-level symlink into (and racing every other concurrent reader
-        # over) the shared, immutable bundle. Cheap: one readdir + one
-        # symlink per top-level entry, no copying.
         link_node_modules_shallow() {
           local bundle_nm="$1"
           mkdir -p node_modules
@@ -286,41 +234,8 @@ runs:
           shopt -u dotglob nullglob
         }
 
-        # Yarn's node-modules linker creates a symlink under
-        # node_modules/<pkg-name> for every local workspace package (e.g.
-        # node_modules/@scope/pkg -> ../../packages/pkg), pointing back
-        # into whichever checkout ran the install. Root-caused live
-        # 2026-09-14 via company-system's "Cannot find module
-        # '@company-system/core'" CI failures: once that node_modules gets
-        # shared through the bundle cache, that target is wrong for every
-        # job except the one that originally wrote it - the workspace
-        # source only exists in that one job's own (ephemeral, since
-        # deleted) checkout, not in the bundle and not in any other job's
-        # checkout at that same absolute path. There's no shared answer
-        # for where a workspace package "is"; every job's checkout is a
-        # different location. So skip trying to bundle these at all -
-        # every job (bundle-hit readers and the cache-write job's own
-        # final link_bundle call alike) instead recreates its own
-        # workspace-package entries fresh from `yarn workspaces list` (no
-        # network, package.json only) against ITS OWN real checkout. Safe
-        # against the write in link_node_modules_shallow above only
-        # because node_modules is now a real local directory there, not a
-        # symlink into shared state. No-op for a non-workspaces repo (the
-        # only row `yarn workspaces list` prints is the root itself,
-        # filtered out below).
         relink_workspaces() {
           command -v yarn >/dev/null 2>&1 || return 0
-          # Skip entirely for a repo with no `workspaces` field - confirmed
-          # live via contractors-api: `yarn workspaces list --json` can
-          # print a non-JSON notice to stdout instead of `[]` (e.g. a
-          # corepack "about to download" banner, seen when the caller's
-          # package.json has no `packageManager` field pinning a version),
-          # and this function's jq pipeline had no way to tell that apart
-          # from real output - it just crashed the whole job with jq's own
-          # "parse error" (exit 4). Checking package.json directly first
-          # (guaranteed valid JSON, unlike yarn's own stdout) sidesteps the
-          # problem outright: a non-workspaces repo never needs this
-          # function's workspace-relinking at all.
           jq -e '.workspaces' package.json >/dev/null 2>&1 || return 0
           local abs_wd
           abs_wd="$(pwd)"
@@ -334,10 +249,6 @@ runs:
               done
         }
 
-        # Retries a fresh `yarn install --frozen-lockfile` up to 3 times as
-        # a defense-in-depth measure, wiping ./node_modules before each
-        # retry. Kept even after finding the real cause below, since a
-        # clean retry is cheap and harmless either way.
         install_with_retry() {
           local attempt=1 max_attempts=3
           while true; do
@@ -364,48 +275,15 @@ runs:
           echo "[setup-node-yarn] cache-write run, bundle miss: $BUNDLE - installing into shared cache"
           scratch="${BUNDLE}.tmp-${RANDOM}-$$"
           mkdir -p "$scratch"
-          # node_modules is deliberately NOT pre-symlinked here, unlike
-          # every other rel-path (.next/cache, extra-paths). Root-caused
-          # live 2026-09-13 after both a retry loop and pinning Yarn's
-          # taskPoolConcurrency to 1 failed to stop a "While persisting
-          # .../node_modules/@scope/pkg/ -> .../node_modules/@scope/pkg
-          # ENOTDIR: not a directory" error that reproduced on 9 different
-          # repos' `setup` jobs (this branch is the only cache-write:true
-          # job in the reusable workflow) - the actual bug is
-          # yarnpkg/berry#6415: Yarn's node-modules linker doesn't fully
-          # support `node_modules` already being a symlink at install
-          # time, and this step used to symlink it to $scratch/node_modules
-          # BEFORE calling yarn install. .next/cache isn't touched by
-          # yarn's linker at all (only by the later build step), so it's
-          # unaffected and still gets pre-symlinked as before.
           while IFS= read -r rel; do
             [[ -z "$rel" || "$rel" == "node_modules" ]] && continue
             mkdir -p "$(dirname "$rel")" "$scratch/$rel"
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
           install_with_retry
-          # Only now, with a real (non-symlinked) node_modules fully
-          # installed, move it into the scratch bundle. Deliberately NOT
-          # re-symlinked to $scratch/node_modules here (unlike every other
-          # rel-path) - link_bundle below already re-links node_modules
-          # against the FINAL $BUNDLE path a few lines down, and $scratch
-          # itself is about to be renamed to $BUNDLE or deleted either way.
-          # Root-caused live via ai-harness-web's Main CI ("mkdir: cannot
-          # create directory 'node_modules': File exists"): a symlink
-          # created here pointing at $scratch/node_modules goes dangling
-          # the instant $scratch is moved/removed below, and
-          # link_node_modules_shallow's `mkdir -p node_modules` then fails
-          # outright over a dangling symlink (unlike setup-node-pnpm's
-          # link_bundle, which uses `ln -sfn` directly and so force-
-          # overwrites a dangling symlink without erroring - this bug is
-          # specific to yarn's shallow-link strategy).
           mkdir -p "$(dirname "$scratch/node_modules")"
           rm -rf "$scratch/node_modules"
           mv node_modules "$scratch/node_modules"
-          # Claim the final bundle name only if nothing else already did
-          # (two main runs racing on an identical hash) - otherwise this
-          # run's install was redundant work but not corrupting: just
-          # re-link to whichever copy won and discard this one.
           if [[ ! -d "$BUNDLE" ]]; then
             mv "$scratch" "$BUNDLE"
             touch "$BUNDLE/.complete"

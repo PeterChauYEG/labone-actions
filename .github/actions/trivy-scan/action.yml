@@ -83,12 +83,6 @@ runs:
       run: |
         set -uo pipefail
         echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
-        # Written to $GITHUB_STEP_SUMMARY (not just the `report` output)
-        # so a real finding is visible directly on the job run itself -
-        # confirmed live that Main CI callers have no danger-comment
-        # aggregator to consume `report` at all (no PR to comment on), so
-        # a failing security-scan/secret-scan there previously surfaced
-        # zero detail about what was actually found, anywhere in the UI.
         {
           echo "$HEADING"
           echo

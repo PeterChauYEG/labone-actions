@@ -21,11 +21,6 @@ set -uo pipefail
 
 dir="${1:?usage: count-metrics.sh <dir>}"
 
-# File discovery: same `git ls-files` (tracked + untracked-but-not-ignored)
-# approach as tech-debt-report/count-metrics.sh - see that file's identical
-# comment for the full rationale (respects each repo's own .gitignore
-# instead of a hardcoded guess-list). Falls back to a plain `find` only if
-# `dir` isn't inside a git working tree at all.
 if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   files="$(git -C "$dir" ls-files --cached --others --exclude-standard -- '*.ts' '*.tsx' 2>/dev/null \
     | sed "s|^|${dir%/}/|" || true)"
@@ -40,9 +35,6 @@ count() {
   [ -z "$files" ] && { echo 0; return; }
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    # `|| true` guards against grep's exit 1 on "no matches" — under
-    # `pipefail` that would otherwise make this loop look like it failed
-    # just because a metric's count is zero in that one file.
     n=$(grep -oE -- "$pattern" "$f" 2>/dev/null | wc -l || true)
     total=$((total + n))
   done <<EOF
@@ -51,9 +43,6 @@ EOF
   echo "$total"
 }
 
-# Broadened beyond eslint-disable to any lint/formatter suppression
-# comment this fleet's tooling recognizes - same rationale as
-# tech-debt-report/count-metrics.sh's identical metric.
 eslint_disable=$(count '(eslint-disable(-next-line)?|prettier-ignore|biome-ignore)')
 ts_ignore=$(count '@ts-(ignore|expect-error)')
 any_colon=$(count ': *any\b')

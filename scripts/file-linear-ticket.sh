@@ -25,7 +25,6 @@ set -euo pipefail
 job_name="$1"
 report_path="${2:-}"
 
-# LAB team label IDs, from ops's configs/linear-labels.json.
 DEVOPS_LABEL_ID="81380be9-86c7-4122-9263-69925d981758"
 CI_LABEL_ID="01f4906f-28d8-4ff9-b95c-a1d6de39d1ca"
 
@@ -41,7 +40,6 @@ if [[ -n "$report_path" && -f "$report_path" ]]; then
   report_body=$(cat "$report_path")
 fi
 
-# ── Dedup: look for an already-open ticket with this title ─────────────────
 search_query=$(jq -n --arg title "$title" '{
   query: "query($title: String!) { issues(filter: { team: { key: { eq: \"LAB\" } }, state: { type: { nin: [\"completed\", \"cancelled\"] } }, title: { contains: $title } }, first: 1) { nodes { id identifier url } } }",
   variables: { title: $title }
@@ -67,7 +65,6 @@ if [[ -n "$existing_id" ]]; then
   exit 0
 fi
 
-# ── No existing ticket — resolve team + Backlog state, then create one ─────
 team_response=$(curl -s -X POST https://api.linear.app/graphql \
   -H "Authorization: $LINEAR_API_KEY" \
   -H "Content-Type: application/json" \

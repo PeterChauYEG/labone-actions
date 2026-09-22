@@ -83,12 +83,6 @@ outputs:
 runs:
   using: composite
   steps:
-    # Only needed for script-source: labone-actions — sparse-checked-out
-    # to github.workspace (a sibling of the caller repo's own checkout, not
-    # nested under working-directory) so the run step below can reach it
-    # via an absolute path regardless of working-directory. Same pattern as
-    # develop-ci.yml's danger-comment job's identical checkout, for
-    # scripts/file-linear-ticket.sh.
     - name: Checkout labone-actions scripts
       if: inputs.script-source == 'labone-actions'
       uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
@@ -116,23 +110,9 @@ runs:
       shell: bash
       run: |
         set -uo pipefail
-        # Also written to $GITHUB_STEP_SUMMARY - see trivy-scan's identical
-        # change for the rationale (a finding needs to be visible on the
-        # job run itself, not only via a `danger-comment`-style aggregator
-        # that may not exist for every caller).
         {
           if [ -f "${{ inputs.report-file }}" ]; then
             cat "${{ inputs.report-file }}"
-            # Guarantees a trailing newline even when the report file
-            # itself doesn't end in one - without this, the *EOF
-            # delimiter line below can land glued onto the report's last
-            # line instead of on its own line, which breaks
-            # $GITHUB_OUTPUT's multiline parser outright ("Unable to
-            # process file command 'output' successfully... Matching
-            # delimiter not found"). Root-caused live via ml-pipeline-web's
-            # dead-code job. trivy-scan's identical change isn't affected -
-            # its own version always ends with an `echo`, never a raw
-            # `cat` of external content.
             echo
           else
             echo "(no report written — see the ${{ inputs.script }} job's own log)"

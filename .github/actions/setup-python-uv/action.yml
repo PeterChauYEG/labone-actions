@@ -44,10 +44,6 @@ runs:
           ~/.local/share/uv/tools
           ~/.local/bin
           ~/.cache/uv
-        # No hashFiles() here, unlike the node_modules/cargo caches - a
-        # standalone tool install isn't keyed on a repo lockfile, it's keyed
-        # on the exact `tool` spec (which already embeds the pin, e.g.
-        # `gdtoolkit==4.5.0`), so a version bump invalidates it directly.
         key: ${{ runner.os }}-uv-tool-${{ inputs.cache-key-prefix }}-${{ inputs.tool }}
 
     - name: Install ${{ inputs.tool }}
