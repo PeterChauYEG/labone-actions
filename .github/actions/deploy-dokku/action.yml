@@ -25,11 +25,4 @@ runs:
       with:
         git_remote_url: ${{ inputs.dokku-remote-url }}
         ssh_private_key: ${{ inputs.ssh-private-key }}
-        # dokku/github-action's `branch` input defaults to "master" - every
-        # caller here checks out `main` (this only runs on push-to-main), so
-        # without this the action pushes main's content to the dokku
-        # remote's `master` ref, which Dokku doesn't build from (it warns
-        # "you must push to main" and no-ops). The job still reports green
-        # because the git push itself succeeded - only the actual deploy
-        # silently never happens.
         branch: main

@@ -42,9 +42,6 @@ assert_not_contains() {
 mock_bin="$(mktemp -d)"
 trap 'rm -rf "$mock_bin"' EXIT
 
-# A cache "very old" (10 days ago) and one "fresh" (a few minutes ago),
-# expressed as ISO-8601 so the script's own `date -u -d` parses them
-# exactly like a real gh cache list response.
 very_old="$(date -u -d '10 days ago' +%Y-%m-%dT%H:%M:%SZ)"
 fresh="$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 

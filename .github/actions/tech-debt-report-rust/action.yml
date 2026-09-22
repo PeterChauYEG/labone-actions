@@ -69,10 +69,6 @@ runs:
       id: base
       if: inputs.base-sha != ''
       shell: bash
-      # Deliberately not `set -e` at the top level — a fetch/worktree
-      # failure here (e.g. a shallow clone that can't reach base-sha, or a
-      # rewritten base branch) should degrade to "no delta", not fail the
-      # whole job just for a nice-to-have metrics comment.
       run: |
         set -uo pipefail
         {

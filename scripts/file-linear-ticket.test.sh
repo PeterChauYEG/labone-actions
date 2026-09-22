@@ -28,18 +28,14 @@ assert_contains() {
 mock_bin="$(mktemp -d)"
 trap 'rm -rf "$mock_bin"' EXIT
 
-# ── Test 1: LINEAR_API_KEY unset — should skip cleanly (exit 0, no curl calls) ──
 output=$(unset LINEAR_API_KEY; GITHUB_REPOSITORY="PeterChauYEG/labone-actions" PR_NUMBER=1 PR_URL="https://x" RUN_URL="https://y" \
   bash "$script" actionlint 2>&1)
 status=$?
 [[ $status -eq 0 ]] && echo "PASS: exits 0 when LINEAR_API_KEY unset" || { echo "FAIL: expected exit 0, got $status"; fail=1; }
 assert_contains "$output" "WARN: LINEAR_API_KEY not set" "warns and skips when LINEAR_API_KEY unset"
 
-# ── Test 2: existing open ticket found — comments instead of creating ──────
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
-# Fake curl: first call (search) returns an existing ticket; if a second
-# call happens with a commentCreate mutation, log it so the test can assert.
 for arg in "$@"; do
   if [[ "$arg" == *"commentCreate"* || "$arg" == *"issueId"* ]]; then
     echo '{"data":{"commentCreate":{"success":true}}}'
@@ -59,9 +55,6 @@ assert_contains "$output" "existing open ticket LAB-999" "dedups against existin
 assert_contains "$(cat "$log_file")" "COMMENT_CALLED" "posts a comment instead of creating a duplicate"
 rm -f "$log_file"
 
-# ── Test 2b: two different PR numbers for the same job+repo produce the ────
-# same dedup search title (no PR number baked in) — this is the core fix:
-# cross-PR dedup must match regardless of which PR is currently failing.
 log_file="$(mktemp)"
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -104,12 +97,8 @@ fi
 assert_contains "$title_pr1" "actionlint: labone-actions failing" "dedup search title omits PR number"
 rm -f "$log_file"
 
-# ── Test 3: no existing ticket — creates one ────────────────────────────────
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
-# When invoked as `curl ... -d @-` (piped from jq), the query lives on
-# stdin, not in argv — read it so we can branch on its content and avoid
-# SIGPIPE'ing the jq producer.
 payload=""
 for arg in "$@"; do
   if [[ "$arg" == "@-" ]]; then
@@ -130,7 +119,6 @@ if [[ "$haystack" == *"teams"* ]]; then
   echo '{"data":{"teams":{"nodes":[{"id":"team-1"}]}}}'
   exit 0
 fi
-# search query — no existing ticket
 echo '{"data":{"issues":{"nodes":[]}}}'
 EOF
 chmod +x "$mock_bin/curl"

@@ -53,12 +53,6 @@ outputs:
 runs:
   using: composite
   steps:
-    # Checked out separately (not the caller repo) purely to get
-    # scripts/file-linear-ticket.sh, which lives in labone-actions
-    # regardless of which repo calls this workflow. Composite-action steps
-    # share the calling job's workspace, so this `labone-actions/` checkout
-    # is still there for that job's own later "File Linear ticket for <job>"
-    # steps, same as when this checkout lived directly in each caller.
     - name: Checkout labone-actions scripts
       uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
       with:
@@ -73,9 +67,6 @@ runs:
       run: |
         set -uo pipefail
 
-        # One file per entry (unconditionally, skipped included, matching
-        # the old per-caller "Prepare reports" step) for the ticket-filing
-        # steps downstream to read.
         echo "$ENTRIES_JSON" | jq -c '.[]' | while IFS= read -r entry; do
           name=$(jq -r '.name' <<<"$entry")
           report=$(jq -r '.report' <<<"$entry")
