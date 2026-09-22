@@ -2,6 +2,7 @@ self-hosted-runner:
   labels:
     - catfood
     - catfood-minimal
+    - catfood-docker
     - catfood-node
     - catfood-rust
     - catfood-godot
