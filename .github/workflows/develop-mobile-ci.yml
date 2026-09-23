@@ -467,7 +467,7 @@ jobs:
   build:
     name: build
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood, catfood-node]
+    runs-on: [self-hosted, catfood, catfood-node-build]
     if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
