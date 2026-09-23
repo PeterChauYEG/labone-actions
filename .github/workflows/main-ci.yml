@@ -272,7 +272,7 @@ jobs:
 
   deploy:
     name: deploy
-    runs-on: [self-hosted, catfood, catfood-minimal]
+    runs-on: [self-hosted, catfood, catfood-docker]
     needs: [required-checks, changes]
     if: >-
       always() && inputs.enable_deploy && !inputs.is_dependabot &&
