@@ -781,6 +781,7 @@ jobs:
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/build-danger-comment@main
         with:
+          token: ${{ secrets.GH_PAT }}
           heading: '## CI checks'
           sticky-header: ci-scans
           entries: |
@@ -825,6 +826,8 @@ jobs:
       - name: Checkout labone-actions scripts
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
       - name: File Linear ticket
         if: ${{ needs[matrix.job].outputs.outcome == 'failure' }}
         env:
