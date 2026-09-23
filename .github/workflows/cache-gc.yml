@@ -52,7 +52,7 @@ concurrency:
 jobs:
   cache-gc:
     name: cache-gc
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     env:
       GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:

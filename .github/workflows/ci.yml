@@ -16,7 +16,7 @@ concurrency:
 jobs:
   actionlint:
     name: actionlint
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     steps:
       - uses: actions/checkout@v7
       - name: Run actionlint

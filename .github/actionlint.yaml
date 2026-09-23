@@ -7,3 +7,7 @@ self-hosted-runner:
     - catfood-rust
     - catfood-godot
     - catfood-python
+    - catfood-mecha10
+    - catfood-node-rust
+    - catfood-ops
+    - catfood-node-deploy

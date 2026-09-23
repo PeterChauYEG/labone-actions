@@ -38,7 +38,7 @@ jobs:
   changes:
     name: changes
     if: github.event_name != 'schedule'
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
       pull-requests: read
