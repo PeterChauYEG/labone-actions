@@ -28,6 +28,10 @@ jobs:
       - name: Test file-linear-ticket.sh
         run: bash scripts/file-linear-ticket.test.sh
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
       - name: Test package-cluster.mjs
         run: node scripts/lib/package-cluster.test.mjs
 
