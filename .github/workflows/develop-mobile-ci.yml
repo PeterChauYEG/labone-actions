@@ -618,7 +618,7 @@ jobs:
           script: duplicate-code
           script-source: ${{ inputs.duplicate_code_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
-          report-file: ${{ inputs.working-directory }}/report/jscpd-report.md
+          report-file: ${{ inputs.working-directory }}/duplicate-code-report.md
           working-directory: ${{ inputs.working-directory }}
           blocking: 'false'
 
