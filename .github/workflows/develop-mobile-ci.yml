@@ -491,7 +491,7 @@ jobs:
         # - see enable_build's own description above for why. Output goes
         # to a run-scoped tmp dir - nothing here is published anywhere,
         # this only proves the bundle builds cleanly.
-        run: npx expo export --output-dir /tmp/expo-export-${{ github.run_id }} --platform all
+        run: npx expo export --output-dir /tmp/expo-export-${{ github.run_id }} --platform ios,android
 
   a11y:
     name: a11y
