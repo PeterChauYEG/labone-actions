@@ -9,5 +9,6 @@ self-hosted-runner:
     - catfood-python
     - catfood-mecha10
     - catfood-node-rust
+    - catfood-node-build
     - catfood-ops
     - catfood-node-deploy
