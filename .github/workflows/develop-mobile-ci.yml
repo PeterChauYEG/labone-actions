@@ -330,6 +330,13 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           extra-paths: ${{ inputs.extra_deps_paths }}
           ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          # A cache-write: 'false' job still runs a real network install on
+          # a cache miss (e.g. this PR's own yarn.lock/generated-SDK
+          # change) - needed exactly like develop-ci.yml's and
+          # develop-node-ci.yml's identical `setup` jobs, whose postinstall
+          # scripts fetch a sibling repo's release asset via `gh`. This job
+          # was the one caller missed when that fix landed elsewhere.
+          gh-token: ${{ secrets.GH_PAT }}
           cache-write: 'false'
 
   peer-deps:
