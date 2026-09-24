@@ -474,7 +474,7 @@ jobs:
   build:
     name: build
     needs: [setup, changes]
-    runs-on: [self-hosted, catfood, catfood-node]
+    runs-on: [self-hosted, catfood, catfood-node-build]
     if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -842,6 +842,7 @@ jobs:
       # regardless of which repo calls this workflow.
       - uses: PeterChauYEG/labone-actions/.github/actions/build-danger-comment@main
         with:
+          token: ${{ secrets.GH_PAT }}
           heading: '## Dependency & code-health checks'
           sticky-header: dependency-checks
           token: ${{ secrets.GH_PAT }}

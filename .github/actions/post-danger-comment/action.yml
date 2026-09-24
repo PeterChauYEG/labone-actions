@@ -24,10 +24,6 @@ runs:
   using: composite
   steps:
     - name: Set up Node.js for danger
-      # Bare runtime only (no yarn install) — this action's own job may run
-      # on a minimal/no-node runner otherwise, since the caller's metrics
-      # step (tech-debt-report/tech-debt-report-rust) doesn't need Node
-      # itself. See this action's header comment.
       uses: actions/setup-node@v7
       with:
         node-version: 22

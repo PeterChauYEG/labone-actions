@@ -477,6 +477,7 @@ jobs:
       # regardless of which repo calls this workflow.
       - uses: PeterChauYEG/labone-actions/.github/actions/build-danger-comment@main
         with:
+          token: ${{ secrets.GH_PAT }}
           heading: '## Dependency & security checks'
           sticky-header: dependency-checks
           token: ${{ secrets.GH_PAT }}

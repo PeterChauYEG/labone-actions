@@ -912,6 +912,7 @@ jobs:
       # scan-with-report's old comment on this, now living here instead.
       - uses: PeterChauYEG/labone-actions/.github/actions/build-danger-comment@main
         with:
+          token: ${{ secrets.GH_PAT }}
           heading: '## Dependency & code-health checks'
           sticky-header: dependency-checks
           token: ${{ secrets.GH_PAT }}

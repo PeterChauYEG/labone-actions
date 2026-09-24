@@ -135,8 +135,6 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
-        # Content-addressed, safe to share read+write across every job
-        # regardless of cache-write - see this action's own description.
         PNPM_STORE: ${{ steps.cache-key.outputs.pnpm-store }}
         BUNDLE: ${{ steps.cache-key.outputs.bundle }}
         REL_PATHS: ${{ steps.cache-key.outputs.rel-paths }}
@@ -145,32 +143,10 @@ runs:
         set -euo pipefail
         mkdir -p "$PNPM_STORE"
         pnpm config set store-dir "$PNPM_STORE"
-        # pnpm 11 defaults verifyDepsBeforeRun to 'install', which runs a
-        # pre-flight check before every `pnpm <script>` and refuses to
-        # touch node_modules when it's a symlink outside the project root
-        # (ERR_PNPM_UNSAFE_MODULES_DIR) - exactly what node_modules always
-        # is here, deliberately, once link_bundle runs. Root-caused live
-        # via info-sink's lint/typecheck/build/test jobs all failing
-        # identically post-setup. The bundle design already guarantees
-        # node_modules matches the lockfile, so this check is a false
-        # positive here, not a safety net worth keeping.
         pnpm config set verify-deps-before-run false
 
         relink_workspaces() {
           command -v pnpm >/dev/null 2>&1 || return 0
-          # Mirrors setup-node-yarn's identical function and identical
-          # rationale (root-caused live there via company-system's
-          # "Cannot find module '@company-system/core'"). A pnpm workspace
-          # package (packages/sdk, web/, etc.) gets a RELATIVE symlink
-          # under node_modules pointing back at wherever the ORIGINAL
-          # cache-write job's checkout happened to be (e.g.
-          # ../../packages/sdk). Once node_modules is shallow-linked from
-          # the shared bundle below, that relative symlink resolves
-          # relative to the bundle's own physical location, not this job's
-          # real checkout - root-caused live via info-sink's "Cannot find
-          # module '@info-sink/sdk'" test/typecheck failures. Re-point
-          # each workspace package's entry at THIS job's own real checkout
-          # path (pnpm list's own `path` field, always absolute) instead.
           local abs_wd
           abs_wd="$(pwd)"
           pnpm list -r --depth -1 --json 2>/dev/null \
@@ -184,12 +160,6 @@ runs:
         }
 
         link_node_modules_shallow() {
-          # Same shallow-link strategy as setup-node-yarn's identical
-          # function, for the same reason: node_modules needs to be a
-          # REAL local directory (not one symlink straight into the
-          # bundle) so relink_workspaces above can override just the
-          # workspace-package entries afterward without writing "through"
-          # a top-level symlink into the shared, immutable bundle.
           local bundle_nm="$1"
           mkdir -p node_modules
           shopt -s dotglob nullglob
@@ -201,9 +171,6 @@ runs:
         }
 
         link_bundle() {
-          # .last-used touched FIRST, before any symlink - see
-          # setup-node-yarn's identical function for why (gha-cleanup-
-          # daily.sh's 7-day prune reads this to decide "still in use").
           local bundle="$1"
           touch "$bundle/.last-used"
           while IFS= read -r rel; do
@@ -227,40 +194,15 @@ runs:
           echo "[setup-node-pnpm] cache-write run, bundle miss: $BUNDLE - installing into shared cache"
           scratch="${BUNDLE}.tmp-${RANDOM}-$$"
           mkdir -p "$scratch"
-          # node_modules is deliberately NOT pre-symlinked here, unlike
-          # every other rel-path (.next/cache, extra-paths) - same fix as
-          # setup-node-yarn's identical comment (yarnpkg/berry#6415): pnpm's
-          # node-modules linker doesn't fully support `node_modules` already
-          # being a symlink at install time either - root-caused live via
-          # info-sink's migration ("ENOTDIR: not a directory, mkdir
-          # '.../node_modules'"), this step used to symlink it to
-          # $scratch/node_modules BEFORE calling pnpm install.
           while IFS= read -r rel; do
             [[ -z "$rel" || "$rel" == "node_modules" ]] && continue
             mkdir -p "$(dirname "$rel")" "$scratch/$rel"
             ln -sfn "$scratch/$rel" "$rel"
           done <<< "$REL_PATHS"
           pnpm install --frozen-lockfile
-          # Only now, with a real (non-symlinked) node_modules fully
-          # installed, move it into the scratch bundle. Deliberately NOT
-          # re-symlinked to $scratch/node_modules here - same fix as
-          # setup-node-yarn's identical comment (#188): link_bundle below
-          # already re-links node_modules against the FINAL $BUNDLE path a
-          # few lines down via the shallow-link scheme, and $scratch itself
-          # is about to be renamed to $BUNDLE or deleted either way - a
-          # symlink created here goes dangling the instant that happens,
-          # and link_node_modules_shallow's own `mkdir -p node_modules`
-          # then fails outright over a dangling symlink. This class of bug
-          # was reintroduced here when link_bundle switched from a single
-          # `ln -sfn` (safe to force-overwrite) to the shallow-link +
-          # relink_workspaces scheme (#190) without removing this line too.
           mkdir -p "$(dirname "$scratch/node_modules")"
           rm -rf "$scratch/node_modules"
           mv node_modules "$scratch/node_modules"
-          # Claim the final bundle name only if nothing else already did
-          # (two main runs racing on an identical hash) - otherwise this
-          # run's install was redundant work but not corrupting: just
-          # re-link to whichever copy won and discard this one.
           if [[ ! -d "$BUNDLE" ]]; then
             mv "$scratch" "$BUNDLE"
             touch "$BUNDLE/.complete"

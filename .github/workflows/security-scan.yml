@@ -38,7 +38,7 @@ jobs:
   changes:
     name: changes
     if: github.event_name != 'schedule'
-    runs-on: [self-hosted, catfood]
+    runs-on: [self-hosted, catfood, catfood-minimal]
     permissions:
       contents: read
       pull-requests: read
@@ -66,7 +66,10 @@ jobs:
   trivy-vuln:
     name: Trivy vulnerability scan
     needs: changes
-    runs-on: [self-hosted, catfood]
+    # aquasecurity/trivy-action is a Docker-container action -- needs the
+    # Docker CLI on the runner host to execute at all, so this must not
+    # land on an image without it.
+    runs-on: [self-hosted, catfood, catfood-docker]
     if: >-
       always() &&
       (github.event_name == 'schedule' || needs.changes.outputs.deps == 'true')
@@ -107,7 +110,10 @@ jobs:
 
   trivy-secret:
     name: Trivy secret scan
-    runs-on: [self-hosted, catfood]
+    # aquasecurity/trivy-action is a Docker-container action -- needs the
+    # Docker CLI on the runner host to execute at all, so this must not
+    # land on an image without it.
+    runs-on: [self-hosted, catfood, catfood-docker]
     steps:
       - uses: actions/checkout@v7
       - name: Run Trivy (secrets)

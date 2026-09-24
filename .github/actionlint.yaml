@@ -1,12 +1,13 @@
 self-hosted-runner:
-  # Custom label for the homelab self-hosted runner (catfood-runner).
-  # GitHub-hosted runners are blocked account-wide (billing), so every
-  # workflow that needs to actually run must target this label instead
-  # of ubuntu-latest.
   labels:
     - catfood
     - catfood-minimal
+    - catfood-docker
     - catfood-node
     - catfood-rust
     - catfood-godot
     - catfood-python
+    - catfood-mecha10
+    - catfood-node-rust
+    - catfood-ops
+    - catfood-node-deploy

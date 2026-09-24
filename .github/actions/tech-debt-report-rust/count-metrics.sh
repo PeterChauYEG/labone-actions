@@ -14,12 +14,6 @@ set -uo pipefail
 
 dir="${1:?usage: count-metrics.sh <dir>}"
 
-# File discovery: `git ls-files` (tracked + untracked-but-not-ignored),
-# same reasoning as tech-debt-report/count-metrics.sh — respects whatever
-# a repo's own .gitignore excludes (target/, generated protobuf/schema
-# code, etc.) instead of a hardcoded guess-list. Falls back to a plain
-# `find` (excluding only target/ and .git/, the two things every Cargo
-# repo has) if `dir` isn't inside a git working tree at all.
 if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   files="$(git -C "$dir" ls-files --cached --others --exclude-standard -- '*.rs' 2>/dev/null \
     | sed "s|^|${dir%/}/|" || true)"
@@ -33,9 +27,6 @@ count() {
   [ -z "$files" ] && { echo 0; return; }
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    # `|| true` guards against grep's exit 1 on "no matches" — under
-    # `pipefail` that would otherwise make this loop look like it failed
-    # just because a metric's count is zero in that one file.
     n=$(grep -oE -- "$pattern" "$f" 2>/dev/null | wc -l || true)
     total=$((total + n))
   done <<EOF
@@ -45,8 +36,6 @@ EOF
 }
 
 todo=$(count '\b(TODO|FIXME|HACK)\b')
-# `#[allow(...)]` and `#![allow(...)]` (crate/module-level) both count —
-# either form suppresses a lint at some scope, same tech-debt signal.
 allow_attrs=$(count '#!?\[allow\(')
 
 echo "$todo $allow_attrs"

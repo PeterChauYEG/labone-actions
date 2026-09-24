@@ -667,6 +667,7 @@ jobs:
       # regardless of which repo calls this workflow.
       - uses: PeterChauYEG/labone-actions/.github/actions/build-danger-comment@main
         with:
+          token: ${{ secrets.GH_PAT }}
           heading: '## Rust checks'
           sticky-header: rust-checks
           token: ${{ secrets.GH_PAT }}
