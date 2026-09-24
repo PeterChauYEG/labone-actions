@@ -28,8 +28,10 @@ import { execFileSync } from 'child_process';
 import { writeFileSync } from 'fs';
 import { relative } from 'path';
 import { runScan } from './lib/crash-report.mjs';
+import { writeGroupsFile } from './lib/package-cluster.mjs';
 
 const REPORT_PATH = 'react-tech-debt-report.md';
+const GROUPS_PATH = 'react-tech-debt-groups.json';
 const RULE_PREFIX = 'lab-react-standards/';
 
 function runEslint() {
@@ -109,12 +111,22 @@ function buildReport(violations) {
   return { markdown: lines.join('\n'), blockingCount: blocking.length };
 }
 
+// Only blocking (error-severity) violations fail the job and warrant a
+// ticket — advisory (warn-severity) findings are reported in the PR comment
+// but never split into their own tickets.
+function buildClusterRecords(violations) {
+  return violations
+    .filter((v) => v.severity === 2)
+    .map((v) => ({ file: v.file, text: `- \`${v.file}\`:L${v.line}: ${v.message} (\`${v.rule}\`)` }));
+}
+
 function main() {
   const results = runEslint();
   const violations = collectViolations(results);
   const { markdown, blockingCount } = buildReport(violations);
 
   writeFileSync(REPORT_PATH, markdown);
+  writeGroupsFile(buildClusterRecords(violations), GROUPS_PATH);
 
   if (blockingCount > 0) {
     console.error(`Found ${blockingCount} blocking react-tech-debt violation(s) — see ${REPORT_PATH}`);

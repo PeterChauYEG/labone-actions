@@ -23,8 +23,10 @@ import { execFileSync } from 'child_process';
 import { writeFileSync } from 'fs';
 import { relative } from 'path';
 import { runScan } from './lib/crash-report.mjs';
+import { writeGroupsFile } from './lib/package-cluster.mjs';
 
 const REPORT_PATH = 'design-system-report.md';
+const GROUPS_PATH = 'design-system-groups.json';
 const RULES = ['lab-react-standards/no-raw-text-element', 'lab-react-standards/no-theme-color-literal'];
 
 function runEslint() {
@@ -85,12 +87,17 @@ function buildReport(violations) {
   return lines.join('\n');
 }
 
+function buildClusterRecords(violations) {
+  return violations.map((v) => ({ file: v.file, text: `- \`${v.file}:${v.line}\` — ${v.message} (\`${v.rule}\`)` }));
+}
+
 function main() {
   const results = runEslint();
   const violations = collectViolations(results);
   const markdown = buildReport(violations);
 
   writeFileSync(REPORT_PATH, markdown);
+  writeGroupsFile(buildClusterRecords(violations), GROUPS_PATH);
 
   if (violations.length > 0) {
     console.error(`Found ${violations.length} design-system violation(s) — see ${REPORT_PATH}`);

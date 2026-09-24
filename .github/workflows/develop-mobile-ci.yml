@@ -537,6 +537,7 @@ jobs:
     outputs:
       outcome: ${{ steps.scan.outputs.outcome }}
       report: ${{ steps.scan.outputs.report }}
+      groups: ${{ steps.scan.outputs.groups }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -568,6 +569,7 @@ jobs:
     outputs:
       outcome: ${{ steps.scan.outputs.outcome }}
       report: ${{ steps.scan.outputs.report }}
+      groups: ${{ steps.scan.outputs.groups }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -600,6 +602,7 @@ jobs:
     outputs:
       outcome: ${{ steps.scan.outputs.outcome }}
       report: ${{ steps.scan.outputs.report }}
+      groups: ${{ steps.scan.outputs.groups }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -632,6 +635,7 @@ jobs:
     outputs:
       outcome: ${{ steps.scan.outputs.outcome }}
       report: ${{ steps.scan.outputs.report }}
+      groups: ${{ steps.scan.outputs.groups }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -664,6 +668,7 @@ jobs:
     outputs:
       outcome: ${{ steps.scan.outputs.outcome }}
       report: ${{ steps.scan.outputs.report }}
+      groups: ${{ steps.scan.outputs.groups }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
         with:
@@ -891,9 +896,11 @@ jobs:
           PR_URL: ${{ inputs.pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPORT: ${{ needs[matrix.job].outputs.report }}
+          GROUPS: ${{ needs[matrix.job].outputs.groups }}
         run: |
           printf '%s\n' "$REPORT" > /tmp/report.md
-          bash labone-actions/scripts/file-linear-ticket.sh ${{ matrix.job }} /tmp/report.md
+          printf '%s\n' "${GROUPS:-[]}" > /tmp/groups.json
+          bash labone-actions/scripts/file-linear-ticket.sh ${{ matrix.job }} /tmp/report.md /tmp/groups.json
 
   # design-system/dead-code/duplicate-code/max-lines/react-tech-debt/
   # tech-debt deliberately excluded - all six are advisory-only
