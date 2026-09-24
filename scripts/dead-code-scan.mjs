@@ -20,8 +20,10 @@
 import { execFileSync } from 'child_process';
 import { writeFileSync } from 'fs';
 import { runScan } from './lib/crash-report.mjs';
+import { writeGroupsFile } from './lib/package-cluster.mjs';
 
 const REPORT_PATH = 'dead-code-report.md';
+const GROUPS_PATH = 'dead-code-groups.json';
 
 const CATEGORIES = [
   { key: 'dependencies', title: 'Unused dependencies' },
@@ -87,11 +89,38 @@ function buildReport(report) {
   return { markdown: lines.join('\n'), total };
 }
 
+// One record per finding — a file-only row (unused file) and one entry per
+// item within each category row (unused export/type/dependency/...).
+function buildClusterRecords(report) {
+  const records = [];
+
+  for (const issue of report.issues) {
+    if (Object.keys(issue).length === 1 && 'file' in issue) {
+      records.push({ file: issue.file, text: `- \`${issue.file}\`` });
+      continue;
+    }
+
+    for (const { key } of CATEGORIES) {
+      for (const item of issue[key] ?? []) {
+        const name = item.symbol ?? item.name ?? '';
+        const at = item.line ? `L${item.line}` : '';
+        records.push({
+          file: issue.file,
+          text: `- \`${issue.file}\` — ${[at, name].filter(Boolean).join(': ')}`,
+        });
+      }
+    }
+  }
+
+  return records;
+}
+
 function main() {
   const report = runKnip();
   const { markdown, total } = buildReport(report);
 
   writeFileSync(REPORT_PATH, markdown);
+  writeGroupsFile(buildClusterRecords(report), GROUPS_PATH);
 
   if (total > 0) {
     console.error(`Found ${total} dead-code issue(s) — see ${REPORT_PATH}`);

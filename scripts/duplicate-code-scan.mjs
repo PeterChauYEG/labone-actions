@@ -19,9 +19,11 @@
 import { execFileSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { runScan } from './lib/crash-report.mjs';
+import { writeGroupsFile } from './lib/package-cluster.mjs';
 
 const REPORT_PATH = 'duplicate-code-report.md';
 const JSCPD_REPORT_PATH = 'jscpd-report.json';
+const GROUPS_PATH = 'duplicate-code-groups.json';
 
 function runJscpd() {
   let exceededThreshold = false;
@@ -80,11 +82,24 @@ function buildReport(report, exceededThreshold) {
   return lines.join('\n');
 }
 
+// One record per duplicate block, scoped to its first file's package — a
+// jscpd duplicate is always a pair (firstFile/secondFile), unlike
+// cargo-dupes' n-way clone groups, so there's no "majority package" to pick
+// among more than two members; firstFile is a deterministic, stable choice.
+function buildClusterRecords(report) {
+  const duplicates = report.duplicates ?? [];
+  return duplicates.map((dup) => ({
+    file: dup.firstFile.name,
+    text: `- ${formatFragment(dup.firstFile)} ↔ ${formatFragment(dup.secondFile)} (${dup.lines} lines, ${dup.tokens} tokens)`,
+  }));
+}
+
 function main() {
   const { report, exceededThreshold } = runJscpd();
   const duplicates = report.duplicates ?? [];
 
   writeFileSync(REPORT_PATH, buildReport(report, exceededThreshold));
+  writeGroupsFile(buildClusterRecords(report), GROUPS_PATH);
 
   if (exceededThreshold) {
     console.error(
