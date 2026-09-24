@@ -670,6 +670,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           heading: '## Rust checks'
           sticky-header: rust-checks
+          token: ${{ secrets.GH_PAT }}
           entries: |
             [
               {"name": "fmt", "result": ${{ toJSON(needs.fmt.result) }}, "report": ${{ toJSON(needs.fmt.outputs.report) }}},

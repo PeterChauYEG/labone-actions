@@ -784,6 +784,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           heading: '## CI checks'
           sticky-header: ci-scans
+          token: ${{ secrets.GH_PAT }}
           entries: |
             [
               {"name": "peer-deps", "result": ${{ toJSON(needs.peer-deps.result) }}, "report": ${{ toJSON(needs.peer-deps.outputs.report) }}},

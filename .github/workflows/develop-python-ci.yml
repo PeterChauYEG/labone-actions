@@ -480,6 +480,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           heading: '## Dependency & security checks'
           sticky-header: dependency-checks
+          token: ${{ secrets.GH_PAT }}
           entries: |
             [
               {"name": "security-scan", "result": ${{ toJSON(needs.security-scan.result) }}, "report": ${{ toJSON(needs.security-scan.outputs.report) }}},

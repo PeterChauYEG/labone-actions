@@ -915,6 +915,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           heading: '## Dependency & code-health checks'
           sticky-header: dependency-checks
+          token: ${{ secrets.GH_PAT }}
           entries: |
             [
               {"name": "peer-deps", "result": ${{ toJSON(needs.peer-deps.result) }}, "report": ${{ toJSON(needs.peer-deps.outputs.report) }}},
