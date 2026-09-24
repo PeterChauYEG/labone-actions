@@ -19,8 +19,10 @@
 import { execFileSync } from 'child_process';
 import { writeFileSync } from 'fs';
 import { relative } from 'path';
+import { writeGroupsFile } from './lib/package-cluster.mjs';
 
 const REPORT_PATH = 'max-lines-report.md';
+const GROUPS_PATH = 'max-lines-groups.json';
 const CONFIG_PATH = 'eslint.max-lines.config.mjs';
 
 // Default execFileSync maxBuffer (1 MB) truncates ESLint's JSON report on a
@@ -80,11 +82,19 @@ function buildReport(results) {
   return { markdown: lines.join('\n'), totalIssues: violations.length };
 }
 
+function buildClusterRecords(results) {
+  return collectViolations(results).map(({ file, message }) => ({
+    file,
+    text: formatViolation({ file, message }),
+  }));
+}
+
 function main() {
   const results = runEslint();
   const { markdown, totalIssues } = buildReport(results);
 
   writeFileSync(REPORT_PATH, markdown);
+  writeGroupsFile(buildClusterRecords(results), GROUPS_PATH);
 
   if (totalIssues > 0) {
     console.error(`Found ${totalIssues} max-lines violation(s) — see ${REPORT_PATH}`);

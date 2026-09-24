@@ -79,6 +79,16 @@ outputs:
   report:
     description: Contents of `report-file` (or a placeholder if it wasn't written).
     value: ${{ steps.report.outputs.report }}
+  groups:
+    description: >
+      Contents of the scan's `<script>-groups.json` (derived from `report-file`
+      by replacing its `-report.md` suffix with `-groups.json` — the same
+      convention every scan script's `writeGroupsFile` call already writes
+      to), or `[]` if the script never wrote one (script-source: repo scripts
+      that predate grouping, or a script whose findings stayed under the
+      split threshold). Consumed by file-linear-tickets' grouped-mode ticket
+      filing — see file-linear-ticket.sh's own header comment.
+    value: ${{ steps.report.outputs.groups }}
 
 runs:
   using: composite
@@ -122,6 +132,18 @@ runs:
           echo "report<<SCAN_WITH_REPORT_EOF"
           cat /tmp/scan-with-report-body.txt
           echo "SCAN_WITH_REPORT_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        groups_file="$(printf '%s' "${{ inputs.report-file }}" | sed 's/-report\.md$/-groups.json/')"
+        {
+          echo "groups<<SCAN_WITH_REPORT_GROUPS_EOF"
+          if [ -f "$groups_file" ]; then
+            cat "$groups_file"
+            echo
+          else
+            echo "[]"
+          fi
+          echo "SCAN_WITH_REPORT_GROUPS_EOF"
         } >> "$GITHUB_OUTPUT"
 
     - if: steps.scan.outcome == 'failure' && inputs.blocking == 'true'

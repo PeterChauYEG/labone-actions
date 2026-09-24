@@ -200,6 +200,24 @@ jobs:
         with:
           report: ${{ steps.report.outputs.report }}
           sticky-header: duplicate-code-scan
+      - name: Checkout labone-actions scripts
+        if: steps.scan.outcome == 'failure'
+        uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          path: labone-actions-scan-scripts
+          token: ${{ secrets.GH_PAT }}
+      - name: Cluster jscpd report into ticket groups
+        if: steps.scan.outcome == 'failure'
+        working-directory: ${{ inputs.working-directory }}
+        # jscpd-report.json only exists if the caller's own .jscpd.json
+        # configures a `json` reporter alongside `markdown` — if it doesn't,
+        # this writes duplicate-code-groups.json as `[]` (see the script's
+        # own header), and file-linear-ticket.sh falls back to its normal
+        # flat single-ticket behavior below, same as before this step
+        # existed.
+        run: |
+          node "${{ github.workspace }}/labone-actions-scan-scripts/scripts/group-jscpd-report.mjs" \
+            report/jscpd-report.json duplicate-code-groups.json
       - name: File Linear ticket for failure
         if: steps.scan.outcome == 'failure'
         env:
@@ -209,7 +227,7 @@ jobs:
           PR_URL: ${{ inputs.pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         working-directory: ${{ inputs.working-directory }}
-        run: bash scripts/file-linear-ticket.sh duplicate-code report/jscpd-report.md
+        run: bash scripts/file-linear-ticket.sh duplicate-code report/jscpd-report.md duplicate-code-groups.json
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
