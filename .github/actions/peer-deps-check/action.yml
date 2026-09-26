@@ -16,6 +16,18 @@ description: >
   right after; a caller that wants it advisory-only (develop-node-ci.yml)
   just doesn't.
 
+  LAB-3473: unlike every other job in develop-*-ci.yml (setup/lint/
+  typecheck/test/design-system/dead-code/etc.), this action doesn't go
+  through setup-node-yarn, so it never got that action's `ssh-deploy-key`
+  handling (ssh-agent + `insteadOf` rewrite of `https://github.com/` to
+  `ssh://git@github.com/`) for private git-dependency packages (e.g.
+  `"labone-eslint-plugin": "github:PeterChauYEG/labone-eslint-plugin#main"`).
+  Without it, `yarn install`'s anonymous HTTPS clone of a private repo dies
+  with `could not read Username for 'https://github.com': No such device or
+  address` (exit 128) — a plain install/auth failure, not an actual peer-dep
+  conflict, but one this action's own `install-failed` branch reports as if
+  it might be one. See `ssh-deploy-key` below.
+
 inputs:
   package-manager:
     description: '`yarn` or `pnpm`. Defaults to `yarn`.'
@@ -35,6 +47,18 @@ inputs:
       fails as an anonymous user (yarn YN0041) rather than surfacing an
       actual peer-dependency conflict. Leave empty (default) for repos
       with no such private-registry dependency.
+    required: false
+    default: ''
+  ssh-deploy-key:
+    description: >
+      SSH private key (e.g. secrets.LAB_GIT_DEPS_SSH_KEY) for cloning
+      private git-dependency packages during the install — e.g.
+      "labone-eslint-plugin": "github:PeterChauYEG/labone-eslint-plugin#main"
+      in package.json. Loaded into an ssh-agent and used to rewrite
+      `https://github.com/` git URLs to `ssh://git@github.com/` before the
+      install step runs — identical to setup-node-yarn's own
+      `ssh-deploy-key` input (see that action's description). Leave empty
+      (default) for repos with no private git dependencies.
     required: false
     default: ''
 
@@ -57,6 +81,22 @@ runs:
     - uses: actions/setup-node@v7
       with:
         node-version-file: ${{ inputs.working-directory }}/package.json
+
+    - name: Load SSH deploy key for private git dependencies
+      if: inputs.ssh-deploy-key != ''
+      uses: webfactory/ssh-agent@v0.9.1
+      with:
+        ssh-private-key: ${{ inputs.ssh-deploy-key }}
+
+    - name: Trust github.com host key
+      if: inputs.ssh-deploy-key != ''
+      shell: bash
+      run: ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+
+    - name: Route git+https git dependencies over SSH
+      if: inputs.ssh-deploy-key != ''
+      shell: bash
+      run: git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
 
     - name: Check for peer dependency conflicts (yarn)
       id: check-yarn
