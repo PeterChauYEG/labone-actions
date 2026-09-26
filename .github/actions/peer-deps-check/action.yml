@@ -28,6 +28,17 @@ description: >
   conflict, but one this action's own `install-failed` branch reports as if
   it might be one. See `ssh-deploy-key` below.
 
+  A caller may not have `secrets.LAB_GIT_DEPS_SSH_KEY` wired into this
+  action's own `with:` block yet (editing a caller's `.github/workflows/*`
+  file requires the `workflow` OAuth scope, which not every automation
+  token calling this repo's API has), so this action also falls back to
+  rewriting `https://github.com/` to an authenticated
+  `https://x-access-token:<gh-token>@github.com/` URL whenever `gh-token`
+  is set and `ssh-deploy-key` isn't — reusing the same `gh-token` a caller
+  already passes for GitHub Packages auth (see `gh-token` below), so a
+  caller with a private git dependency and no `ssh-deploy-key` set still
+  gets a working, authenticated clone instead of exit 128.
+
 inputs:
   package-manager:
     description: '`yarn` or `pnpm`. Defaults to `yarn`.'
@@ -97,6 +108,15 @@ runs:
       if: inputs.ssh-deploy-key != ''
       shell: bash
       run: git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
+
+    - name: Authenticate git+https dependencies with gh-token
+      # Fallback for callers that haven't (yet, or can't) set
+      # ssh-deploy-key on this job - see this action's own top-of-file
+      # LAB-3473 comment for why. Only kicks in when ssh-deploy-key is
+      # empty so it never fights the SSH rewrite above.
+      if: inputs.ssh-deploy-key == '' && inputs.gh-token != ''
+      shell: bash
+      run: git config --global url."https://x-access-token:${{ inputs.gh-token }}@github.com/".insteadOf "https://github.com/"
 
     - name: Check for peer dependency conflicts (yarn)
       id: check-yarn
