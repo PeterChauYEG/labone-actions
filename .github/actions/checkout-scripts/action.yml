@@ -39,7 +39,58 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v7
+    # actions/checkout's own built-in retry (3 attempts, ~10-15s apart) isn't
+    # long enough to ride out the intermittent "Repository not found" bursts
+    # this cross-org checkout hits even with an explicit token passed
+    # (LAB-3496) - every ephemeral runner on this fleet's self-hosted host
+    # shares a small pool of egress IPs, and a burst of concurrent checkouts
+    # of this same private repo from several callers' CI at once appears to
+    # trip GitHub's abuse/rate-limit detection, which surfaces as "not
+    # found" rather than a 403/429. Retry the whole checkout step up to 3
+    # times with a longer, increasing backoff (15s/45s) so a transient burst
+    # has time to clear before giving up for real.
+    - id: attempt1
+      continue-on-error: true
+      uses: actions/checkout@v7
+      with:
+        repository: PeterChauYEG/labone-actions
+        ref: main
+        path: ${{ inputs.path }}
+        token: ${{ inputs.token || github.token }}
+        sparse-checkout: |
+          scripts
+        sparse-checkout-cone-mode: true
+
+    - name: Wait before retry 1
+      if: steps.attempt1.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::warning::Checkout of labone-actions failed, retrying in 15s"
+        sleep 15
+
+    - id: attempt2
+      if: steps.attempt1.outcome == 'failure'
+      continue-on-error: true
+      uses: actions/checkout@v7
+      with:
+        repository: PeterChauYEG/labone-actions
+        ref: main
+        path: ${{ inputs.path }}
+        token: ${{ inputs.token || github.token }}
+        sparse-checkout: |
+          scripts
+        sparse-checkout-cone-mode: true
+
+    - name: Wait before retry 2
+      if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::warning::Checkout of labone-actions failed again, retrying in 45s"
+        sleep 45
+
+    - id: attempt3
+      if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+      uses: actions/checkout@v7
       with:
         repository: PeterChauYEG/labone-actions
         ref: main
