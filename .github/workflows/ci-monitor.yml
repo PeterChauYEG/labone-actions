@@ -1,0 +1,23 @@
+name: CI Monitor
+
+# Thin consumer wrapper (see ci-failure-monitor.yml's header comment for the
+# reusable workflow it calls) so labone-actions monitors its own main-branch
+# CI, same as every other repo listed in ops's
+# configs/notifications-config.md "Repos with ci-failure-monitor.yml".
+# labone-actions' own push-to-main CI is just `ci.yml` (name: "CI") - no
+# separate develop/main split like its consumers get.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  monitor:
+    uses: PeterChauYEG/labone-actions/.github/workflows/ci-failure-monitor.yml@main
+    secrets: inherit

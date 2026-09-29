@@ -28,6 +28,9 @@ jobs:
       - name: Test file-linear-ticket.sh
         run: bash scripts/file-linear-ticket.test.sh
 
+      - name: Test file-ci-failure-ticket.sh
+        run: bash scripts/file-ci-failure-ticket.test.sh
+
       - uses: actions/setup-node@v7
         with:
           node-version: 22

@@ -1,0 +1,64 @@
+name: CI Failure Monitor
+
+# Reusable main-branch CI failure monitor. Callers are thin `workflow_run`
+# wrappers:
+#
+#   on:
+#     workflow_run:
+#       workflows: ["Develop CI", "Main CI"]  # the repo's actual workflow names
+#       types: [completed]
+#       branches: [main]
+#
+#   permissions:
+#     actions: read
+#     contents: read
+#
+#   jobs:
+#     monitor:
+#       uses: PeterChauYEG/labone-actions/.github/workflows/ci-failure-monitor.yml@main
+#       secrets: inherit
+#
+# See README.md "ci-failure-monitor.yml" for the full pattern.
+#
+# Deliberately separate from every develop-*-ci.yml's `file-linear-tickets`
+# job (see scripts/file-ci-failure-ticket.sh's header comment for the full
+# rationale): this fires on `workflow_run` completion of a repo's OWN
+# main-branch CI workflow(s), not as a job inside develop-*-ci.yml/
+# main-*-ci.yml themselves - a `workflow_run` trigger only fires for a
+# workflow that has already finished, so it can't be a job in the same run
+# it's meant to monitor. It also needs to see `github.event.workflow_run`,
+# which only exists on the caller's own top-level event - a `workflow_call`
+# job (this file) still sees that same top-level event context, so
+# `github.event.workflow_run.*` below resolves correctly even though this
+# file itself declares `on: workflow_call`, not `on: workflow_run`.
+on:
+  workflow_call:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  monitor:
+    name: monitor
+    # Only file a ticket for an actual failure - `workflow_run.conclusion`
+    # is also 'success', 'cancelled', 'skipped', etc. `cancelled` is
+    # deliberately excluded: a superseded run getting cancelled by a newer
+    # push (see main-*-ci.yml's `cancel-in-progress: true`) isn't a real
+    # breakage.
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
+      - name: File CI failure ticket
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          bash labone-actions/scripts/file-ci-failure-ticket.sh \
+            "${{ github.event.workflow_run.name }}" \
+            "${{ github.event.workflow_run.html_url }}"

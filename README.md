@@ -23,6 +23,7 @@ these workflows.
 | `.github/workflows/develop-rust-ci.yml` | `pull_request` | fmt/clippy/test/dead-code/duplicate-code/file-size/security-scan/secret-scan/dependency-audit all feed ONE aggregated sticky PR comment + deduped Linear ticket filing via `danger-comment`, optional build. For **Rust CLI/tool** repos. |
 | `.github/workflows/main-rust-ci.yml` | `push` to `main` | Same gate set as `develop-rust-ci.yml` as plain pass/fail checks (no path filtering, no sticky-comment/Linear-ticket-filing - no PR to attach those to). No deploy job - no single common deploy target for Rust CLI/tool repos in this org. For **Rust CLI/tool** repos. |
 | `.github/workflows/develop-mobile-ci.yml` | `pull_request` | lint/typecheck as plain pass/fail checks, optional ls-lint/test/a11y/design-system/dead-code (knip)/duplicate-code (jscpd)/security-scan/dependency-audit, all feeding ONE aggregated sticky PR comment + deduped Linear ticket filing via `danger-comment`. For **Expo/React Native mobile** repos. |
+| `.github/workflows/ci-failure-monitor.yml` | `workflow_run` (completed, on `main`) | Files (or comments on) one Urgent (P0) Linear ticket per repo, titled `🔴 CI failing on main: <repo>`, whenever the caller's own main-branch CI workflow(s) finish with `conclusion == 'failure'`. Deduped per-repo, NOT per-job — see "ci-failure-monitor.yml" below and `scripts/file-ci-failure-ticket.sh`'s header comment for how this differs from the PR-time `file-linear-tickets` job. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/actionlint.yml` | `pull_request` | Lints the caller's own `.github/workflows/*.yml` with actionlint. Stack-agnostic — any repo with a `.github/workflows/` directory can call it. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
@@ -975,6 +976,62 @@ here — don't confuse them:
    own install) stays fully parallel. Paired with the `YARN_NETWORK_CONCURRENCY` cap in
    "Caching strategy" above — fewer simultaneous installs, and each one
    cheaper in peak memory.
+
+## `ci-failure-monitor.yml`
+
+PR-time CI failures get one deduped-per-PR-per-job Linear ticket each, via
+the `file-linear-tickets` job described below. A broken **main** branch is a
+different kind of problem — it blocks every subsequent deploy for everyone,
+not just one PR author — so it gets its own mechanism: one Urgent (P0)
+ticket per repo, filed the moment main-branch CI goes red, and commented on
+(never duplicated) for as long as main stays broken.
+
+This can't be a job inside `main-*-ci.yml`/`develop-*-ci.yml` themselves: a
+`workflow_run` trigger only fires once the workflow it's watching has
+already completed, so the monitor has to be a separate workflow that reacts
+to that completion event. Caller repos wire it up with a thin wrapper:
+
+```yaml
+name: CI Monitor
+
+on:
+  workflow_run:
+    workflows: ["Develop CI", "Main CI"]  # this repo's actual workflow names
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  monitor:
+    uses: PeterChauYEG/labone-actions/.github/workflows/ci-failure-monitor.yml@main
+    secrets: inherit
+```
+
+`workflows:` should list every workflow in the repo that can run on `main`
+(both PR-merge-triggered and push-triggered ones, if the repo has both) —
+`ci-failure-monitor.yml` only fires the ticket for a `conclusion: failure`
+run, so listing an extra workflow that happens to be healthy costs nothing.
+See `.github/workflows/ci-monitor.yml` in this repo for a working example
+(watching its own `ci.yml`).
+
+Ticket dedup here is a plain per-repo title match (`🔴 CI failing on main:
+<repo>`) rather than `file-linear-ticket.sh`'s title-prefix/job-scoped
+search — deliberately coarser, since the point is one open ticket per
+broken repo regardless of which job or workflow broke it. Once that ticket
+is resolved (main is green again and someone marks it done), the next
+failure files a fresh one. Required secret: `LINEAR_API_KEY` (same secret
+`file-linear-ticket.sh` already uses).
+
+**mecha-industries org repos**: this reusable workflow can't be called
+cross-org (`PeterChauYEG/labone-actions` is a personal-account repo; org
+policy blocks depending on it, same reason those repos already inline
+`develop-*-ci.yml`'s `file-linear-tickets` job instead of calling it — see
+any mecha-industries repo's `develop.yml` header comment). Those repos
+instead carry a local, inlined equivalent (own script + own job in
+`main.yml`) following this same design.
 
 ## Aggregated reporting — the `danger-comment` job
 
