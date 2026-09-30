@@ -26,6 +26,21 @@ on:
         type: string
         required: false
         default: 'tests'
+      enable_dead_code:
+        description: Passed straight through to godot-develop-ci.yml's identical input.
+        type: boolean
+        required: false
+        default: false
+      dead_code_script:
+        description: Passed straight through to godot-develop-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'scripts/dead-code-scan.sh'
+      dead_code_script_source:
+        description: Passed straight through to godot-develop-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'labone-actions'
       security_scan_trivyignores:
         description: Passed straight through to godot-develop-ci.yml's identical input.
         type: string
@@ -55,4 +70,7 @@ jobs:
       is_dependabot: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || (inputs.also_treat_actions_bot_as_dependabot && github.event.pull_request.user.login == 'github-actions[bot]') }}
       enable_test: ${{ inputs.enable_test }}
       tests-path: ${{ inputs.tests-path }}
+      enable_dead_code: ${{ inputs.enable_dead_code }}
+      dead_code_script: ${{ inputs.dead_code_script }}
+      dead_code_script_source: ${{ inputs.dead_code_script_source }}
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}

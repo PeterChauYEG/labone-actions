@@ -41,6 +41,27 @@ on:
         type: string
         required: false
         default: 'repo'
+      max_lines_script_source:
+        description: Passed straight through to develop-mobile-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'labone-actions'
+      react_tech_debt_script_source:
+        description: Passed straight through to develop-mobile-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'labone-actions'
+      design_system_script_source:
+        description: >
+          Passed straight through to develop-mobile-ci.yml's identical
+          input. 'labone-actions' default - the shared
+          scripts/design-system-scan.mjs (eslint-rule-based) already covers
+          a mobile/Expo/React-Native codebase the same way it covers web,
+          same rationale as max_lines_script_source/
+          react_tech_debt_script_source above.
+        type: string
+        required: false
+        default: 'labone-actions'
       security_scan_trivyignores:
         type: string
         required: false
@@ -79,10 +100,13 @@ jobs:
       codecov_token_secret_name: ${{ inputs.codecov_token_secret_name }}
       enable_a11y: true
       enable_design_system: true
+      design_system_script_source: ${{ inputs.design_system_script_source }}
       enable_dead_code: true
       dead_code_script_source: ${{ inputs.dead_code_script_source }}
       enable_duplicate_code: ${{ inputs.enable_duplicate_code }}
       duplicate_code_script_source: ${{ inputs.duplicate_code_script_source }}
+      max_lines_script_source: ${{ inputs.max_lines_script_source }}
+      react_tech_debt_script_source: ${{ inputs.react_tech_debt_script_source }}
       enable_security_scan: true
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       enable_dependency_audit: false
