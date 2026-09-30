@@ -4,8 +4,9 @@
 # Runs the real script (no tool to mock — it's just `find`/`wc -l`) against
 # a throwaway fixture directory, so it never touches the real repo tree.
 # Exercises: files under threshold (clean report), files over threshold
-# (listed and sorted largest-first), non-.rs files ignored, and that the
-# script always exits 0 (non-blocking).
+# (listed and sorted largest-first), non-.rs files ignored, exclude-paths
+# (none, one, multiple, and one matching nothing), and that the script
+# always exits 0 (non-blocking).
 #
 # Usage: scripts/file-size-scan.test.sh
 set -euo pipefail
@@ -71,6 +72,49 @@ assert_not_contains "$report_content" "ignored.txt" "ignores non-.rs files"
 bigger_pos=$(grep -n "bigger.rs" "$report_md" | head -1 | cut -d: -f1)
 big_pos=$(grep -n "big.rs" "$report_md" | head -1 | cut -d: -f1)
 [[ "$bigger_pos" -lt "$big_pos" ]] && echo "PASS: sorts largest file first" || { echo "FAIL: expected bigger.rs (30 lines) before big.rs (20 lines)"; fail=1; }
+
+# ── Test 3: one exclude — matching dir skipped, others unaffected ──────────
+rm -rf "${fixture_dir:?}"/*
+seq 1 20 > "$fixture_dir/big.rs"
+mkdir -p "$fixture_dir/vendor-sdk"
+seq 1 30 > "$fixture_dir/vendor-sdk/generated.rs"
+
+set +e
+bash "$script" "$report_md" 10 "$fixture_dir" "vendor-sdk" > /dev/null 2>&1
+status=$?
+set -e
+[[ $status -eq 0 ]] && echo "PASS: exits 0 with one exclude" || { echo "FAIL: expected exit 0, got $status"; fail=1; }
+report_content="$(cat "$report_md")"
+assert_contains "$report_content" "big.rs" "still lists the non-excluded oversized file"
+assert_not_contains "$report_content" "generated.rs" "excludes the given path"
+
+# ── Test 4: multiple excludes (comma-separated) ────────────────────────────
+rm -rf "${fixture_dir:?}"/*
+seq 1 20 > "$fixture_dir/big.rs"
+mkdir -p "$fixture_dir/vendor-sdk" "$fixture_dir/other-sdk"
+seq 1 30 > "$fixture_dir/vendor-sdk/generated.rs"
+seq 1 40 > "$fixture_dir/other-sdk/generated.rs"
+
+set +e
+bash "$script" "$report_md" 10 "$fixture_dir" "vendor-sdk,other-sdk" > /dev/null 2>&1
+status=$?
+set -e
+[[ $status -eq 0 ]] && echo "PASS: exits 0 with multiple excludes" || { echo "FAIL: expected exit 0, got $status"; fail=1; }
+report_content="$(cat "$report_md")"
+assert_contains "$report_content" "big.rs" "still lists the non-excluded oversized file"
+assert_not_contains "$report_content" "vendor-sdk" "excludes the first given path"
+assert_not_contains "$report_content" "other-sdk" "excludes the second given path"
+
+# ── Test 5: exclude matching nothing — no-op, not an error ─────────────────
+rm -rf "${fixture_dir:?}"/*
+seq 1 20 > "$fixture_dir/big.rs"
+
+set +e
+output=$(bash "$script" "$report_md" 10 "$fixture_dir" "does-not-exist-anywhere" 2>&1)
+status=$?
+set -e
+[[ $status -eq 0 ]] && echo "PASS: exits 0 when exclude matches nothing" || { echo "FAIL: expected exit 0, got $status"; fail=1; }
+assert_contains "$(cat "$report_md")" "big.rs" "unmatched exclude is a no-op"
 
 if [[ $fail -ne 0 ]]; then
   echo "One or more tests FAILED"
