@@ -43,6 +43,35 @@ on:
         type: boolean
         required: false
         default: true
+      enable_dead_code:
+        description: >
+          Run a dead-code scan for unreferenced GDScript functions/classes, with Linear
+          ticket filing on failure — mirrors develop-rust-ci.yml's enable_dead_code/
+          dead_code_script_source pattern for the Rust stack. Opt-in (unlike format/lint/
+          duplicate-code above, this workflow's existing mandatory quality floor) — defaults
+          false since no consumer repo of this workflow has this today; adds the capability
+          for a Godot repo (or gdscript-lsp, once its separate public/private
+          reusable-workflow restriction is resolved) to opt in.
+        type: boolean
+        required: false
+        default: false
+      dead_code_script:
+        description: >
+          Path (relative to working-directory) to the dead-code-scan script. Only used when
+          dead_code_script_source is 'repo'.
+        type: string
+        required: false
+        default: 'scripts/dead-code-scan.sh'
+      dead_code_script_source:
+        description: >
+          Where the dead-code scan's actual logic lives — mirrors develop-rust-ci.yml's
+          identical input. `'labone-actions'` (default) runs this repo's own
+          scripts/godot-dead-code-scan.sh, since no Godot repo has vendored a copy of this
+          today (same rationale as develop-mobile-ci.yml's max_lines_script_source default).
+          `'repo'` runs the caller's own `dead_code_script` path instead.
+        type: string
+        required: false
+        default: 'labone-actions'
       tests-path:
         description: GUT test directory, relative to working-directory.
         type: string
@@ -157,6 +186,51 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         working-directory: ${{ inputs.working-directory }}
         run: bash scripts/file-linear-ticket.sh lint lint-report.md
+      - if: steps.scan.outcome == 'failure'
+        run: exit 1
+
+  dead-code:
+    name: dead-code
+    needs: changes
+    runs-on: [self-hosted, catfood, catfood-godot]
+    timeout-minutes: 10
+    if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.godot_source == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout labone-actions scripts
+        if: inputs.dead_code_script_source == 'labone-actions'
+        uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          path: labone-actions-scan-scripts
+          token: ${{ secrets.GH_PAT }}
+      # Same script-source branch develop-rust-ci.yml's dead-code job uses
+      # for the Rust stack - 'labone-actions' (default) runs this repo's
+      # own scripts/godot-dead-code-scan.sh, 'repo' runs the caller's own
+      # vendored dead_code_script path instead.
+      - name: Dead-code scan
+        id: scan
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          if [ "${{ inputs.dead_code_script_source }}" = "labone-actions" ]; then
+            bash "${{ github.workspace }}/labone-actions-scan-scripts/scripts/godot-dead-code-scan.sh" dead-code-report.md
+          else
+            bash ${{ inputs.dead_code_script }} dead-code-report.md
+          fi
+      - name: File Linear ticket for failure
+        if: steps.scan.outcome == 'failure'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_URL: ${{ inputs.pr_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: ${{ inputs.working-directory }}
+        run: bash scripts/file-linear-ticket.sh dead-code dead-code-report.md
       - if: steps.scan.outcome == 'failure'
         run: exit 1
 
@@ -298,7 +372,7 @@ jobs:
 
   required-checks:
     name: required-checks
-    needs: [changes, actionlint, format, lint, duplicate-code, security-scan, secret-scan, test]
+    needs: [changes, actionlint, format, lint, dead-code, duplicate-code, security-scan, secret-scan, test]
     runs-on: [self-hosted, catfood, catfood-minimal]
     if: always()
     steps:

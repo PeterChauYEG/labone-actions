@@ -94,10 +94,25 @@ on:
         type: boolean
         default: true
       dead_code_script:
-        description: Path (relative to working-directory) to the dead-code-scan script.
+        description: >
+          Path (relative to working-directory) to the dead-code-scan
+          script. Only used when dead_code_script_source is 'repo' (the
+          default).
         type: string
         required: false
         default: 'scripts/dead-code-scan.sh'
+      dead_code_script_source:
+        description: >
+          Where the dead-code scan's actual logic lives - mirrors
+          develop-node-ci.yml's identical input. `'repo'` (default) runs
+          the caller's own `dead_code_script` path, today's behavior for
+          every existing caller (gdscript-lsp, ai-harness-cli).
+          `'labone-actions'` instead checks out this repo's own
+          scripts/dead-code-scan.sh and runs it directly, so the caller
+          repo doesn't need its own copy.
+        type: string
+        required: false
+        default: 'repo'
       cargo_machete_version:
         description: >
           Informational only - cargo-machete is baked into the `rust`
@@ -115,10 +130,22 @@ on:
         type: boolean
         default: false
       duplicate_code_script:
-        description: Path (relative to working-directory) to the duplicate-code-scan script.
+        description: >
+          Path (relative to working-directory) to the duplicate-code-scan
+          script. Only used when duplicate_code_script_source is 'repo'
+          (the default).
         type: string
         required: false
         default: 'scripts/ci/duplicate-code-scan.sh'
+      duplicate_code_script_source:
+        description: >
+          Where the duplicate-code scan's actual logic lives - see
+          dead_code_script_source above. `'repo'` (default) runs the
+          caller's own `duplicate_code_script` path. `'labone-actions'`
+          runs this repo's own scripts/duplicate-code-scan.sh instead.
+        type: string
+        required: false
+        default: 'repo'
       cargo_dupes_version:
         description: Pinned cargo-dupes version.
         type: string
@@ -132,10 +159,22 @@ on:
         type: boolean
         default: false
       file_size_script:
-        description: Path (relative to working-directory) to the file-size-scan script.
+        description: >
+          Path (relative to working-directory) to the file-size-scan
+          script. Only used when file_size_script_source is 'repo' (the
+          default).
         type: string
         required: false
         default: 'scripts/ci/file-size-scan.sh'
+      file_size_script_source:
+        description: >
+          Where the file-size scan's actual logic lives - see
+          dead_code_script_source above. `'repo'` (default) runs the
+          caller's own `file_size_script` path. `'labone-actions'` runs
+          this repo's own scripts/file-size-scan.sh instead.
+        type: string
+        required: false
+        default: 'repo'
       enable_security_scan:
         description: Run the Trivy filesystem vuln/secret scan (HIGH,CRITICAL fail).
         type: boolean
@@ -397,10 +436,26 @@ jobs:
       # gha-runner-docker/images/rust/Dockerfile), so no per-run cache/
       # install step is needed here - unlike cargo-dupes below, which isn't
       # baked in.
+      - name: Checkout labone-actions scripts
+        if: inputs.dead_code_script_source == 'labone-actions'
+        uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          path: labone-actions-scan-scripts
+          token: ${{ secrets.GH_PAT }}
+      # Same script-source branch scan-with-report's own composite action
+      # uses for the Node/JS stacks (develop-node-ci.yml/
+      # develop-mobile-ci.yml) - 'repo' (default) keeps running the
+      # caller's own vendored script path, 'labone-actions' runs this
+      # repo's own scripts/dead-code-scan.sh instead.
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
-        run: bash ${{ inputs.dead_code_script }}
+        run: |
+          if [ "${{ inputs.dead_code_script_source }}" = "labone-actions" ]; then
+            bash "${{ github.workspace }}/labone-actions-scan-scripts/scripts/dead-code-scan.sh"
+          else
+            bash ${{ inputs.dead_code_script }}
+          fi
       - name: Build dead-code report
         id: result
         if: always()
@@ -447,10 +502,22 @@ jobs:
           key: cargo-dupes-${{ inputs.cargo_dupes_version }}
       - if: steps.dupes-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-dupes --version ${{ inputs.cargo_dupes_version }} --locked
+      - name: Checkout labone-actions scripts
+        if: inputs.duplicate_code_script_source == 'labone-actions'
+        uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          path: labone-actions-scan-scripts
+          token: ${{ secrets.GH_PAT }}
+      # Same script-source branch as the dead-code job above.
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
-        run: bash ${{ inputs.duplicate_code_script }}
+        run: |
+          if [ "${{ inputs.duplicate_code_script_source }}" = "labone-actions" ]; then
+            bash "${{ github.workspace }}/labone-actions-scan-scripts/scripts/duplicate-code-scan.sh"
+          else
+            bash ${{ inputs.duplicate_code_script }}
+          fi
       - name: Build duplicate-code report
         id: result
         if: always()
@@ -485,12 +552,24 @@ jobs:
       report: ${{ steps.result.outputs.report }}
     steps:
       - uses: actions/checkout@v7
+      - name: Checkout labone-actions scripts
+        if: inputs.file_size_script_source == 'labone-actions'
+        uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          path: labone-actions-scan-scripts
+          token: ${{ secrets.GH_PAT }}
+      # Same script-source branch as the dead-code job above. Report-only
+      # by design - never fails the job, matching ai-harness-cli's existing
+      # file-size-scan.sh behavior.
       - id: scan
         continue-on-error: true
         working-directory: ${{ inputs.working-directory }}
-        # Report-only by design - never fails the job, matching
-        # ai-harness-cli's existing file-size-scan.sh behavior.
-        run: bash ${{ inputs.file_size_script }}
+        run: |
+          if [ "${{ inputs.file_size_script_source }}" = "labone-actions" ]; then
+            bash "${{ github.workspace }}/labone-actions-scan-scripts/scripts/file-size-scan.sh"
+          else
+            bash ${{ inputs.file_size_script }}
+          fi
       - name: Build file-size report
         id: result
         if: always()

@@ -29,6 +29,11 @@ on:
         type: string
         required: false
         default: 'scripts/dead-code-scan.sh'
+      dead_code_script_source:
+        description: Passed straight through to develop-rust-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'repo'
       cargo_machete_version:
         type: string
         required: false
@@ -41,6 +46,11 @@ on:
         type: string
         required: false
         default: 'scripts/ci/duplicate-code-scan.sh'
+      duplicate_code_script_source:
+        description: Passed straight through to develop-rust-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'repo'
       cargo_dupes_version:
         type: string
         required: false
@@ -53,6 +63,11 @@ on:
         type: string
         required: false
         default: 'scripts/ci/file-size-scan.sh'
+      file_size_script_source:
+        description: Passed straight through to develop-rust-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'repo'
       security_scan_trivyignores:
         type: string
         required: false
@@ -83,12 +98,15 @@ jobs:
       enable_build: ${{ inputs.enable_build }}
       enable_dead_code: true
       dead_code_script: ${{ inputs.dead_code_script }}
+      dead_code_script_source: ${{ inputs.dead_code_script_source }}
       cargo_machete_version: ${{ inputs.cargo_machete_version }}
       enable_duplicate_code: ${{ inputs.enable_duplicate_code }}
       duplicate_code_script: ${{ inputs.duplicate_code_script }}
+      duplicate_code_script_source: ${{ inputs.duplicate_code_script_source }}
       cargo_dupes_version: ${{ inputs.cargo_dupes_version }}
       enable_file_size: ${{ inputs.enable_file_size }}
       file_size_script: ${{ inputs.file_size_script }}
+      file_size_script_source: ${{ inputs.file_size_script_source }}
       enable_security_scan: true
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       enable_dependency_audit: false

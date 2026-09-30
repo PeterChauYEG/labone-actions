@@ -197,6 +197,24 @@ on:
         description: Run `yarn design-system`.
         type: boolean
         default: true
+      design_system_script_source:
+        description: >
+          Passed straight through to scan-with-report's `script-source`
+          input for the design-system job - see dead_code_script_source
+          below. `'labone-actions'` default here (like max_lines_script_
+          source/react_tech_debt_script_source below) since no Mobile repo
+          has its own vendored design-system-scan script wired to
+          scan-with-report's `repo` mode - mc-training-arc-sung-jinwoo-
+          mobile's local scripts/design-system-scan.ts predates this input
+          and is superseded by the shared
+          scripts/design-system-scan.mjs, which already covers a mobile/
+          Expo/React-Native codebase the same way it covers web (it runs
+          eslint's own lab-react-standards/no-raw-text-element and
+          no-theme-color-literal rules - platform-agnostic, not
+          React-DOM-specific).
+        type: string
+        required: false
+        default: 'labone-actions'
       enable_dead_code:
         description: Run `yarn dead-code` (knip).
         type: boolean
@@ -553,6 +571,7 @@ jobs:
         id: scan
         with:
           script: design-system
+          script-source: ${{ inputs.design_system_script_source }}
           gh-token: ${{ secrets.GH_PAT }}
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
