@@ -3,8 +3,9 @@
 #
 # Mocks `curl` so no real network/Linear calls are made. Exercises: the
 # LINEAR_API_KEY-unset skip path, existing-open-ticket dedup (comment instead
-# of duplicate create, exact-title match since dedup is per-repo not
-# per-job), and flat ticket creation with Urgent (priority 1) severity.
+# of duplicate create, matched on a stable ci-failure-key marker embedded in
+# the issue description rather than the mutable title), and flat ticket
+# creation with Urgent (priority 1) severity plus marker embedding.
 #
 # Usage: scripts/file-ci-failure-ticket.test.sh
 set -euo pipefail
@@ -60,10 +61,10 @@ output=$(PATH="$mock_bin:$PATH" MOCK_LOG="$log_file" LINEAR_API_KEY="fake" \
   GITHUB_REPOSITORY="PeterChauYEG/labone-actions" \
   bash "$script" "CI" "https://x/run/1" 2>&1)
 assert_contains "$output" "existing open ticket LAB-999" "dedups against existing open ticket"
-if grep -q 'title.*🔴 CI failing on main: labone-actions' "$log_file"; then
-  echo "PASS: dedup search uses exact per-repo title (no per-job/per-PR suffix)"
+if grep -q 'ci-failure-key: ci-failure:labone-actions:CI' "$log_file"; then
+  echo "PASS: dedup search matches on the stable ci-failure-key marker in the description"
 else
-  echo "FAIL: dedup search uses exact per-repo title"
+  echo "FAIL: dedup search matches on the stable ci-failure-key marker in the description"
   fail=1
 fi
 rm -f "$log_file"
@@ -105,6 +106,12 @@ if grep -q '"priority": *1' "$log_file"; then
   echo "PASS: new ticket is filed at Urgent (priority 1)"
 else
   echo "FAIL: new ticket is filed at Urgent (priority 1)"
+  fail=1
+fi
+if grep -q 'ci-failure-key: ci-failure:labone-actions:CI' "$log_file"; then
+  echo "PASS: new ticket description embeds the ci-failure-key marker"
+else
+  echo "FAIL: new ticket description embeds the ci-failure-key marker"
   fail=1
 fi
 rm -f "$log_file"

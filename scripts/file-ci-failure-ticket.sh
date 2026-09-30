@@ -35,11 +35,15 @@ fi
 
 repo_name="${GITHUB_REPOSITORY#*/}"
 title="🔴 CI failing on main: ${repo_name}"
+ci_failure_key="ci-failure:${repo_name}:${workflow_name}"
+ci_failure_marker="<!-- ci-failure-key: ${ci_failure_key} -->"
 
-# ── Dedup: one open ticket per repo, regardless of which workflow/job broke ─
-search_query=$(jq -n --arg title "$title" '{
-  query: "query($title: String!) { issues(filter: { team: { key: { eq: \"LAB\" } }, state: { type: { nin: [\"completed\", \"cancelled\", \"duplicate\"] } }, title: { eq: $title } }, first: 1) { nodes { id identifier url } } }",
-  variables: { title: $title }
+# ── Dedup: one open ticket per repo+workflow, matched on a stable marker in
+# the description rather than the (mutable) title — triage agents retitle
+# tickets, which breaks an exact-title match and lets duplicates through.
+search_query=$(jq -n --arg descriptionContains "$ci_failure_marker" '{
+  query: "query($descriptionContains: String!) { issues(filter: { team: { key: { eq: \"LAB\" } }, state: { type: { nin: [\"completed\", \"cancelled\", \"duplicate\"] } }, description: { contains: $descriptionContains } }, first: 1) { nodes { id identifier url } } }",
+  variables: { descriptionContains: $descriptionContains }
 }')
 
 search_response=$(curl -s -X POST https://api.linear.app/graphql \
@@ -96,6 +100,10 @@ if [[ -n "$report" ]]; then
 ${report}
 "
 fi
+
+description="${description}
+${ci_failure_marker}
+"
 
 # shellcheck disable=SC2016 # single-quoted on purpose: GraphQL variable refs.
 mutation='mutation($teamId: String!, $title: String!, $description: String!, $stateId: String!, $priority: Int, $labelIds: [String!]) {
