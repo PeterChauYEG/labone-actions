@@ -71,6 +71,17 @@ inputs:
       auto-merge.
     required: false
     default: 'true'
+  env:
+    description: >
+      Optional extra environment variables for the scan step, as
+      newline-separated `KEY=VALUE` pairs — e.g. a design-system caller
+      opting into design-system-scan.mjs's shadcn-usage or React Native
+      check modes (`DESIGN_SYSTEM_SHADCN_VENDOR_PATH=...`,
+      `DESIGN_SYSTEM_RN_MODE=true`). Merged alongside GH_TOKEN/
+      GITHUB_TOKEN below. Empty by default — a no-op for every scan/caller
+      that doesn't need script-specific config this way.
+    required: false
+    default: ''
 
 outputs:
   outcome:
@@ -101,6 +112,11 @@ runs:
         token: ${{ inputs.gh-token }}
 
     - run: |
+        if [ -n "${{ inputs.env }}" ]; then
+          while IFS= read -r line; do
+            [ -n "$line" ] && export "$line"
+          done <<< "${{ inputs.env }}"
+        fi
         if [ "${{ inputs.script-source }}" = "labone-actions" ]; then
           node "${{ github.workspace }}/labone-actions-scan-scripts/scripts/${{ inputs.script }}-scan.mjs"
         else

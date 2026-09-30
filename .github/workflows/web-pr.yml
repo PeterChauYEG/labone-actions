@@ -50,6 +50,11 @@ on:
         type: string
         required: false
         default: 'repo'
+      design_system_shadcn_vendor_path:
+        description: Passed straight through to develop-ci.yml's identical input.
+        type: string
+        required: false
+        default: ''
       react_tech_debt_script_source:
         description: Passed straight through to develop-ci.yml's identical input.
         type: string
@@ -83,6 +88,7 @@ jobs:
       enable_test: true
       enable_design_system: true
       design_system_script_source: ${{ inputs.design_system_script_source }}
+      design_system_shadcn_vendor_path: ${{ inputs.design_system_shadcn_vendor_path }}
       enable_dead_code: true
       dead_code_script_source: ${{ inputs.dead_code_script_source }}
       enable_duplicate_code: true

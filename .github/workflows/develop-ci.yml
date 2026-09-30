@@ -128,6 +128,20 @@ on:
         type: string
         required: false
         default: 'repo'
+      design_system_shadcn_vendor_path:
+        description: >
+          When set to a non-empty path (e.g. `src/design-system/vendor/`),
+          additionally runs design-system-scan.mjs's shadcn-usage check
+          (ported from gamecraft's original scripts/design-system-scan.mjs)
+          - raw <button>/<input>/<select>/<textarea> anywhere under `src/**`
+          except this vendor path, which is exempt since that's where the
+          shadcn/ui primitives themselves legitimately use those tags. Only
+          meaningful with `design_system_script_source: 'labone-actions'`.
+          Defaults to empty (check does not run, today's behavior for
+          every caller that doesn't opt in).
+        type: string
+        required: false
+        default: ''
       enable_dead_code:
         description: Run `yarn dead-code`, with PR sticky comment + Linear ticket filing on failure.
         type: boolean
@@ -576,6 +590,8 @@ jobs:
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
           blocking: 'false'
+          env: |
+            DESIGN_SYSTEM_SHADCN_VENDOR_PATH=${{ inputs.design_system_shadcn_vendor_path }}
 
   dead-code:
     name: dead-code

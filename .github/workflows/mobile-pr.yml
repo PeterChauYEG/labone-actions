@@ -55,13 +55,25 @@ on:
         description: >
           Passed straight through to develop-mobile-ci.yml's identical
           input. 'labone-actions' default - the shared
-          scripts/design-system-scan.mjs (eslint-rule-based) already covers
-          a mobile/Expo/React-Native codebase the same way it covers web,
+          scripts/design-system-scan.mjs's base ESLint check runs on a
+          mobile/Expo/React-Native codebase the same way it does on web,
           same rationale as max_lines_script_source/
-          react_tech_debt_script_source above.
+          react_tech_debt_script_source above, but a repo on React
+          Native's `<View>`/`<Text>` JSX shape should also set
+          `design_system_rn_mode: true` below for an RN-aware equivalent.
         type: string
         required: false
         default: 'labone-actions'
+      design_system_rn_mode:
+        description: Passed straight through to develop-mobile-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'false'
+      design_system_rn_exempt_paths:
+        description: Passed straight through to develop-mobile-ci.yml's identical input.
+        type: string
+        required: false
+        default: ''
       security_scan_trivyignores:
         type: string
         required: false
@@ -101,6 +113,8 @@ jobs:
       enable_a11y: true
       enable_design_system: true
       design_system_script_source: ${{ inputs.design_system_script_source }}
+      design_system_rn_mode: ${{ inputs.design_system_rn_mode }}
+      design_system_rn_exempt_paths: ${{ inputs.design_system_rn_exempt_paths }}
       enable_dead_code: true
       dead_code_script_source: ${{ inputs.dead_code_script_source }}
       enable_duplicate_code: ${{ inputs.enable_duplicate_code }}
