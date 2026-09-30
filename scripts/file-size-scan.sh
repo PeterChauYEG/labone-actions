@@ -18,12 +18,32 @@
 # here is deliberately cwd-relative, matching design-system-scan.mjs's
 # convention for scan-with-report's `script-source: labone-actions` mode.
 #
-# Usage: file-size-scan.sh [report.md] [threshold] [scan-dir]
+# Usage: file-size-scan.sh [report.md] [threshold] [scan-dir] [exclude-paths]
+#
+# exclude-paths is a comma- or newline-separated list of path prefixes/globs
+# to skip, e.g. 'ai-harness-api-sdk,auth-sdk' or a glob like '*/generated/*'.
+# Each entry that has no '*' of its own is wrapped as '*<entry>*' so a bare
+# directory name (or path fragment) excludes anywhere it appears; an entry
+# already containing '*' is used as-is. An entry matching nothing is a no-op.
 set -euo pipefail
 
 report_md="${1:-file-size-report.md}"
 threshold="${2:-300}"
 scan_dir="${3:-.}"
+exclude_paths="${4:-}"
+
+find_args=(-not -path '*/target/*' -not -path '*/.git/*')
+if [[ -n "$exclude_paths" ]]; then
+  while IFS= read -r entry; do
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    [[ -z "$entry" ]] && continue
+    case "$entry" in
+      *'*'*) find_args+=(-not -path "$entry") ;;
+      *) find_args+=(-not -path "*${entry}*") ;;
+    esac
+  done < <(printf '%s\n' "$exclude_paths" | tr ',' '\n')
+fi
 
 oversized=()
 while IFS= read -r -d '' file; do
@@ -31,8 +51,7 @@ while IFS= read -r -d '' file; do
   if (( lines > threshold )); then
     oversized+=("${lines}|${file}")
   fi
-done < <(find "$scan_dir" -name '*.rs' \
-  -not -path '*/target/*' -not -path '*/.git/*' -print0)
+done < <(find "$scan_dir" -name '*.rs' "${find_args[@]}" -print0)
 
 {
   echo "## File-Size Report (.rs files over ${threshold} lines)"
