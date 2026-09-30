@@ -206,15 +206,42 @@ on:
           has its own vendored design-system-scan script wired to
           scan-with-report's `repo` mode - mc-training-arc-sung-jinwoo-
           mobile's local scripts/design-system-scan.ts predates this input
-          and is superseded by the shared
-          scripts/design-system-scan.mjs, which already covers a mobile/
-          Expo/React-Native codebase the same way it covers web (it runs
-          eslint's own lab-react-standards/no-raw-text-element and
-          no-theme-color-literal rules - platform-agnostic, not
-          React-DOM-specific).
+          and is superseded by the shared scripts/design-system-scan.mjs.
+          The base ESLint check
+          (lab-react-standards/no-raw-text-element/no-theme-color-literal)
+          is written for web/HTML-shaped JSX and doesn't apply cleanly to
+          React Native's `<View>`/`<Text>` shape - a caller on RN's JSX
+          should set `design_system_rn_mode: true` below for an
+          RN-aware equivalent instead of relying on the base check alone.
         type: string
         required: false
         default: 'labone-actions'
+      design_system_rn_mode:
+        description: >
+          `'true'` additionally runs design-system-scan.mjs's React Native
+          regex-based check (ported from mc-training-arc-sung-jinwoo-
+          mobile's original scripts/design-system-scan.ts) - raw `Text`
+          from 'react-native' outside the typography component layer, and
+          raw color literals outside the theme/token source files. Only
+          meaningful with `design_system_script_source: 'labone-actions'`.
+          Defaults to `'false'` (base ESLint check only, today's behavior).
+        type: string
+        required: false
+        default: 'false'
+      design_system_rn_exempt_paths:
+        description: >
+          Comma-separated list of extra paths exempt from
+          design_system_rn_mode's theme-color check (native-API code that
+          must use literal colors, e.g. an iOS Widget/Live Activity file or
+          an Android notification-channel service) - appended to the
+          check's two built-in token-source exemptions. Only meaningful
+          when `design_system_rn_mode: 'true'`. Defaults to empty (no
+          extra exemptions) so a given caller's exemptions (e.g. mc-
+          training's widget/notification files) don't leak onto other RN
+          callers.
+        type: string
+        required: false
+        default: ''
       enable_dead_code:
         description: Run `yarn dead-code` (knip).
         type: boolean
@@ -576,6 +603,9 @@ jobs:
           report-file: ${{ inputs.working-directory }}/design-system-report.md
           working-directory: ${{ inputs.working-directory }}
           blocking: 'false'
+          env: |
+            DESIGN_SYSTEM_RN_MODE=${{ inputs.design_system_rn_mode }}
+            DESIGN_SYSTEM_RN_EXEMPT_PATHS=${{ inputs.design_system_rn_exempt_paths }}
 
   dead-code:
     name: dead-code
