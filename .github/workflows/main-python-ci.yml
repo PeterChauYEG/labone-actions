@@ -202,3 +202,26 @@ jobs:
       - name: Fail if any required job failed or was cancelled
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         run: exit 1
+
+  # File (or comment on) one Urgent Linear ticket for a broken main - see
+  # main-ci.yml's identical job for the full rationale. No deploy job in
+  # this workflow, so this only ever fires on a real CI gate failure.
+  file-ci-failure-ticket:
+    name: file-ci-failure-ticket
+    needs: [required-checks]
+    if: needs.required-checks.result == 'failure'
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
+      - name: File CI failure ticket
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          bash labone-actions/scripts/file-ci-failure-ticket.sh \
+            "${{ github.workflow }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
