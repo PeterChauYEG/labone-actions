@@ -80,3 +80,27 @@ jobs:
       enable_test: ${{ inputs.enable_test }}
       tests-path: ${{ inputs.tests-path }}
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
+
+  # File (or comment on) one Urgent Linear ticket for a broken main - see
+  # main-ci.yml's identical job for the full rationale. Placed here (not
+  # inside godot-develop-ci.yml) so it only fires for this push-to-main
+  # caller, not godot-develop-ci.yml's shared PR-time caller (godot-pr.yml).
+  file-ci-failure-ticket:
+    name: file-ci-failure-ticket
+    needs: [godot-ci]
+    if: needs.godot-ci.result == 'failure'
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
+      - name: File CI failure ticket
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          bash labone-actions/scripts/file-ci-failure-ticket.sh \
+            "${{ github.workflow }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

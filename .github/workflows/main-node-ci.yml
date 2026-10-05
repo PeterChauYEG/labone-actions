@@ -451,3 +451,30 @@ jobs:
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           deploy-result: ${{ needs.deploy.result }}
+
+  # File (or comment on) one Urgent Linear ticket for a broken main - either
+  # the CI gates themselves failed, or they passed but the Dokku deploy did.
+  # Reuses ci-failure-monitor.yml's own script so both paths dedup the same
+  # way (one open ticket per repo+workflow, matched on a marker in the
+  # description) - see file-ci-failure-ticket.sh's header comment.
+  file-ci-failure-ticket:
+    name: file-ci-failure-ticket
+    needs: [required-checks, deploy]
+    if: >-
+      always() &&
+      (needs.required-checks.result == 'failure' || needs.deploy.result == 'failure')
+    runs-on: [self-hosted, catfood, catfood-minimal]
+    permissions:
+      contents: read
+    steps:
+      - uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
+        with:
+          token: ${{ secrets.GH_PAT }}
+      - name: File CI failure ticket
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          bash labone-actions/scripts/file-ci-failure-ticket.sh \
+            "${{ github.workflow }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
