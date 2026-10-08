@@ -318,6 +318,7 @@ jobs:
   changes:
     name: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -361,6 +362,7 @@ jobs:
     # moment any future caller's default image is anything else. Pin it
     # explicitly, matching every other develop-*-ci.yml file's convention.
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 10
     steps:
       # cache-write: 'false' - unlike main-ci.yml/main-node-ci.yml's own
       # `setup` job, this workflow has no push-to-main trigger to gate a
@@ -394,6 +396,7 @@ jobs:
     # develop-ci.yml's identical peer-deps job, see that one's comment for
     # the confirmed live failure this caused.
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ needs.changes.outputs.mobile_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment. Still a HARD gate (unchanged) via the final `exit 1` step.
@@ -413,6 +416,7 @@ jobs:
     name: lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ needs.changes.outputs.mobile_source == 'true' || needs.changes.outputs.mobile_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos in this repo,
@@ -445,6 +449,7 @@ jobs:
     name: ls-lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 10
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -462,6 +467,7 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so the
       # tsbuildinfo script cache stays a plain restore+save (cache-write:
@@ -488,6 +494,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       # No main-*-ci.yml counterpart exists for mobile repos, so the
@@ -520,6 +527,7 @@ jobs:
     name: build
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node-build]
+    timeout-minutes: 30
     if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -544,6 +552,7 @@ jobs:
     name: a11y
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_a11y && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
@@ -575,6 +584,7 @@ jobs:
     name: design-system
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_design_system && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
@@ -611,6 +621,7 @@ jobs:
     name: dead-code
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
@@ -644,6 +655,7 @@ jobs:
     name: duplicate-code
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
@@ -677,6 +689,7 @@ jobs:
     name: max-lines
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
@@ -710,6 +723,7 @@ jobs:
     name: react-tech-debt
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
     permissions:
       contents: read
@@ -743,6 +757,7 @@ jobs:
     name: security-scan
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.mobile_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment. Still a HARD gate (unchanged) via the final `exit 1` step.
@@ -767,6 +782,7 @@ jobs:
     name: secret-scan
     needs: setup
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
@@ -793,6 +809,7 @@ jobs:
     # toolchain catfood-minimal deliberately excludes - same bug class as
     # peer-deps' identical fix (confirmed live via gamecraft PR #305/#308).
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
@@ -826,6 +843,7 @@ jobs:
     name: tech-debt
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
     permissions:
       contents: read
@@ -891,6 +909,7 @@ jobs:
        needs.dependency-audit.result != 'skipped' ||
        needs.tech-debt.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
@@ -932,6 +951,7 @@ jobs:
       matrix:
         job: [peer-deps, a11y, design-system, dead-code, duplicate-code, max-lines, react-tech-debt, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -967,6 +987,7 @@ jobs:
     name: required-checks
     needs: [changes, actionlint, setup, peer-deps, lint, ls-lint, typecheck, build, test, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled

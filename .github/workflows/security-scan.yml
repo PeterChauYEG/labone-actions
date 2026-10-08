@@ -39,6 +39,7 @@ jobs:
     name: changes
     if: github.event_name != 'schedule'
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -70,6 +71,7 @@ jobs:
     # Docker CLI on the runner host to execute at all, so this must not
     # land on an image without it.
     runs-on: [self-hosted, catfood, catfood-docker]
+    timeout-minutes: 20
     if: >-
       always() &&
       (github.event_name == 'schedule' || needs.changes.outputs.deps == 'true')
@@ -93,6 +95,7 @@ jobs:
     # Docker CLI on the runner host to execute at all, so this must not
     # land on an image without it.
     runs-on: [self-hosted, catfood, catfood-docker]
+    timeout-minutes: 20
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
         id: scan

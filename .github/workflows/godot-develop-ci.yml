@@ -100,6 +100,7 @@ jobs:
   changes:
     name: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -309,6 +310,7 @@ jobs:
     name: security-scan
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
@@ -325,6 +327,7 @@ jobs:
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
@@ -374,6 +377,7 @@ jobs:
     name: required-checks
     needs: [changes, actionlint, format, lint, dead-code, duplicate-code, security-scan, secret-scan, test]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled

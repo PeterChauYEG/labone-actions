@@ -181,6 +181,7 @@ jobs:
   changes:
     name: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -203,6 +204,7 @@ jobs:
     name: lint
     needs: changes
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ needs.changes.outputs.python == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
@@ -216,6 +218,7 @@ jobs:
     name: fmt
     needs: changes
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 10
     if: ${{ inputs.enable_fmt && needs.changes.outputs.python == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
@@ -229,6 +232,7 @@ jobs:
     name: typecheck
     needs: changes
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_typecheck && needs.changes.outputs.python == 'true' }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
@@ -242,6 +246,7 @@ jobs:
     name: test
     needs: changes
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
@@ -252,6 +257,7 @@ jobs:
     name: security-scan
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.python_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below. The Trivy step keeps
     # failing the job on its own exit-code (via the final `exit 1` step) -
@@ -278,6 +284,7 @@ jobs:
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
@@ -299,6 +306,7 @@ jobs:
   dependency-audit:
     name: dependency-audit
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above (still a HARD gate, via the final `exit 1`
@@ -327,6 +335,7 @@ jobs:
     name: dead-code
     needs: changes
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above. Advisory-only - never fails the job.
@@ -365,6 +374,7 @@ jobs:
     name: duplicate-code
     needs: changes
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see dead-code's identical
     # comment above. jscpd's Python tokenizer needs Node, not uv - same
@@ -407,6 +417,7 @@ jobs:
     name: file-size
     needs: changes
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_file_size && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see dead-code's identical
     # comment above. Report-only by design - `steps.scan` has no `exit 1`
@@ -470,6 +481,7 @@ jobs:
        needs.duplicate-code.result != 'skipped' ||
        needs.file-size.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
@@ -506,6 +518,7 @@ jobs:
       matrix:
         job: [security-scan, secret-scan, dependency-audit, dead-code, duplicate-code, file-size]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -542,6 +555,7 @@ jobs:
     name: required-checks
     needs: [changes, actionlint, lint, fmt, typecheck, test, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled

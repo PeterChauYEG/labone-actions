@@ -228,6 +228,7 @@ jobs:
   changes:
     name: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -254,6 +255,7 @@ jobs:
     name: fmt
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 10
     if: ${{ needs.changes.outputs.rust_source == 'true' }}
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment. Still a HARD gate via the final `exit 1` step.
@@ -303,6 +305,7 @@ jobs:
     name: clippy
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     if: ${{ needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below - see fmt's identical
     # comment above.
@@ -358,6 +361,7 @@ jobs:
     name: test
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 30
     if: ${{ !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see fmt's identical
     # comment above.
@@ -408,6 +412,7 @@ jobs:
     name: build
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 30
     if: ${{ inputs.enable_build && !inputs.is_dependabot }}
     steps:
       # cache-key-prefix scopes this job's own cargo-build-${Cargo.lock
@@ -427,6 +432,7 @@ jobs:
     name: dead-code
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && (needs.changes.outputs.rust_source == 'true' || needs.changes.outputs.rust_deps == 'true') }}
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment and scan-with-report's own header comment (develop-node-ci.yml)
@@ -489,6 +495,7 @@ jobs:
     name: duplicate-code
     needs: changes
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     # Feeds the `danger-comment` aggregator below - see dead-code's identical
     # comment above.
@@ -551,6 +558,7 @@ jobs:
     name: file-size
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_file_size && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     # Feeds the `danger-comment` aggregator below - see dead-code's identical
     # comment above. Report-only by design (never fails the job), but now
@@ -604,6 +612,7 @@ jobs:
     name: security-scan
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.rust_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below - see fmt's identical
     # comment further up. Still a HARD gate via the final `exit 1` step.
@@ -627,6 +636,7 @@ jobs:
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
@@ -648,6 +658,7 @@ jobs:
   dependency-audit:
     name: dependency-audit
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
@@ -677,6 +688,7 @@ jobs:
     name: tech-debt
     needs: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.rust_source == 'true' }}
     permissions:
       contents: read
@@ -750,6 +762,7 @@ jobs:
        needs.dependency-audit.result != 'skipped' ||
        needs.tech-debt.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
@@ -790,6 +803,7 @@ jobs:
       matrix:
         job: [fmt, clippy, test, dead-code, duplicate-code, file-size, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -823,6 +837,7 @@ jobs:
     name: required-checks
     needs: [changes, actionlint, fmt, clippy, test, build, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled

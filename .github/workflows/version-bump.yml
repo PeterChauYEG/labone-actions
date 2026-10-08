@@ -42,6 +42,7 @@ jobs:
   version-bump:
     name: version-bump
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     steps:
       - name: Verify GH_PAT is configured
         # `main` is a protected branch (required status checks), and this

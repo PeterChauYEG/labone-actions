@@ -66,6 +66,7 @@ jobs:
   actionlint:
     name: actionlint
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - name: Write canonical actionlint config

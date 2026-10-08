@@ -53,6 +53,7 @@ jobs:
   cache-gc:
     name: cache-gc
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
