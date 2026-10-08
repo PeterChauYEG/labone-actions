@@ -619,6 +619,8 @@ jobs:
           report-heading: '### security-scan'
           working-directory: ${{ inputs.working-directory }}
           trivyignores: ${{ inputs.security_scan_trivyignores }}
+          cache-db: 'true'
+          cache-write: 'false'
       - if: ${{ steps.scan.outputs.outcome == 'failure' }}
         run: exit 1
 
