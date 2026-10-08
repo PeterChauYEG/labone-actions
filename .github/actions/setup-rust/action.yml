@@ -1,10 +1,15 @@
 name: Checkout + Rust toolchain + cargo cache
 description: >
   Checkout, install the stable Rust toolchain (with the given components),
-  and optionally restore/cache ~/.cargo/registry, ~/.cargo/git and
-  target/ under one shared cargo-${Cargo.lock hash} key. Previously
-  hand-copied (checkout + dtolnay/rust-toolchain + an identical
-  actions/cache block) across fmt/clippy/test/build in
+  and optionally restore/cache cargo state in two separate caches:
+  ~/.cargo/registry and ~/.cargo/git (the downloaded crate sources) under
+  one cargo-registry-${Cargo.lock hash} key shared across every job in the
+  workflow run regardless of cache-key-prefix, since they're identical for
+  any job building the same Cargo.lock; and target/ under a
+  cargo-target-${cache-key-prefix}-${Cargo.lock hash} key kept per-job,
+  since build output genuinely differs per job (different build
+  flags/profile). Previously hand-copied (checkout + dtolnay/rust-toolchain
+  + an identical actions/cache block) across fmt/clippy/test/build in
   develop-rust-ci.yml - every job building the same dependency graph shared
   one key already, just not one action.
 
@@ -50,14 +55,22 @@ runs:
       with:
         components: ${{ inputs.components }}
 
-    - name: Cache cargo registry/git/target
+    - name: Cache cargo registry/git
       if: inputs.cache == 'true'
       uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-          ${{ inputs.working-directory }}/target
-        key: ${{ runner.os }}-cargo-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
         restore-keys: |
-          ${{ runner.os }}-cargo-${{ inputs.cache-key-prefix }}-
+          ${{ runner.os }}-cargo-registry-
+
+    - name: Cache cargo target
+      if: inputs.cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.working-directory }}/target
+        key: ${{ runner.os }}-cargo-target-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-target-${{ inputs.cache-key-prefix }}-
