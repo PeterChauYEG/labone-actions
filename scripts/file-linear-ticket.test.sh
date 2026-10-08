@@ -220,6 +220,55 @@ output=$(PATH="$mock_bin:$PATH" LINEAR_API_KEY="fake" \
 assert_contains "$output" "existing open ticket LAB-999" "empty groups array falls back to flat mode"
 rm -f "$empty_groups_file"
 
+# ── a scope that looks like a ticket reference (e.g. a package/dir name
+# coincidentally matching LAB-<digits>) must not leak into the created
+# title — guards against the GitHub/Linear PR auto-link collision this
+# caused live when a different (non-labone-actions) split-ticket flow put
+# a sibling ticket's ID in a child ticket's title. ──
+ticket_ref_groups_file="$(mktemp)"
+cat > "$ticket_ref_groups_file" <<'EOF'
+[
+  {"scope": "lab-4217-legacy", "description": "findings in the lab-4217-legacy package"}
+]
+EOF
+log_file="$(mktemp)"
+cat > "$mock_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+payload=""
+for arg in "$@"; do
+  if [[ "$arg" == "@-" ]]; then
+    payload="$(cat)"
+    break
+  fi
+done
+haystack="$*$payload"
+echo "$haystack" >> "$MOCK_LOG"
+if [[ "$haystack" == *"issueCreate"* ]]; then
+  echo '{"data":{"issueCreate":{"success":true,"issue":{"identifier":"LAB-2001","url":"https://linear.app/x/LAB-2001"}}}}'
+  exit 0
+fi
+if [[ "$haystack" == *"workflowStates"* ]]; then
+  echo '{"data":{"workflowStates":{"nodes":[{"id":"state-1"}]}}}'
+  exit 0
+fi
+if [[ "$haystack" == *"teams"* ]]; then
+  echo '{"data":{"teams":{"nodes":[{"id":"team-1"}]}}}'
+  exit 0
+fi
+echo '{"data":{"issues":{"nodes":[]}}}'
+EOF
+chmod +x "$mock_bin/curl"
+
+output=$(PATH="$mock_bin:$PATH" MOCK_LOG="$log_file" LINEAR_API_KEY="fake" \
+  GITHUB_REPOSITORY="PeterChauYEG/labone-actions" PR_NUMBER=11 PR_URL="https://x/pr/11" RUN_URL="https://x/run/5" \
+  bash "$script" duplicate-code /dev/null "$ticket_ref_groups_file" 2>&1)
+created_title=$(grep -o '"title": *"[^"]*"' "$log_file" | head -1)
+assert_not_contains "$created_title" "lab-4217" "a scope resembling a ticket ID is stripped from the created title"
+assert_contains "$created_title" 'duplicate-code: labone-actions legacy' "the rest of the sanitized scope still makes it into the title"
+# the (untouched) description is allowed to still mention it — only the title must be sanitized
+assert_contains "$(cat "$log_file")" "lab-4217-legacy package" "description text is left alone, only the title is sanitized"
+rm -f "$log_file" "$ticket_ref_groups_file"
+
 if [[ $fail -ne 0 ]]; then
   echo "One or more tests FAILED"
   exit 1

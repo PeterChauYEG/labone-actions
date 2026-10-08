@@ -43,6 +43,26 @@ repo="${GITHUB_REPOSITORY#*/}"
 DEVOPS_LABEL_ID="81380be9-86c7-4122-9263-69925d981758"
 CI_LABEL_ID="01f4906f-28d8-4ff9-b95c-a1d6de39d1ca"
 
+# Strips any "LAB-<digits>" ticket-reference substring (case-insensitive)
+# out of a title component before it's used to build a Linear ticket
+# title. Found live: a different split-ticket flow (not this script) once
+# embedded a sibling ticket's own ID in a child ticket's title text for
+# human-readable traceability — GitHub's Linear integration then
+# auto-links any PR whose branch/body contains that substring to BOTH the
+# real ticket and the accidentally-referenced one, so QA on the wrong
+# ticket finds someone else's merged PR attached and reports a false
+# mismatch. `scope` here is derived from a package/file path
+# (packageOf() in lib/package-cluster.mjs) and isn't expected to ever
+# collide today, but nothing stops a future package/directory name from
+# looking like "lab-1234" — sanitize defensively so a title built from it
+# can never reintroduce this class of bug.
+strip_ticket_refs() {
+  echo "$1" | sed -E 's/[-_]?\bLAB-[0-9]+\b[-_]?//Ig' | tr -s ' ' | sed -E 's/^[ -]+|[ -]+$//g'
+}
+
+job_name="$(strip_ticket_refs "$job_name")"
+repo="$(strip_ticket_refs "$repo")"
+
 if [[ -z "${LINEAR_API_KEY:-}" ]]; then
   echo "[file-linear-ticket] WARN: LINEAR_API_KEY not set — skipping" >&2
   exit 0
@@ -210,7 +230,7 @@ fi
 if [[ "$group_count" -gt 0 ]]; then
   echo "[file-linear-ticket] $groups_path has $group_count group(s) — filing one ticket per group"
   for i in $(seq 0 $((group_count - 1))); do
-    scope=$(jq -r ".[$i].scope" "$groups_path")
+    scope=$(strip_ticket_refs "$(jq -r ".[$i].scope" "$groups_path")")
     group_description=$(jq -r ".[$i].description" "$groups_path")
     title="${job_name}: ${repo} ${scope}"
     title_prefix="$title"
