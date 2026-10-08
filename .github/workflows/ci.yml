@@ -21,6 +21,7 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || 0 }}
       pr_url: ${{ github.event.pull_request.html_url || '' }}
+      self_hosted_labels: 'catfood,catfood-minimal,catfood-docker,catfood-node,catfood-rust,catfood-godot,catfood-python,catfood-mecha10,catfood-node-rust,catfood-node-build,catfood-ops,catfood-node-deploy'
 
   unit-tests:
     name: unit-tests
