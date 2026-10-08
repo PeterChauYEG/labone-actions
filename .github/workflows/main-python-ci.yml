@@ -108,6 +108,7 @@ jobs:
   lint:
     name: lint
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
         with:
@@ -119,6 +120,7 @@ jobs:
   fmt:
     name: fmt
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 10
     if: ${{ inputs.enable_fmt }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
@@ -131,6 +133,7 @@ jobs:
   typecheck:
     name: typecheck
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_typecheck }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
@@ -143,6 +146,7 @@ jobs:
   test:
     name: test
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
@@ -152,6 +156,7 @@ jobs:
   security-scan:
     name: security-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
@@ -170,6 +175,7 @@ jobs:
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
@@ -186,6 +192,7 @@ jobs:
   dependency-audit:
     name: dependency-audit
     runs-on: [self-hosted, catfood, catfood-python]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-python-uv@main
@@ -199,6 +206,7 @@ jobs:
     name: required-checks
     needs: [lint, fmt, typecheck, test, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled
@@ -213,6 +221,7 @@ jobs:
     needs: [required-checks]
     if: needs.required-checks.result == 'failure'
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

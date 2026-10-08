@@ -90,6 +90,7 @@ jobs:
     needs: [godot-ci]
     if: needs.godot-ci.result == 'failure'
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

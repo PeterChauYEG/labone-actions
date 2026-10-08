@@ -113,6 +113,7 @@ jobs:
   fmt:
     name: fmt
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 10
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -129,6 +130,7 @@ jobs:
   clippy:
     name: clippy
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
         with:
@@ -144,6 +146,7 @@ jobs:
   test:
     name: test
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 30
     if: ${{ !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
@@ -159,6 +162,7 @@ jobs:
   build:
     name: build
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 30
     if: ${{ inputs.enable_build && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
@@ -174,6 +178,7 @@ jobs:
   dead-code:
     name: dead-code
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
@@ -187,6 +192,7 @@ jobs:
   duplicate-code:
     name: duplicate-code
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
@@ -207,6 +213,7 @@ jobs:
   file-size:
     name: file-size
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_file_size && !inputs.is_dependabot }}
     steps:
       - uses: actions/checkout@v7
@@ -217,6 +224,7 @@ jobs:
   security-scan:
     name: security-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
@@ -235,6 +243,7 @@ jobs:
   secret-scan:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
@@ -251,6 +260,7 @@ jobs:
   dependency-audit:
     name: dependency-audit
     runs-on: [self-hosted, catfood, catfood-rust]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-rust@main
@@ -269,6 +279,7 @@ jobs:
     name: required-checks
     needs: [fmt, clippy, test, build, security-scan, secret-scan, dependency-audit]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled
@@ -283,6 +294,7 @@ jobs:
     needs: [required-checks]
     if: needs.required-checks.result == 'failure'
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

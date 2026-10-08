@@ -48,6 +48,7 @@ jobs:
     # breakage.
     if: github.event.workflow_run.conclusion == 'failure'
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

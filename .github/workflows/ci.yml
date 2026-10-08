@@ -26,6 +26,7 @@ jobs:
   unit-tests:
     name: unit-tests
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 

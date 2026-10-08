@@ -371,6 +371,7 @@ jobs:
   changes:
     name: changes
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -401,6 +402,7 @@ jobs:
     name: setup
     needs: changes
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 10
     steps:
       - if: inputs.package_manager == 'yarn'
         uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
@@ -446,6 +448,7 @@ jobs:
     name: peer-deps
     needs: changes
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ needs.changes.outputs.node_deps == 'true' }}
     # `outcome`/`report` feed the `danger-comment` aggregator below, which
     # posts one sticky PR comment covering this job plus security-scan/
@@ -478,6 +481,7 @@ jobs:
     name: lint
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ needs.changes.outputs.node_source == 'true' || needs.changes.outputs.node_deps == 'true' || needs.changes.outputs.eslint_config == 'true' }}
     steps:
       # Zero-tolerance gate: this just runs `<package manager> lint` and
@@ -509,6 +513,7 @@ jobs:
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
     if: ${{ inputs.enable_ls_lint && !inputs.is_dependabot && needs.changes.outputs.ls_lint == 'true' }}
+    timeout-minutes: 10
     # setup-node-yarn only exposes GH_TOKEN as an env var scoped to its own
     # internal "Install dependencies" step (see that action's `gh-token`
     # input) - it is not re-exposed to this job's own subsequent steps. That
@@ -540,6 +545,7 @@ jobs:
     name: typecheck
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
         with:
@@ -562,6 +568,7 @@ jobs:
     name: build
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_build }}
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/cached-script@main
@@ -580,6 +587,7 @@ jobs:
     name: test
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_test && !inputs.is_dependabot }}
     # REVERTED (see #182): declaring id-token: write here unconditionally
     # broke Main CI validation entirely for any caller whose org/repo policy
@@ -621,6 +629,7 @@ jobs:
     name: security-scan
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot && needs.changes.outputs.node_deps == 'true' }}
     # Feeds the `danger-comment` aggregator below. The Trivy step keeps
     # failing the job on its own exit-code (via the final `exit 1` step) -
@@ -648,6 +657,7 @@ jobs:
     name: secret-scan
     needs: setup
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above.
@@ -670,6 +680,7 @@ jobs:
     name: dependency-audit
     needs: setup
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dependency_audit && !inputs.is_dependabot }}
     # Feeds the `danger-comment` aggregator below - see security-scan's
     # identical comment above (still a HARD gate, via the final `exit 1`
@@ -728,6 +739,7 @@ jobs:
     name: dead-code
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
     # Feeds the `danger-comment` aggregator below - see that job's header
     # comment and scan-with-report's own header comment for why this no
@@ -766,6 +778,7 @@ jobs:
     name: duplicate-code
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
     # Feeds the `danger-comment` aggregator below - see dead-code's identical
     # comment above.
@@ -803,6 +816,7 @@ jobs:
     name: max-lines
     needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
     # Feeds the `danger-comment` aggregator below - see dead-code's identical
     # comment above.
@@ -835,6 +849,7 @@ jobs:
     name: tech-debt
     needs: [changes]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 20
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
     permissions:
       contents: read
@@ -907,6 +922,7 @@ jobs:
        needs.max-lines.result != 'skipped' ||
        needs.tech-debt.result != 'skipped')
     runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
@@ -946,6 +962,7 @@ jobs:
       matrix:
         job: [peer-deps, security-scan, secret-scan, dependency-audit, dead-code, duplicate-code, max-lines]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -1025,6 +1042,7 @@ jobs:
         actionlint,
       ]
     runs-on: [self-hosted, catfood, catfood-minimal]
+    timeout-minutes: 10
     if: always()
     steps:
       - name: Fail if any required job failed or was cancelled
