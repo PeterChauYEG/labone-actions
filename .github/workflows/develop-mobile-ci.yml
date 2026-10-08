@@ -522,6 +522,14 @@ jobs:
           use_oidc: ${{ inputs.codecov_use_oidc }}
           token: ${{ !inputs.codecov_use_oidc && secrets.CODECOV_TOKEN || '' }}
           working-directory: ${{ inputs.working-directory }}
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ inputs.working-directory }}/coverage
+          retention-days: 7
+          if-no-files-found: ignore
 
   build:
     name: build
