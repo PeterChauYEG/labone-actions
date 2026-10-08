@@ -74,39 +74,18 @@ jobs:
       always() &&
       (github.event_name == 'schedule' || needs.changes.outputs.deps == 'true')
     steps:
-      - uses: actions/checkout@v7
-      - name: Compute Trivy DB cache date
-        id: trivy-date
-        shell: bash
-        run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-      - name: Cache Trivy DB
-        if: inputs.cache-write
-        uses: actions/cache@v6
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
         with:
-          path: .cache/trivy
-          key: trivy-db-${{ steps.trivy-date.outputs.date }}
-          restore-keys: |
-            trivy-db-
-      - name: Restore Trivy DB (read-only)
-        if: ${{ !inputs.cache-write }}
-        uses: actions/cache/restore@v6
-        with:
-          path: .cache/trivy
-          key: trivy-db-${{ steps.trivy-date.outputs.date }}
-          restore-keys: |
-            trivy-db-
-      - name: Run Trivy (vulnerabilities)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: ${{ inputs.scan-ref }}
           scanners: vuln
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
+          label: vulnerabilities
+          report-heading: '### security-scan'
+          working-directory: ${{ inputs.scan-ref }}
           trivyignores: ${{ inputs.trivyignores }}
-          cache: false
-          cache-dir: .cache/trivy
+          cache-db: 'true'
+          cache-write: ${{ inputs.cache-write }}
+      - if: steps.scan.outputs.outcome == 'failure'
+        run: exit 1
 
   trivy-secret:
     name: Trivy secret scan
@@ -115,14 +94,13 @@ jobs:
     # land on an image without it.
     runs-on: [self-hosted, catfood, catfood-docker]
     steps:
-      - uses: actions/checkout@v7
-      - name: Run Trivy (secrets)
-        uses: aquasecurity/trivy-action@v0.36.0
+      - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
+        id: scan
         with:
-          scan-type: fs
-          scan-ref: ${{ inputs.scan-ref }}
           scanners: secret
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
+          label: secrets
+          report-heading: '### secret-scan'
+          working-directory: ${{ inputs.scan-ref }}
           trivyignores: ${{ inputs.trivyignores }}
+      - if: steps.scan.outputs.outcome == 'failure'
+        run: exit 1

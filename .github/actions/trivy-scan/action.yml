@@ -4,7 +4,10 @@ description: >
   security-scan/secret-scan job, previously copy-pasted nearly identically
   across develop-ci.yml, develop-node-ci.yml, develop-rust-ci.yml,
   develop-python-ci.yml, develop-mobile-ci.yml, main-ci.yml,
-  main-node-ci.yml, main-python-ci.yml, and main-rust-ci.yml.
+  main-node-ci.yml, main-python-ci.yml, and main-rust-ci.yml. This repo's
+  own security-scan.yml also uses it now (with `cache-db: 'true'` for its
+  vuln scan), instead of hand-rolling its own second trivy-action
+  invocation plus DB-cache/restore steps.
 
   Checks out the repo, runs Trivy with `continue-on-error: true`, and
   always captures `outcome`/`report` outputs (same convention as
@@ -38,6 +41,25 @@ inputs:
     description: Path to a .trivyignore file, forwarded to trivy-action's own input of the same name.
     required: false
     default: ''
+  cache-db:
+    description: >
+      When `'true'`, wraps the Trivy step with a date-keyed
+      `actions/cache`/`actions/cache/restore` step against `.cache/trivy`
+      and passes `cache: false` + `cache-dir: .cache/trivy` to trivy-action
+      so this composite action manages the DB cache itself instead of
+      trivy-action's own default caching. Default `'false'` (unaffected,
+      today's behavior) for every existing caller.
+    required: false
+    default: 'false'
+  cache-write:
+    description: >
+      Only used when `cache-db` is `'true'`. Whether this run may write a
+      new cache entry (`'true'`) or only read an existing one via
+      restore-keys (`'false'`) - only one trigger should write a given
+      day's DB so others don't race to create their own multi-hundred-MB
+      entry. Default `'false'` (read-only).
+    required: false
+    default: 'false'
 
 outputs:
   outcome:
@@ -57,8 +79,33 @@ runs:
   steps:
     - uses: actions/checkout@v7
 
+    - name: Compute Trivy DB cache date
+      if: inputs.cache-db == 'true'
+      id: trivy-date
+      shell: bash
+      run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Trivy DB
+      if: inputs.cache-db == 'true' && inputs.cache-write == 'true'
+      uses: actions/cache@v6
+      with:
+        path: .cache/trivy
+        key: trivy-db-${{ steps.trivy-date.outputs.date }}
+        restore-keys: |
+          trivy-db-
+
+    - name: Restore Trivy DB (read-only)
+      if: inputs.cache-db == 'true' && inputs.cache-write != 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: .cache/trivy
+        key: trivy-db-${{ steps.trivy-date.outputs.date }}
+        restore-keys: |
+          trivy-db-
+
     - name: Run Trivy (${{ inputs.label }})
       id: trivy
+      if: inputs.cache-db != 'true'
       continue-on-error: true
       uses: aquasecurity/trivy-action@v0.36.0
       with:
@@ -71,12 +118,29 @@ runs:
         output: trivy-${{ inputs.scanners }}-report.txt
         trivyignores: ${{ inputs.trivyignores }}
 
+    - name: Run Trivy (${{ inputs.label }}, cached DB)
+      id: trivy-cached
+      if: inputs.cache-db == 'true'
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        scan-type: fs
+        scan-ref: ${{ inputs.working-directory }}
+        scanners: ${{ inputs.scanners }}
+        severity: HIGH,CRITICAL
+        exit-code: '1'
+        format: table
+        output: trivy-${{ inputs.scanners }}-report.txt
+        trivyignores: ${{ inputs.trivyignores }}
+        cache: false
+        cache-dir: .cache/trivy
+
     - name: Build report
       id: result
       if: always()
       shell: bash
       env:
-        OUTCOME: ${{ steps.trivy.outcome }}
+        OUTCOME: ${{ inputs.cache-db == 'true' && steps.trivy-cached.outcome || steps.trivy.outcome }}
         LABEL: ${{ inputs.label }}
         HEADING: ${{ inputs.report-heading }}
         REPORT_FILE: trivy-${{ inputs.scanners }}-report.txt
