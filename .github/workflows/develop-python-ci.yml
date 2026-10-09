@@ -333,7 +333,18 @@ jobs:
 
   dead-code:
     name: dead-code
-    needs: changes
+    needs:
+      [
+        changes,
+        actionlint,
+        lint,
+        fmt,
+        typecheck,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-python]
     timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot }}
@@ -372,7 +383,18 @@ jobs:
 
   duplicate-code:
     name: duplicate-code
-    needs: changes
+    needs:
+      [
+        changes,
+        actionlint,
+        lint,
+        fmt,
+        typecheck,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot }}
@@ -415,7 +437,18 @@ jobs:
 
   file-size:
     name: file-size
-    needs: changes
+    needs:
+      [
+        changes,
+        actionlint,
+        lint,
+        fmt,
+        typecheck,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-python]
     timeout-minutes: 20
     if: ${{ inputs.enable_file_size && !inputs.is_dependabot }}
