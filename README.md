@@ -27,7 +27,7 @@ these workflows.
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/actionlint.yml` | `pull_request` | Lints the caller's own `.github/workflows/*.yml` with actionlint. Stack-agnostic — any repo with a `.github/workflows/` directory can call it. |
 | `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
-| `.github/workflows/version-bump.yml` | `schedule` + `workflow_dispatch` | CalVer version bump: opens+auto-merges a PR and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
+| `.github/workflows/version-bump.yml` | `push` to `main` (mobile repos: `schedule` instead) + `workflow_dispatch` | CalVer version bump: pushes a bump commit and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
 ## Orchestrator workflows (LAB-2096) — prefer these over calling `develop-*-ci.yml`/`main-*-ci.yml` directly
 
@@ -260,7 +260,29 @@ jobs:
 And `version-bump.yml` (requires the caller repo to have its own
 `./scripts/bump-version.sh <new-version>` — that script is repo-specific
 (which files carry a version string varies per repo) and is deliberately
-not centralized here):
+not centralized here). Version strings are CalVer: `YY.MMDD-HHMM`, UTC,
+zero-padded (e.g. `26.1009-1430`).
+
+**Every repo bumps on every merge to main, except mobile repos, which bump
+on a schedule instead** (mobile's build pipeline is expensive enough that
+bumping on every merge isn't worth it).
+
+Non-mobile callers (web/API/service/CLI — everything that isn't mobile):
+
+```yaml
+name: Version Bump
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  version-bump:
+    uses: PeterChauYEG/labone-actions/.github/workflows/version-bump.yml@main
+    secrets: inherit
+```
+
+Mobile callers only:
 
 ```yaml
 name: Version Bump
