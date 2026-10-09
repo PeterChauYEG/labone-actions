@@ -745,7 +745,20 @@ jobs:
 
   dead-code:
     name: dead-code
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+        actionlint,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
@@ -784,7 +797,20 @@ jobs:
 
   duplicate-code:
     name: duplicate-code
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+        actionlint,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
@@ -822,7 +848,20 @@ jobs:
 
   max-lines:
     name: max-lines
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+        actionlint,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}
@@ -855,7 +894,20 @@ jobs:
 
   tech-debt:
     name: tech-debt
-    needs: [changes]
+    needs:
+      [
+        changes,
+        setup,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+        actionlint,
+      ]
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 20
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.node_source == 'true' }}

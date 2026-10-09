@@ -558,7 +558,21 @@ jobs:
 
   a11y:
     name: a11y
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        actionlint,
+        peer-deps,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_a11y && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
@@ -590,7 +604,21 @@ jobs:
 
   design-system:
     name: design-system
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        actionlint,
+        peer-deps,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_design_system && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
@@ -627,7 +655,21 @@ jobs:
 
   dead-code:
     name: dead-code
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        actionlint,
+        peer-deps,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_dead_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
@@ -661,7 +703,21 @@ jobs:
 
   duplicate-code:
     name: duplicate-code
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        actionlint,
+        peer-deps,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_duplicate_code && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
@@ -695,7 +751,21 @@ jobs:
 
   max-lines:
     name: max-lines
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        actionlint,
+        peer-deps,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_max_lines && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
@@ -729,7 +799,21 @@ jobs:
 
   react-tech-debt:
     name: react-tech-debt
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        actionlint,
+        peer-deps,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-node]
     timeout-minutes: 20
     if: ${{ inputs.enable_react_tech_debt && !inputs.is_dependabot && needs.changes.outputs.react_ui == 'true' }}
@@ -849,7 +933,21 @@ jobs:
 
   tech-debt:
     name: tech-debt
-    needs: [setup, changes]
+    needs:
+      [
+        setup,
+        changes,
+        actionlint,
+        peer-deps,
+        lint,
+        ls-lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        dependency-audit,
+      ]
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 20
     if: ${{ inputs.enable_tech_debt && !inputs.is_dependabot && needs.changes.outputs.mobile_source == 'true' }}
