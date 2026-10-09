@@ -181,7 +181,30 @@ jobs:
             git add Cargo.toml Cargo.lock 2>/dev/null || git add Cargo.toml
           fi
           git commit -m "chore: bump version to ${NEW_VERSION}"
-          git push origin main
+
+          # Push-triggered callers (every non-mobile repo, as of the
+          # every-merge policy) can have two of these jobs queued back to
+          # back when two merges land close together — the concurrency
+          # group below serializes them, but each one's checkout is
+          # pinned to the commit that triggered it, not to main's live
+          # tip. If another merge's bump already landed while this job
+          # was waiting in queue, a plain `git push` here is a
+          # non-fast-forward rejection. Retry: fetch the new tip and
+          # rebase this single version-bump commit onto it (safe — only
+          # this job touches the version file, so there's nothing for it
+          # to conflict with) before pushing again.
+          for attempt in 1 2 3 4 5; do
+            if git push origin main; then
+              break
+            fi
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "::error::git push origin main failed after 5 attempts."
+              exit 1
+            fi
+            echo "push rejected (attempt ${attempt}/5) — fetching latest main and rebasing"
+            git fetch origin main
+            git rebase origin/main
+          done
 
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
