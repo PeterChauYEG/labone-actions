@@ -381,7 +381,7 @@ jobs:
           cache-key-prefix: jestcache
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'true'
-      - uses: codecov/codecov-action@v7
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         if: ${{ inputs.enable_coverage_upload }}
         with:
           use_oidc: ${{ inputs.codecov_use_oidc }}

@@ -565,7 +565,7 @@ jobs:
           cache-key-prefix: jestcache
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'false'
-      - uses: codecov/codecov-action@v7
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         if: ${{ inputs.enable_coverage_upload }}
         with:
           use_oidc: ${{ inputs.codecov_use_oidc }}
@@ -573,7 +573,7 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
       - name: Upload coverage artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ inputs.working-directory }}/coverage
@@ -764,7 +764,7 @@ jobs:
       # gate) and never files a Linear ticket - unlike every other job
       # feeding the aggregator, it has no `outcome` output and no
       # corresponding "File Linear ticket" step there.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
         id: tech-debt-report
         with:

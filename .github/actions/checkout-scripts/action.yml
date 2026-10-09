@@ -51,7 +51,7 @@ runs:
     # has time to clear before giving up for real.
     - id: attempt1
       continue-on-error: true
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         repository: PeterChauYEG/labone-actions
         ref: main
@@ -71,7 +71,7 @@ runs:
     - id: attempt2
       if: steps.attempt1.outcome == 'failure'
       continue-on-error: true
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         repository: PeterChauYEG/labone-actions
         ref: main
@@ -90,7 +90,7 @@ runs:
 
     - id: attempt3
       if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         repository: PeterChauYEG/labone-actions
         ref: main

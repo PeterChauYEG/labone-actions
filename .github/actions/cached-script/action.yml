@@ -157,7 +157,7 @@ runs:
 
     - name: Restore ${{ inputs.cache-key-prefix }} cache (read-only)
       if: inputs.cache-path != '' && inputs.cache-write != 'true'
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
         key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '') }}
@@ -166,7 +166,7 @@ runs:
 
     - name: Cache ${{ inputs.cache-key-prefix }} (read+write)
       if: inputs.cache-path != '' && inputs.cache-write == 'true'
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
         key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '') }}

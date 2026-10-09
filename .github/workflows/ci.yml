@@ -28,7 +28,7 @@ jobs:
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Test file-linear-ticket.sh
         run: bash scripts/file-linear-ticket.test.sh
@@ -36,7 +36,7 @@ jobs:
       - name: Test file-ci-failure-ticket.sh
         run: bash scripts/file-ci-failure-ticket.test.sh
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
 

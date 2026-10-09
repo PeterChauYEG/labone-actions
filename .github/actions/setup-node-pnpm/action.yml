@@ -82,13 +82,13 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
     - name: Enable Corepack
       shell: bash
       run: corepack enable
 
-    - uses: actions/setup-node@v7
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version-file: '${{ inputs.working-directory }}/package.json'
 
@@ -115,7 +115,7 @@ runs:
 
     - name: Load SSH deploy key for private git dependencies
       if: inputs.ssh-deploy-key != ''
-      uses: webfactory/ssh-agent@v0.9.1
+      uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
       with:
         ssh-private-key: ${{ inputs.ssh-deploy-key }}
 
