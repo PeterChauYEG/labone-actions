@@ -132,7 +132,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-gdtoolkit@main
         with:
           working-directory: ${{ inputs.working-directory }}
@@ -166,7 +166,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: PeterChauYEG/labone-actions/.github/actions/setup-gdtoolkit@main
         with:
           working-directory: ${{ inputs.working-directory }}
@@ -200,7 +200,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Checkout labone-actions scripts
         if: inputs.dead_code_script_source == 'labone-actions'
         uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
@@ -245,8 +245,8 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
       - name: Run duplicate-code scan
@@ -351,7 +351,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Run GUT tests
         id: scan
         continue-on-error: true

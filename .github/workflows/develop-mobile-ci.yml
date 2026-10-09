@@ -517,14 +517,14 @@ jobs:
           cache-key-extra-glob-1: jest.config.*
           cache-write: 'true'
           deps-cache-write: 'false'
-      - uses: codecov/codecov-action@v7
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           use_oidc: ${{ inputs.codecov_use_oidc }}
           token: ${{ !inputs.codecov_use_oidc && secrets.CODECOV_TOKEN || '' }}
           working-directory: ${{ inputs.working-directory }}
       - name: Upload coverage artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ inputs.working-directory }}/coverage
@@ -914,9 +914,9 @@ jobs:
       # binary itself. So this job checks out + enables Corepack + sets up
       # Node directly instead of restoring the setup job's full deps
       # artifact like every other job here.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: corepack enable
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: ${{ inputs.working-directory }}/package.json
       - id: audit
@@ -963,7 +963,7 @@ jobs:
       # No setup-node-yarn call: this is a plain grep over the tracked
       # .ts/.tsx tree, no installed node_modules needed - just check out
       # the repo, same as security-scan/dependency-audit above.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report@main
         id: tech-debt-report
         with:

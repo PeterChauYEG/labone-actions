@@ -534,7 +534,7 @@ jobs:
       # is NOT baked in - confirmed against gha-runner-docker/images/rust/
       # Dockerfile, which has no cargo-dupes install step. Keep this
       # cache/install step until the image bakes it in too.
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         id: dupes-cache
         with:
           path: ~/.cargo/bin/cargo-dupes
@@ -602,7 +602,7 @@ jobs:
       outcome: ${{ steps.result.outputs.outcome }}
       report: ${{ steps.result.outputs.report }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Checkout labone-actions scripts
         if: inputs.file_size_script_source == 'labone-actions'
         uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
@@ -746,7 +746,7 @@ jobs:
       # `danger-comment` aggregator below's job (see that job's header
       # comment) - the separate tech-debt-comment job this used to feed is
       # gone.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: PeterChauYEG/labone-actions/.github/actions/tech-debt-report-rust@main
         id: tech-debt-report
         with:
