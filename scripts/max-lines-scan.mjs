@@ -1,19 +1,7 @@
 #!/usr/bin/env node
 /**
- * Max-lines scan: runs ESLint with a caller repo's standalone
- * `eslint.max-lines.config.mjs` (kept out of eslint.config.mjs/the `lint`
- * job on purpose — advisory, not a required check) and renders the results
- * as a markdown report, grouped by file, for posting as a sticky PR
- * comment. Invoked by scan-with-report's `script-source: labone-actions`
- * mode (see that action's own header) — the config file (thresholds/
- * excludes) stays in the caller repo since those are repo-specific; only
- * this runner is shared.
- *
- * Usage (from the caller repo's working-directory, via scan-with-report):
- *   node <labone-actions checkout>/scripts/max-lines-scan.mjs
- *
- * Requires `eslint.max-lines.config.mjs` at the caller's cwd. Exits
- * non-zero if any file/function exceeds the configured thresholds.
+ * Max-lines scan: runs ESLint with the caller's eslint.max-lines.config.mjs
+ * and renders the results as a markdown report, grouped by file.
  */
 
 import { execFileSync } from 'child_process';
@@ -25,9 +13,6 @@ const REPORT_PATH = 'max-lines-report.md';
 const GROUPS_PATH = 'max-lines-groups.json';
 const CONFIG_PATH = 'eslint.max-lines.config.mjs';
 
-// Default execFileSync maxBuffer (1 MB) truncates ESLint's JSON report on a
-// repo of any size once there are more than a handful of violations —
-// bump it well past what a full-repo report could plausibly reach.
 const MAX_BUFFER = 100 * 1024 * 1024;
 
 function runEslint() {
@@ -39,10 +24,6 @@ function runEslint() {
     );
     return JSON.parse(stdout);
   } catch (error) {
-    // eslint exits non-zero once any "error"-severity match is found —
-    // that's expected here (both rules are configured at "error"); the
-    // JSON report is still on stdout, so fall through and parse it below
-    // rather than treating this as a hard failure.
     if (error.stdout) {
       return JSON.parse(error.stdout);
     }
@@ -105,11 +86,7 @@ function main() {
 }
 
 /**
- * Guarantees a report file exists by the time this process exits, even if
- * something throws before main()'s own `writeFileSync(REPORT_PATH, ...)`
- * call. Without this, an unexpected crash would skip writing REPORT_PATH,
- * which breaks the `sticky-pull-request-comment` CI step downstream — it
- * errors when `path:` points at a file that doesn't exist.
+ * Guarantees a report file exists even if something throws before main() writes one.
  */
 function writeCrashReport(error) {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);

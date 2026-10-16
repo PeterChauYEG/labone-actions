@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// package-cluster.test.mjs — smoke tests for scripts/lib/package-cluster.mjs.
-//
-// Plain node built-ins only (no test framework in this repo) — mirrors
-// file-linear-ticket.test.sh's PASS/FAIL-per-assertion style so both run
-// the same way from CI.
-//
-// Usage: node scripts/lib/package-cluster.test.mjs
-
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

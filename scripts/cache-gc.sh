@@ -1,27 +1,4 @@
 #!/usr/bin/env bash
-# cache-gc.sh — delete idle GitHub Actions caches across every repo an
-# account owns, per LAB cache policy (README.md "Scheduled cache GC").
-#
-# main-branch (refs/heads/main) cache entries are the canonical ones every
-# job's `restore-keys` fallback depends on (see README.md "Per-job cache
-# scoping"), so they get a longer idle threshold than every other
-# (PR-branch) ref. `last_accessed_at`, not `created_at`, drives eviction —
-# a cache that's still being restored regularly shouldn't be deleted just
-# because it's old.
-#
-# Assumes GNU `date`'s `-d` flag (parses `lastAccessedAt`'s ISO-8601
-# timestamp into epoch seconds) — true for every catfood self-hosted
-# runner this repo targets, unlike count-metrics.sh's GNU-grep avoidance
-# (that one runs on a wider, less certain set of runner images). Not
-# portable to macOS/BSD `date`.
-#
-# Usage: cache-gc.sh --owner <org-or-user> [--main-max-idle-days N]
-#                     [--other-max-idle-days N]
-#
-# Required env var:
-#   GH_TOKEN — GitHub PAT with repo-wide cache read/delete scope (gh CLI
-#              reads this automatically; see cache-gc.yml's own comment
-#              for which secret this is).
 set -euo pipefail
 
 trap 'echo "error: cache-gc.sh failed at line $LINENO" >&2' ERR

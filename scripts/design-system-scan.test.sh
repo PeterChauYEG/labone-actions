@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-# design-system-scan.test.sh — smoke tests for design-system-scan.mjs.
-#
-# Mocks `npx eslint --format json .` on $PATH so no real ESLint run
-# happens, and runs the script against small fixture trees under a temp
-# cwd. Exercises: the base ESLint-rule report (always on, unchanged
-# behavior), the opt-in shadcn-usage check
-# (DESIGN_SYSTEM_SHADCN_VENDOR_PATH), and the opt-in React Native
-# typography/theme-color check (DESIGN_SYSTEM_RN_MODE +
-# DESIGN_SYSTEM_RN_EXEMPT_PATHS).
-#
-# Usage: scripts/design-system-scan.test.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,9 +32,6 @@ assert_not_contains() {
 mock_bin="$(mktemp -d)"
 trap 'rm -rf "$mock_bin" "$work_a" "$work_b" "$work_c"' EXIT
 
-# Fake `npx eslint --format json .` driven by an env var pointing at a
-# fixture JSON payload, so each test case controls the eslint findings
-# independently of the real linter.
 cat > "$mock_bin/npx" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" != "eslint" ]]; then
@@ -59,7 +45,6 @@ chmod +x "$mock_bin/npx"
 empty_eslint="$mock_bin/eslint-empty.json"
 echo '[]' > "$empty_eslint"
 
-# ── Test 1: base ESLint check only (both new modes unset) ──────────────────
 work_a="$(mktemp -d)"
 eslint_hit="$mock_bin/eslint-hit.json"
 cat > "$eslint_hit" <<JSON
@@ -77,7 +62,6 @@ assert_contains "$report_a" "no-raw-text-element" "base report includes the esli
 assert_not_contains "$report_a" "shadcn usage" "shadcn section absent when mode not enabled"
 assert_not_contains "$report_a" "react-native typography" "RN section absent when mode not enabled"
 
-# ── Test 2: shadcn-usage mode ───────────────────────────────────────────────
 work_b="$(mktemp -d)"
 mkdir -p "$work_b/src/components" "$work_b/src/design-system/vendor"
 cat > "$work_b/src/components/Form.tsx" <<'EOF'
@@ -99,7 +83,6 @@ assert_contains "$report_b" "shadcn usage" "shadcn section present when mode ena
 assert_contains "$report_b" "src/components/Form.tsx" "flags the raw <button> outside the vendor path"
 assert_not_contains "$report_b" "src/design-system/vendor/button.tsx" "does not flag the vendor path itself"
 
-# ── Test 3: React Native typography + theme-color mode ─────────────────────
 work_c="$(mktemp -d)"
 mkdir -p "$work_c/src/screens" "$work_c/src/widgets"
 cat > "$work_c/src/screens/Home.tsx" <<'EOF'

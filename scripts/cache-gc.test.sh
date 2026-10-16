@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# cache-gc.test.sh — smoke tests for scripts/cache-gc.sh.
-#
-# Mocks `gh` so no real GitHub API calls are made. Exercises: deleting a
-# stale PR-branch cache under the short threshold, keeping a fresh
-# main-branch cache under the long threshold, deleting a stale main-branch
-# cache once it exceeds the (longer) main threshold, and skipping a repo
-# with no caches entirely.
-#
-# Usage: scripts/cache-gc.test.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

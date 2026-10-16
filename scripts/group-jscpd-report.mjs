@@ -1,17 +1,6 @@
 #!/usr/bin/env node
 /**
- * group-jscpd-report.mjs — clusters an existing jscpd JSON report into
- * per-package Linear ticket groups, for callers that run jscpd directly
- * (e.g. godot-develop-ci.yml's duplicate-code job) rather than through
- * duplicate-code-scan.mjs. Uses the same lib/jscpd-cluster.mjs extraction
- * and lib/package-cluster.mjs clustering as that script, so both paths
- * produce identically-shaped groups files.
- *
- * Usage: node group-jscpd-report.mjs <jscpd-report.json path> <groups output path>
- * Writes [] (no split) if the input report is missing or unreadable, so a
- * caller whose jscpd config doesn't emit a JSON reporter (or hasn't run yet)
- * degrades safely to today's flat single-ticket behavior instead of
- * erroring the job.
+ * Clusters an existing jscpd JSON report into per-package Linear ticket groups.
  */
 
 import { existsSync, readFileSync } from 'fs';

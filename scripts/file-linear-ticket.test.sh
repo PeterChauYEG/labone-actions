@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# file-linear-ticket.test.sh — smoke tests for scripts/file-linear-ticket.sh.
-#
-# Mocks `curl` so no real network/Linear calls are made. Exercises: the
-# LINEAR_API_KEY-unset skip path, existing-open-ticket dedup (comment instead
-# of duplicate create), lazy team/state resolution (never looked up on the
-# dedup-only path), flat-mode ticket creation, and grouped mode (one ticket
-# per {scope, description} entry in a groups-JSON file).
-#
-# Usage: scripts/file-linear-ticket.test.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,8 +39,6 @@ status=$?
 [[ $status -eq 0 ]] && echo "PASS: exits 0 when LINEAR_API_KEY unset" || { echo "FAIL: expected exit 0, got $status"; fail=1; }
 assert_contains "$output" "WARN: LINEAR_API_KEY not set" "warns and skips when LINEAR_API_KEY unset"
 
-# ── existing-open-ticket dedup: comments instead of creating a duplicate,
-# and never resolves team/state (lazy lookup) since nothing gets created. ──
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 for arg in "$@"; do
@@ -75,10 +64,6 @@ assert_contains "$(cat "$log_file")" "COMMENT_CALLED" "posts a comment instead o
 assert_not_contains "$(cat "$log_file")" "TEAM_OR_STATE_LOOKUP_CALLED" "lazy lookup: team/state are never resolved on the dedup-only path"
 rm -f "$log_file"
 
-# ── dedup search is a title-*prefix* search (so a later grouped/scoped
-# ticket for the same job still gets caught by the same query) and stays
-# identical across different PR numbers (PR number isn't part of the title
-# or the search). ──
 log_file="$(mktemp)"
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -127,8 +112,6 @@ else
 fi
 rm -f "$log_file"
 
-# ── flat mode: no existing ticket -> creates one, lazily resolving team and
-# state only once actually needed. ──
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 payload=""
@@ -160,8 +143,6 @@ output=$(PATH="$mock_bin:$PATH" LINEAR_API_KEY="fake" \
   bash "$script" actionlint 2>&1)
 assert_contains "$output" "created LAB-1000" "creates a new ticket when none exists"
 
-# ── grouped mode: a non-empty groups-JSON array files one ticket per entry,
-# titled "<job-name>: <repo> <scope>", instead of the flat single ticket. ──
 groups_file="$(mktemp)"
 cat > "$groups_file" <<'EOF'
 [
@@ -206,7 +187,6 @@ assert_contains "$(cat "$log_file")" 'duplicate-code: labone-actions core' "grou
 assert_contains "$(cat "$log_file")" 'duplicate-code: labone-actions misc' "grouped mode: files a ticket titled with the misc scope"
 rm -f "$log_file" "$groups_file"
 
-# ── an empty groups array is a no-op fallback to flat mode. ──
 empty_groups_file="$(mktemp)"
 echo '[]' > "$empty_groups_file"
 cat > "$mock_bin/curl" <<'EOF'
@@ -220,11 +200,6 @@ output=$(PATH="$mock_bin:$PATH" LINEAR_API_KEY="fake" \
 assert_contains "$output" "existing open ticket LAB-999" "empty groups array falls back to flat mode"
 rm -f "$empty_groups_file"
 
-# ── a scope that looks like a ticket reference (e.g. a package/dir name
-# coincidentally matching LAB-<digits>) must not leak into the created
-# title — guards against the GitHub/Linear PR auto-link collision this
-# caused live when a different (non-labone-actions) split-ticket flow put
-# a sibling ticket's ID in a child ticket's title. ──
 ticket_ref_groups_file="$(mktemp)"
 cat > "$ticket_ref_groups_file" <<'EOF'
 [
@@ -265,7 +240,6 @@ output=$(PATH="$mock_bin:$PATH" MOCK_LOG="$log_file" LINEAR_API_KEY="fake" \
 created_title=$(grep -o '"title": *"[^"]*"' "$log_file" | head -1)
 assert_not_contains "$created_title" "lab-4217" "a scope resembling a ticket ID is stripped from the created title"
 assert_contains "$created_title" 'duplicate-code: labone-actions legacy' "the rest of the sanitized scope still makes it into the title"
-# the (untouched) description is allowed to still mention it — only the title must be sanitized
 assert_contains "$(cat "$log_file")" "lab-4217-legacy package" "description text is left alone, only the title is sanitized"
 rm -f "$log_file" "$ticket_ref_groups_file"
 

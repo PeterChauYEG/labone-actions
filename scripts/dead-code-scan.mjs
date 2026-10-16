@@ -1,20 +1,6 @@
 #!/usr/bin/env node
 /**
- * Dead-code scan: run knip and render its findings as a PR-friendly report.
- *
- * Detects unused files, exports (incl. types/enum members), dependencies,
- * devDependencies, and binaries — per the caller repo's knip.json config.
- *
- * Invoked by scan-with-report's `script-source: labone-actions` mode (see
- * that action's own header) — runs with the caller repo as its cwd (not
- * this checkout), so every path here is deliberately cwd-relative, never
- * __dirname-relative, unlike a script meant to be vendored into the caller
- * repo itself.
- *
- * Usage (from the caller repo's working-directory, via scan-with-report):
- *   node <labone-actions checkout>/scripts/dead-code-scan.mjs
- *
- * Exits non-zero if knip reports any issue.
+ * Dead-code scan: runs knip and renders its findings as a PR-friendly report.
  */
 
 import { execFileSync } from 'child_process';
@@ -89,8 +75,6 @@ function buildReport(report) {
   return { markdown: lines.join('\n'), total };
 }
 
-// One record per finding — a file-only row (unused file) and one entry per
-// item within each category row (unused export/type/dependency/...).
 function buildClusterRecords(report) {
   const records = [];
 

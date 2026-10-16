@@ -1,27 +1,7 @@
 #!/usr/bin/env node
 /**
- * React tech-debt scan: runs ESLint against the caller repo's own
- * eslint.config.(js|mjs) and renders every `lab-react-standards/*`
- * finding as a PR-friendly report, split into blocking (error-severity)
- * and advisory (warn-severity) sections. No per-repo config needed - the
- * `lab-react-standards/` prefix is a fixed labone-eslint-plugin
- * vocabulary, not something that varies per caller.
- *
- * Deliberately overlaps with design-system-scan.mjs's two rules - this is
- * the broader, advisory-inclusive view (every lab-react-standards rule,
- * whatever severity the caller's own eslint.config gives it);
- * design-system is the narrower, always-blocking one. A caller with none
- * of these rules configured just gets a clean "no findings" report.
- *
- * Invoked by scan-with-report's `script-source: labone-actions` mode (see
- * that action's own header) - runs with the caller repo as its cwd, so
- * every path here is deliberately cwd-relative.
- *
- * Usage (from the caller repo's working-directory, via scan-with-report):
- *   node <labone-actions checkout>/scripts/react-tech-debt-scan.mjs
- *
- * Exits non-zero only if any blocking (error-severity) finding exists -
- * advisory (warn-severity) findings are reported but never fail the job.
+ * React tech-debt scan: runs ESLint and renders every `lab-react-standards/*`
+ * finding as a PR-friendly report, split into blocking and advisory sections.
  */
 
 import { execFileSync } from 'child_process';
@@ -42,9 +22,6 @@ function runEslint() {
     });
     return JSON.parse(stdout);
   } catch (error) {
-    // eslint exits non-zero once any "error"-severity match is found
-    // anywhere in the repo (not just this prefix) - expected; the JSON
-    // report is still on stdout, so fall through and parse it below.
     if (error.stdout) return JSON.parse(error.stdout);
     throw error;
   }
@@ -59,7 +36,7 @@ function collectViolations(results) {
         line: message.line,
         rule: message.ruleId,
         message: message.message,
-        severity: message.severity, // 1 = warn (advisory), 2 = error (blocking)
+        severity: message.severity,
       })),
   );
 }
@@ -111,9 +88,6 @@ function buildReport(violations) {
   return { markdown: lines.join('\n'), blockingCount: blocking.length };
 }
 
-// Only blocking (error-severity) violations fail the job and warrant a
-// ticket — advisory (warn-severity) findings are reported in the PR comment
-// but never split into their own tickets.
 function buildClusterRecords(violations) {
   return violations
     .filter((v) => v.severity === 2)
