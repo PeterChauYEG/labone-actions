@@ -49,7 +49,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
     - uses: dtolnay/rust-toolchain@stable
       with:
@@ -57,7 +57,7 @@ runs:
 
     - name: Cache cargo registry/git
       if: inputs.cache == 'true'
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: |
           ~/.cargo/registry
@@ -68,7 +68,7 @@ runs:
 
     - name: Cache cargo target
       if: inputs.cache == 'true'
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: ${{ inputs.working-directory }}/target
         key: ${{ runner.os }}-cargo-target-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/Cargo.lock', inputs.working-directory)) }}

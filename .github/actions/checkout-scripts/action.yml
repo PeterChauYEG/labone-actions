@@ -39,19 +39,9 @@ inputs:
 runs:
   using: composite
   steps:
-    # actions/checkout's own built-in retry (3 attempts, ~10-15s apart) isn't
-    # long enough to ride out the intermittent "Repository not found" bursts
-    # this cross-org checkout hits even with an explicit token passed
-    # (LAB-3496) - every ephemeral runner on this fleet's self-hosted host
-    # shares a small pool of egress IPs, and a burst of concurrent checkouts
-    # of this same private repo from several callers' CI at once appears to
-    # trip GitHub's abuse/rate-limit detection, which surfaces as "not
-    # found" rather than a 403/429. Retry the whole checkout step up to 3
-    # times with a longer, increasing backoff (15s/45s) so a transient burst
-    # has time to clear before giving up for real.
     - id: attempt1
       continue-on-error: true
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: PeterChauYEG/labone-actions
         ref: main
@@ -71,7 +61,7 @@ runs:
     - id: attempt2
       if: steps.attempt1.outcome == 'failure'
       continue-on-error: true
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: PeterChauYEG/labone-actions
         ref: main
@@ -90,7 +80,7 @@ runs:
 
     - id: attempt3
       if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: PeterChauYEG/labone-actions
         ref: main

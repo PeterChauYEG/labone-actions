@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# Counts labone-actions tech-debt metrics (TypeScript/TSX call-site counts)
-# over a directory tree. Prints seven space-separated integers in a fixed
-# order: useEffect, Animated.*, disable-comments (eslint-disable(-next-line)/
-# prettier-ignore/biome-ignore), @ts-ignore/@ts-expect-error, `any` usage
-# (": any" / "as any" / "@ts-nocheck" files), TODO/FIXME/HACK comments,
-# console.log. Shared by tech-debt-report/action.yml's "current tree" and
-# "base-branch worktree" steps so the counting logic itself lives in
-# exactly one place instead of being duplicated inline across two `run:`
-# blocks.
 set -uo pipefail
 
 dir="${1:?usage: count-metrics.sh <dir>}"

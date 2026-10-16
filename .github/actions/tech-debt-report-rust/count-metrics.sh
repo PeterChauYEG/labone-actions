@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-# Counts labone-actions Rust tech-debt metrics over a directory tree.
-# Prints two space-separated integers in a fixed order: TODO/FIXME/HACK
-# comments, `#[allow(...)]` lint-suppression attributes. Shared by
-# tech-debt-report-rust/action.yml's "current tree" and "base-branch
-# worktree" steps so the counting logic itself lives in exactly one place
-# instead of being duplicated inline across two `run:` blocks. Mirrors
-# tech-debt-report/count-metrics.sh's TS/TSX metrics, scoped to the two
-# that have a direct Rust equivalent — `#[allow(...)]` is Rust's
-# eslint-disable (it suppresses a specific clippy/rustc lint at a specific
-# site, same as an eslint-disable(-next-line) comment does), and
-# TODO/FIXME/HACK comments mean the same thing regardless of language.
 set -uo pipefail
 
 dir="${1:?usage: count-metrics.sh <dir>}"
