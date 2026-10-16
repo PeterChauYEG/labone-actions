@@ -1,59 +1,8 @@
 #!/usr/bin/env node
 /**
- * Design-system scan: runs ESLint against the caller repo's own
- * eslint.config.(js|mjs) and renders just labone-eslint-plugin's design
- * rules (`lab-react-standards/no-raw-text-element`,
- * `lab-react-standards/no-theme-color-literal`) as a PR-friendly report.
- * No per-repo config needed for this base check - these two rule names are
- * a fixed labone-eslint-plugin vocabulary, not something that varies per
- * caller; a caller whose eslint.config doesn't wire either rule up just
- * gets a clean "no violations" report. This base check always runs.
- *
- * Two additional, opt-in capabilities exist for callers whose stack can't
- * use the ESLint rules directly (a non-ESLint scan, or a JSX shape the
- * rules don't understand). Both are gated by env var so existing callers
- * who don't ask for them see no behavior change:
- *
- *   DESIGN_SYSTEM_SHADCN_VENDOR_PATH — when set to a non-empty path (e.g.
- *     `src/design-system/vendor/`), additionally runs a shadcn-usage scan:
- *     flags raw interactive/form HTML elements (<button>, <input>,
- *     <select>, <textarea>) anywhere under `src/**` except that vendor
- *     path, which is where the shadcn/ui primitives themselves legitimately
- *     use those tags. Ported from gamecraft's original
- *     scripts/design-system-scan.mjs (pre-centralization); the vendor path
- *     was gamecraft-specific (`src/design-system/vendor/`) and is now a
- *     config knob instead of a hardcoded constant. Unset (default): this
- *     check does not run.
- *
- *   DESIGN_SYSTEM_RN_MODE — 'true' additionally runs a React Native
- *     regex-based scan replicating the two ESLint rules' intent for RN's
- *     <View>/<Text> JSX shape, which the ESLint rules (built for
- *     web/HTML-JSX) don't handle cleanly. Checks: (1) raw `Text` imported
- *     from 'react-native' used outside the typography component layer, and
- *     (2) raw color literals (hex, rgb()/hsl(), Tailwind default-palette
- *     classes) outside the theme/token source files. Ported from
- *     mc-training-arc-sung-jinwoo-mobile's original
- *     scripts/design-system-scan.ts (see that repo's commit bfcc568 for why
- *     it turned the ESLint rules off repo-wide in favor of this). Unset/
- *     anything else (default): this check does not run.
- *
- *   DESIGN_SYSTEM_RN_EXEMPT_PATHS — comma-separated list of additional
- *     paths (exact match, or a path ending in `/` matched as a prefix)
- *     exempt from the RN check's theme-color rule, appended to the two
- *     built-in token-source exemptions. Only meaningful when
- *     DESIGN_SYSTEM_RN_MODE=true. Defaults to empty (no additional
- *     exemptions) — mc-training passes its own 3 native-API paths (widgets/
- *     notification channel code that must use literal colors) here, so
- *     other future RN callers aren't stuck with mc-training's exemptions.
- *
- * Invoked by scan-with-report's `script-source: labone-actions` mode (see
- * that action's own header) - runs with the caller repo as its cwd, so
- * every path here is deliberately cwd-relative.
- *
- * Usage (from the caller repo's working-directory, via scan-with-report):
- *   node <labone-actions checkout>/scripts/design-system-scan.mjs
- *
- * Exits non-zero if any violation of any active check is found.
+ * Design-system scan: runs ESLint's design rules, plus the opt-in
+ * DESIGN_SYSTEM_SHADCN_VENDOR_PATH / DESIGN_SYSTEM_RN_MODE checks, and
+ * renders the findings as a PR-friendly report.
  */
 
 import { execFileSync } from 'child_process';
@@ -74,10 +23,6 @@ const RN_EXTRA_COLOR_EXEMPT_PATHS = (process.env.DESIGN_SYSTEM_RN_EXEMPT_PATHS ?
   .split(',')
   .map((path) => path.trim())
   .filter(Boolean);
-
-// ---------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------
 
 const EXCLUDED_DIR_SEGMENTS = ['generated', '__tests__'];
 
@@ -107,10 +52,6 @@ function buildClusterRecords(violations) {
   return violations.map((v) => ({ file: v.file, text: `- \`${v.file}:${v.line}\` — ${v.message} (\`${v.rule}\`)` }));
 }
 
-// ---------------------------------------------------------------------
-// Base check: ESLint's design-rule violations
-// ---------------------------------------------------------------------
-
 function runEslint() {
   try {
     const stdout = execFileSync('npx', ['eslint', '--format', 'json', '.'], {
@@ -119,9 +60,6 @@ function runEslint() {
     });
     return JSON.parse(stdout);
   } catch (error) {
-    // eslint exits non-zero once any "error"-severity match is found
-    // anywhere in the repo (not just ESLINT_RULES) - expected; the JSON
-    // report is still on stdout, so fall through and parse it below.
     if (error.stdout) return JSON.parse(error.stdout);
     throw error;
   }
@@ -169,10 +107,6 @@ function buildEslintReport(violations) {
   return lines.join('\n');
 }
 
-// ---------------------------------------------------------------------
-// Opt-in check: shadcn-usage scan (ported from gamecraft)
-// ---------------------------------------------------------------------
-
 const SHADCN_SRC_DIR = 'src';
 const SHADCN_SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 const SHADCN_TAGS = ['button', 'input', 'select', 'textarea'];
@@ -185,11 +119,7 @@ const SHADCN_COMPONENT_NAMES = {
 };
 
 /**
- * Blanks out `//` and `/* *\/` comment bodies (replacing each non-newline
- * character with a space) so the shadcn-usage check doesn't fire on a tag
- * name merely *mentioned* in a comment (e.g. "a `<select>` of..."). Preserves
- * every character's original offset/line, so match indices from the blanked
- * string still map correctly back onto the original file for line numbers.
+ * Blanks out `//` and `/* *\/` comment bodies, preserving offsets/line numbers.
  */
 function blankComments(content) {
   return content
@@ -251,21 +181,10 @@ function buildShadcnReport(violations) {
   return lines.join('\n');
 }
 
-// ---------------------------------------------------------------------
-// Opt-in check: React Native typography + theme-color scan (ported from
-// mc-training-arc-sung-jinwoo-mobile)
-// ---------------------------------------------------------------------
-
 const RN_SRC_DIR = 'src';
 const RN_SCAN_EXTENSIONS = new Set(['.ts', '.tsx']);
 
 const RN_TEXT_EXEMPT_PATHS = ['src/components/Text.tsx', 'src/components/typography/'];
-// Files exempt from the theme-color rule because they configure a native API
-// (an iOS Widget/Live Activity SwiftUI process, or an OS-level Android
-// notification channel) that runs outside the themed React tree and cannot
-// reference CSS-var-backed theme tokens or NativeWind classNames. The base
-// two are structural (the theme/token source files themselves); anything
-// beyond that is caller-specific and comes from DESIGN_SYSTEM_RN_EXEMPT_PATHS.
 const RN_COLOR_EXEMPT_PATHS = [
   'src/theme/theme-constants.ts',
   'src/components/switch/RGB_COLORS.tsx',
@@ -400,10 +319,6 @@ function buildRnReport(violations) {
 
   return lines.join('\n');
 }
-
-// ---------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------
 
 function main() {
   const reportSections = [];

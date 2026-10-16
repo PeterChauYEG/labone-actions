@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# file-size-scan.test.sh — smoke tests for file-size-scan.sh.
-#
-# Runs the real script (no tool to mock — it's just `find`/`wc -l`) against
-# a throwaway fixture directory, so it never touches the real repo tree.
-# Exercises: files under threshold (clean report), files over threshold
-# (listed and sorted largest-first), non-.rs files ignored, exclude-paths
-# (none, one, multiple, and one matching nothing), and that the script
-# always exits 0 (non-blocking).
-#
-# Usage: scripts/file-size-scan.test.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,7 +33,6 @@ fixture_dir="$(mktemp -d)"
 report_md="$(mktemp)"
 trap 'rm -rf "$fixture_dir" "$report_md"' EXIT
 
-# ── Test 1: all files under threshold — clean report, exit 0 ───────────────
 seq 1 5 > "$fixture_dir/small.rs"
 
 set +e
@@ -53,7 +42,6 @@ set -e
 [[ $status -eq 0 ]] && echo "PASS: exits 0 when nothing is oversized" || { echo "FAIL: expected exit 0, got $status"; fail=1; }
 assert_contains "$(cat "$report_md")" "No files exceed 10 lines" "renders a clean report"
 
-# ── Test 2: files over threshold — listed, sorted largest-first, non-.rs ignored ──
 seq 1 5 > "$fixture_dir/small.rs"
 seq 1 20 > "$fixture_dir/big.rs"
 seq 1 30 > "$fixture_dir/bigger.rs"
@@ -73,7 +61,6 @@ bigger_pos=$(grep -n "bigger.rs" "$report_md" | head -1 | cut -d: -f1)
 big_pos=$(grep -n "big.rs" "$report_md" | head -1 | cut -d: -f1)
 [[ "$bigger_pos" -lt "$big_pos" ]] && echo "PASS: sorts largest file first" || { echo "FAIL: expected bigger.rs (30 lines) before big.rs (20 lines)"; fail=1; }
 
-# ── Test 3: one exclude — matching dir skipped, others unaffected ──────────
 rm -rf "${fixture_dir:?}"/*
 seq 1 20 > "$fixture_dir/big.rs"
 mkdir -p "$fixture_dir/vendor-sdk"
@@ -88,7 +75,6 @@ report_content="$(cat "$report_md")"
 assert_contains "$report_content" "big.rs" "still lists the non-excluded oversized file"
 assert_not_contains "$report_content" "generated.rs" "excludes the given path"
 
-# ── Test 4: multiple excludes (comma-separated) ────────────────────────────
 rm -rf "${fixture_dir:?}"/*
 seq 1 20 > "$fixture_dir/big.rs"
 mkdir -p "$fixture_dir/vendor-sdk" "$fixture_dir/other-sdk"
@@ -105,7 +91,6 @@ assert_contains "$report_content" "big.rs" "still lists the non-excluded oversiz
 assert_not_contains "$report_content" "vendor-sdk" "excludes the first given path"
 assert_not_contains "$report_content" "other-sdk" "excludes the second given path"
 
-# ── Test 5: exclude matching nothing — no-op, not an error ─────────────────
 rm -rf "${fixture_dir:?}"/*
 seq 1 20 > "$fixture_dir/big.rs"
 

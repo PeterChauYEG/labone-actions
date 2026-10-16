@@ -1,19 +1,6 @@
 #!/usr/bin/env node
 /**
- * Duplicate-code scan: runs `jscpd` against the caller repo's own
- * .jscpd.json (path/threshold tuning stays in the caller — this runner is
- * shared) and renders its JSON report as a markdown report, grouped by
- * file pair.
- *
- * Invoked by scan-with-report's `script-source: labone-actions` mode (see
- * that action's own header) — runs with the caller repo as its cwd, so
- * every path here is deliberately cwd-relative.
- *
- * Usage (from the caller repo's working-directory, via scan-with-report):
- *   node <labone-actions checkout>/scripts/duplicate-code-scan.mjs
- *
- * Exits non-zero if jscpd's duplication percentage exceeds the caller's
- * own .jscpd.json `threshold`.
+ * Duplicate-code scan: runs `jscpd` and renders its JSON report as markdown, grouped by file pair.
  */
 
 import { execFileSync } from 'child_process';
@@ -32,10 +19,6 @@ function runJscpd() {
   try {
     execFileSync('npx', ['jscpd', '--config', '.jscpd.json'], { encoding: 'utf-8' });
   } catch {
-    // jscpd exits non-zero once its duplication percentage exceeds
-    // .jscpd.json's `threshold` — that's expected; the report file is
-    // still written to disk either way, so fall through and parse it
-    // below rather than treating this as a hard error.
     exceededThreshold = true;
   }
 

@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# godot-dead-code-scan.test.sh — smoke tests for godot-dead-code-scan.sh.
-#
-# Runs the real script (no tool to mock — it's just grep/find) against a
-# throwaway fixture directory of .gd files, so it never touches the real
-# repo tree. Exercises: a referenced function/class (clean), an
-# unreferenced function/class (flagged), and an engine lifecycle callback
-# that's never textually called (must NOT be flagged).
-#
-# Usage: scripts/godot-dead-code-scan.test.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,7 +33,6 @@ fixture_dir="$(mktemp -d)"
 report_md="$(mktemp)"
 trap 'rm -rf "$fixture_dir" "$report_md"' EXIT
 
-# ── Test 1: everything referenced, only engine callbacks present — clean, exit 0 ──
 cat > "$fixture_dir/clean.gd" <<'EOF'
 class_name CleanThing
 extends Node
@@ -67,7 +57,6 @@ assert_contains "$(cat "$fixture_dir/report.md")" "No unreferenced functions or 
 assert_not_contains "$(cat "$fixture_dir/report.md")" "_ready" "does not flag an engine lifecycle callback as unused"
 rm -f "$fixture_dir"/*.gd "$fixture_dir/report.md"
 
-# ── Test 2: an unused function and an unused class — flagged, exit 1 ───────
 cat > "$fixture_dir/dead.gd" <<'EOF'
 class_name UnusedClass
 extends Node

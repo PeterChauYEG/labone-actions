@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# file-ci-failure-ticket.test.sh — smoke tests for scripts/file-ci-failure-ticket.sh.
-#
-# Mocks `curl` so no real network/Linear calls are made. Exercises: the
-# LINEAR_API_KEY-unset skip path, existing-open-ticket dedup (comment instead
-# of duplicate create, matched on a stable ci-failure-key marker embedded in
-# the issue description rather than the mutable title), and flat ticket
-# creation with Urgent (priority 1) severity plus marker embedding.
-#
-# Usage: scripts/file-ci-failure-ticket.test.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +27,6 @@ status=$?
 [[ $status -eq 0 ]] && echo "PASS: exits 0 when LINEAR_API_KEY unset" || { echo "FAIL: expected exit 0, got $status"; fail=1; }
 assert_contains "$output" "WARN: LINEAR_API_KEY not set" "warns and skips when LINEAR_API_KEY unset"
 
-# ── existing-open-ticket dedup: comments instead of creating a duplicate. ──
 log_file="$(mktemp)"
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -69,7 +59,6 @@ else
 fi
 rm -f "$log_file"
 
-# ── flat mode: no existing ticket -> creates one at Urgent (priority 1). ──
 log_file="$(mktemp)"
 cat > "$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash

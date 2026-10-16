@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# dead-code-scan.test.sh — smoke tests for dead-code-scan.sh.
-#
-# Mocks `cargo` on $PATH intercepting the `machete` subcommand, so no real
-# scan/cargo-machete install happens. Exercises: a fully clean scan and an
-# unused-dependency finding.
-#
-# Usage: scripts/dead-code-scan.test.sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,8 +22,6 @@ mock_bin="$(mktemp -d)"
 report_md="$(mktemp)"
 trap 'rm -rf "$mock_bin" "$report_md"' EXIT
 
-# Fake `cargo machete` driven by env vars, so each test case just points
-# the mock at its own fixture output/exit code.
 cat > "$mock_bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -49,7 +40,6 @@ chmod +x "$mock_bin/cargo"
 clean_machete="$mock_bin/machete-clean.txt"
 : > "$clean_machete"
 
-# ── Test 1: fully clean scan — exits 0, report says clean ──────────────────
 output=$(PATH="$mock_bin:$PATH" MACHETE_OUTPUT="$clean_machete" MACHETE_EXIT=0 \
   bash "$script" "$report_md" 2>&1)
 status=$?
@@ -57,7 +47,6 @@ status=$?
 report_content="$(cat "$report_md")"
 assert_contains "$report_content" "No unused dependencies found" "renders a clean cargo-machete section"
 
-# ── Test 2: cargo-machete finds an unused dependency — exits 1, listed ─────
 dirty_machete="$mock_bin/machete-dirty.txt"
 cat > "$dirty_machete" <<'EOF'
 cargo-machete found the following unused dependencies in this directory:

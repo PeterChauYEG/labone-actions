@@ -1,27 +1,6 @@
 /**
- * package-cluster.mjs — shared clustering engine for splitting a large CI
- * quality-scan report into per-package Linear ticket groups, deterministically
- * (no agent/LLM judgment — see file-linear-ticket.sh's header comment). This
- * is the JS port of mecha-industries/mecha10's
- * scripts/ci/lib-package-cluster.jq (PRs #822/#824), adapted to this repo's
- * .mjs scan scripts.
- *
- * Used by duplicate-code-scan.mjs and dead-code-scan.mjs, so every job's
- * clustering behaves identically even though each job's own extraction
- * (turning its tool's output into the {file, text} records this operates
- * on) is necessarily job-specific.
- *
- * Input: an array of {file, text} records — one per violation/finding.
- * `file` (a workspace-relative path, e.g. "packages/core/src/lib.ts") drives
- * clustering; `text` is a ready-to-render markdown blurb for that one
- * finding.
- *
- * Output: [] if `records.length <= splitThreshold` (small enough to file as
- * a single flat ticket, today's/every-other-job's behavior). Otherwise one
- * {scope, count, description} object per package bucket — packages with
- * fewer than `minPerTicket` findings are merged into one shared "misc"
- * bucket rather than each getting a tiny one-off ticket (matches the
- * historical human-curated "remaining smaller packages" ticket pattern).
+ * Shared clustering engine for splitting a large CI quality-scan report
+ * into per-package Linear ticket groups.
  */
 
 import { writeFileSync } from 'fs';
@@ -89,10 +68,7 @@ export function clusterFindings(
 }
 
 /**
- * Clusters `records` and writes the result to `outPath` as JSON — the
- * `<job-name>-groups.json` file file-linear-ticket.sh's grouped mode reads.
- * Always writes a file (`[]` when unsplit) so a downstream step can assume
- * its existence rather than branching on it.
+ * Clusters `records` and writes the result to `outPath` as JSON.
  */
 export function writeGroupsFile(records, outPath, options) {
   const groups = clusterFindings(records, options);
