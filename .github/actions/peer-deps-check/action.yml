@@ -84,18 +84,18 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
     - run: corepack enable
       shell: bash
 
-    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
       with:
         node-version-file: ${{ inputs.working-directory }}/package.json
 
     - name: Load SSH deploy key for private git dependencies
       if: inputs.ssh-deploy-key != ''
-      uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
+      uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd
       with:
         ssh-private-key: ${{ inputs.ssh-deploy-key }}
 
@@ -110,10 +110,6 @@ runs:
       run: git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
 
     - name: Authenticate git+https dependencies with gh-token
-      # Fallback for callers that haven't (yet, or can't) set
-      # ssh-deploy-key on this job - see this action's own top-of-file
-      # LAB-3473 comment for why. Only kicks in when ssh-deploy-key is
-      # empty so it never fights the SSH rewrite above.
       if: inputs.ssh-deploy-key == '' && inputs.gh-token != ''
       shell: bash
       run: git config --global url."https://x-access-token:${{ inputs.gh-token }}@github.com/".insteadOf "https://github.com/"
