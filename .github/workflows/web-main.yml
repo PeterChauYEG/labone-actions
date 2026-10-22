@@ -36,6 +36,14 @@ on:
         type: string
         required: false
         default: ''
+      enable_version_bump:
+        description: >
+          Forwarded straight through to main-ci.yml's own
+          enable_version_bump input - see that input's description there
+          for the full rationale.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -57,3 +65,4 @@ jobs:
       dokku_remote_url: ${{ inputs.dokku_remote_url }}
       extra_deps_paths: ${{ inputs.extra_deps_paths }}
       test_script_args: ${{ inputs.test_script_args }}
+      enable_version_bump: ${{ inputs.enable_version_bump }}

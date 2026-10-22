@@ -187,6 +187,26 @@ on:
         type: boolean
         required: false
         default: false
+      enable_version_bump:
+        description: >
+          Run the `version-bump` job (this repo's own reusable
+          version-bump.yml) as part of this same run, after
+          required-checks succeeds, instead of a caller-owned sibling
+          workflow independently triggered by the same push. Folding it
+          in here closes a race: a caller that wires both `main.yml` (->
+          this workflow) and its own `version-bump.yml` wrapper off
+          `push: branches: [main]` gets two concurrent runs from one
+          merge - the bump commit's own push then triggers a SECOND run
+          of this workflow, which cancels the real merge's still-running
+          first run via `cancel-in-progress` on the shared concurrency
+          group below, producing a false CI-failed signal. See
+          mecha-industries/mecha10-dashboard#638 for the prior art this
+          mirrors. Defaults to false so every existing caller keeps
+          working with zero changes until it migrates off its own
+          version-bump.yml wrapper.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -243,6 +263,18 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # Short-circuit skip when this run was itself re-triggered by the
+    # version-bump job's own push below (`enable_version_bump: true`
+    # callers only - every push still fires a new workflow run, this just
+    # makes it a near-instant no-op instead of actually running
+    # lint/typecheck/build/etc. and potentially recontending the shared
+    # concurrency group). Every downstream job `needs` this one (directly
+    # or transitively), so skipping here cascades through the whole
+    # graph - `required-checks`/`deploy`/`file-ci-failure-ticket` already
+    # tolerate an all-`skipped` needs set via their own `if: always()`
+    # logic (skipped is not failure/cancelled), so this doesn't change
+    # their behavior for the normal case.
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump version to')"
     outputs:
       node: ${{ steps.filter.outputs.node }}
       node_source: ${{ steps.filter.outputs.node_source }}
@@ -444,7 +476,11 @@ jobs:
     name: secret-scan
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 20
-    if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
+    # Same bump-commit-re-trigger short-circuit as `changes` above - this
+    # job has no `needs:` of its own (it's a second, independent entry
+    # point into the graph), so it needs its own copy of the check rather
+    # than inheriting `changes`'s skip.
+    if: "inputs.enable_security_scan && !inputs.is_dependabot && !startsWith(github.event.head_commit.message, 'chore: bump version to')"
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/trivy-scan@main
         id: scan
@@ -550,6 +586,31 @@ jobs:
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           deploy-result: ${{ needs.deploy.result }}
+
+  # Opt-in (enable_version_bump) - folds the version-bump step into THIS
+  # run, after required-checks succeeds, instead of a caller-owned sibling
+  # workflow triggered independently off the same push. See
+  # enable_version_bump's own description above for the full race this
+  # closes. Deliberately gates on required-checks alone, not on `deploy` -
+  # a deploy failure shouldn't block the version bump (matches the prior
+  # independent-workflow behavior, where version-bump.yml had no awareness
+  # of deploy at all). The `!startsWith(...)` check is a safety net: the
+  # bump commit's own push re-triggers this workflow, and `changes`/
+  # `secret-scan` above already short-circuit that re-run to all-skipped,
+  # so `needs.required-checks.result` on the re-run is `skipped`, not
+  # `success` - this condition would already be false in that case. It's
+  # kept anyway as a second independent layer, matching version-bump.yml's
+  # own internal re-trigger guard.
+  version-bump:
+    name: version-bump
+    needs: [required-checks]
+    if: >-
+      always() && inputs.enable_version_bump && !inputs.is_dependabot &&
+      needs.required-checks.result == 'success' &&
+      !contains(needs.*.result, 'cancelled') &&
+      !startsWith(github.event.head_commit.message, 'chore: bump version to')
+    uses: PeterChauYEG/labone-actions/.github/workflows/version-bump.yml@main
+    secrets: inherit
 
   # File (or comment on) one Urgent Linear ticket for a broken main - either
   # the CI gates themselves failed, or they passed but the Dokku deploy did.
