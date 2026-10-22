@@ -34,6 +34,14 @@ on:
         type: string
         required: false
         default: ''
+      enable_coverage_badge:
+        description: >
+          Passed straight through to main-node-ci.yml's identical input -
+          see that workflow's own description for the full contract. Opt-in,
+          default `false`.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -57,3 +65,4 @@ jobs:
       extra_deps_cache_key_glob_1: ${{ inputs.extra_deps_cache_key_glob_1 }}
       extra_deps_cache_key_glob_2: ${{ inputs.extra_deps_cache_key_glob_2 }}
       test_script_args: ${{ inputs.test_script_args }}
+      enable_coverage_badge: ${{ inputs.enable_coverage_badge }}

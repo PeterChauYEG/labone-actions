@@ -156,6 +156,37 @@ on:
         type: string
         required: false
         default: ''
+      enable_coverage_badge:
+        description: >
+          Run the `coverage-badge` job: re-runs `<package manager>
+          test:coverage` with an added `--coverageReporters=json-summary`
+          reporter, reads the overall statement-coverage percentage out of
+          `coverage/coverage-summary.json`, updates the README's
+          istanbul-badges-readme coverage badge and a machine-readable
+          `coverage/coverage-badge.json` (`{ "statements": <number>,
+          "updatedAt": "<ISO8601>" }`), and commits+pushes the result
+          straight to `main` (`chore: update coverage badge [skip ci]`) if
+          either changed. Opt-in, same rationale as `enable_dead_code`
+          elsewhere in this repo - no consumer repo has this today. Deliberately
+          only exists on this push-to-main workflow, not
+          `develop-node-ci.yml` - coverage only matters for what's actually
+          merged, and a badge commit on every PR branch would be noise. A
+          plain pass/fail gate this is NOT - this never fails the job on a
+          low coverage number, it only makes the number visible (README) and
+          machine-readable (`coverage/coverage-badge.json`), see
+          `.github/actions/coverage-badge`'s own description. Runs a SECOND,
+          separate `test:coverage` invocation rather than reusing the `test`
+          job's own run, deliberately - `test`'s `test_script_args` can
+          already carry repo-specific `--coverageReporters` values consumed
+          by `enable_coverage_upload`'s Codecov step (e.g. `lcov`), and
+          overriding those via a shared CLI flag would silently drop
+          whichever reporters that caller actually needs. Requires the
+          caller repo's README to already contain at least one
+          istanbul-badges-readme placeholder hash (e.g.
+          `![Statements](#statements#)`) - see that action's description.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -425,6 +456,61 @@ jobs:
           trivyignores: ${{ inputs.security_scan_trivyignores }}
       - if: ${{ steps.scan.outputs.outcome == 'failure' }}
         run: exit 1
+
+  # Opt-in - see enable_coverage_badge's own description
+  # above for the full rationale, especially why this re-runs test:coverage
+  # a second time instead of reusing the `test` job's own run. Deliberately
+  # NOT a dependency of `required-checks`/`deploy` below - a badge-update
+  # failure (e.g. missing istanbul-badges-readme README placeholder, or a
+  # transient push-to-main race) must never block a real deploy. Needs a
+  # job-level `contents: write` override since this workflow's top-level
+  # `permissions:` is `contents: read` - only this job pushes a commit.
+  coverage-badge:
+    name: coverage-badge
+    needs: [setup, changes, lint, typecheck, build, test, security-scan, secret-scan]
+    runs-on: [self-hosted, catfood, catfood-node]
+    timeout-minutes: 20
+    if: ${{ inputs.enable_coverage_badge && !inputs.is_dependabot && needs.test.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - if: inputs.package_manager == 'yarn'
+        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-yarn@main
+        with:
+          cache-key-prefix: coverage-badge
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      - if: inputs.package_manager == 'pnpm'
+        uses: PeterChauYEG/labone-actions/.github/actions/setup-node-pnpm@main
+        with:
+          cache-key-prefix: coverage-badge
+          working-directory: ${{ inputs.working-directory }}
+          extra-paths: ${{ inputs.extra_deps_paths }}
+          extra-cache-key-glob-1: ${{ inputs.extra_deps_cache_key_glob_1 }}
+          extra-cache-key-glob-2: ${{ inputs.extra_deps_cache_key_glob_2 }}
+          ssh-deploy-key: ${{ secrets.LAB_GIT_DEPS_SSH_KEY }}
+          gh-token: ${{ secrets.GH_PAT }}
+          cache-write: 'false'
+      # Separate test run from the `test` job above - see
+      # enable_coverage_badge's description for why. Jest's own
+      # `--coverageReporters` CLI flag REPLACES whatever reporters
+      # test_script_args/jest.config already configure (not additive) -
+      # fine here, since this run's coverage/ output is never
+      # uploaded/cached/consumed by anything except the coverage-badge
+      # action below, which only needs coverage-summary.json.
+      - name: Run tests with json-summary coverage reporter
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.package_manager }} test:coverage ${{ inputs.test_script_args }} --coverageReporters=json-summary
+      - uses: PeterChauYEG/labone-actions/.github/actions/coverage-badge@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          repository: ${{ github.repository }}
+          gh-token: ${{ secrets.GH_PAT }}
 
   required-checks:
     name: required-checks
