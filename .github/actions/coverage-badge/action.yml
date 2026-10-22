@@ -1,0 +1,163 @@
+name: Coverage badge
+description: >
+  Updates a repo's README coverage badge and a small machine-readable
+  `coverage/coverage-badge.json` file from the Istanbul `coverage-summary.json`
+  this job's own test step produced, then commits+pushes the result straight
+  to `main` if anything actually changed. Mirrors `scan-with-report`'s
+  contract: the CALLER must already have a git checkout in the job's
+  workspace (via `setup-node-yarn`/`setup-node-pnpm`) AND must have already
+  run the test suite with `--coverageReporters=json-summary` (or an
+  equivalent reporter config) so `coverage-summary.json` exists - this
+  action only reads it, it never runs tests itself.
+
+  Only ever intended to be called from a push-to-main workflow
+  (`main-node-ci.yml`'s `enable_coverage_badge`), never from PR CI - a
+  badge commit on every PR branch would be noise nobody wants, and pushing
+  straight to `main` from a PR-triggered job isn't even the right
+  permission model. The commit message includes `[skip ci]`, which GitHub
+  natively honors to skip re-triggering this same push-triggered workflow -
+  without it, this job's own commit would recurse into another coverage-badge
+  run forever.
+
+  Requires the target README to already contain at least one of
+  istanbul-badges-readme's placeholder hashes (`![Statements](#statements#)`,
+  `![Branches](#branches#)`, `![Functions](#functions#)`,
+  `![Lines](#lines#)`) - adding that placeholder to a specific consumer
+  repo's README is a separate, per-repo follow-up once this capability
+  exists, not something this action does for you. Without a placeholder,
+  istanbul-badges-readme silently no-ops (exit code 0) and this action
+  pushes nothing but the machine-readable file.
+
+inputs:
+  working-directory:
+    description: >
+      Directory (relative to the repo root) the Node/NestJS service lives
+      in. Defaults to `.` (repo root), same convention as every other
+      action in this repo.
+    required: false
+    default: '.'
+  coverage-directory:
+    description: >
+      Directory (relative to working-directory) containing
+      `coverage-summary.json`, written by the test step's
+      `--coverageReporters=json-summary` flag. Passed straight through to
+      istanbul-badges-readme's `--coverageDir`.
+    required: false
+    default: 'coverage'
+  readme-directory:
+    description: >
+      Directory (relative to working-directory) containing `README.md`.
+      Passed straight through to istanbul-badges-readme's `--readmeDir`.
+    required: false
+    default: '.'
+  badge-data-path:
+    description: >
+      Path (relative to working-directory) to the machine-readable coverage
+      file this action writes/updates - `{ "statements": <number>,
+      "updatedAt": "<ISO8601>" }`. This is the real contract for downstream
+      consumers (e.g. company-system's maintenance-ticket scanner); the
+      README badge is only the human-visible half.
+    required: false
+    default: 'coverage/coverage-badge.json'
+  istanbul-badges-readme-version:
+    description: Pinned npm version of istanbul-badges-readme, run via `npx`.
+    required: false
+    default: '1.9.0'
+  commit-message:
+    description: >
+      Commit message for the badge-update commit. Must keep a `[skip ci]`
+      (or equivalent) marker somewhere in it - see this action's own
+      description for why.
+    required: false
+    default: 'chore: update coverage badge [skip ci]'
+  repository:
+    description: '`${{ github.repository }}` from the caller - used to build an authenticated push URL.'
+    required: true
+  gh-token:
+    description: >
+      Token with `contents: write` on the caller repo (e.g. `secrets.GH_PAT`)
+      - used to push the badge-update commit directly to `main`. The
+      caller's own `setup-node-yarn`/`setup-node-pnpm` checkout step
+      persists the default `GITHUB_TOKEN` as the git credential, which
+      cannot push to a protected branch (see `version-bump.yml`'s identical
+      requirement) - this action overwrites the `origin` remote URL with a
+      real PAT before pushing.
+    required: true
+
+outputs:
+  statements-pct:
+    description: Overall statement-coverage percentage read from coverage-summary.json.
+    value: ${{ steps.badge-data.outputs.statements_pct }}
+  changed:
+    description: '`true` if a badge-update commit was pushed, `false` if coverage was unchanged.'
+    value: ${{ steps.commit.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Write machine-readable coverage file (skips if unchanged)
+      id: badge-data
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        node "${{ github.action_path }}/write-badge-data.mjs" \
+          "${{ inputs.coverage-directory }}/coverage-summary.json" \
+          "${{ inputs.badge-data-path }}"
+
+    - name: Update README coverage badge
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        npx --yes "istanbul-badges-readme@${{ inputs.istanbul-badges-readme-version }}" \
+          --coverageDir="${{ inputs.coverage-directory }}" \
+          --readmeDir="${{ inputs.readme-directory }}"
+
+    - name: Commit + push coverage badge
+      id: commit
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.gh-token }}
+      run: |
+        set -euo pipefail
+
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "GitHub Actions"
+        git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ inputs.repository }}.git"
+
+        # -f on the badge-data-path: `coverage/` is gitignored in virtually
+        # every Node repo (it's test-run output everywhere else), so a
+        # plain `git add` would be refused ("paths are ignored by one of
+        # your .gitignore files") for the one file in that directory we
+        # deliberately DO want tracked. README.md itself is never
+        # gitignored, so it doesn't need the same override.
+        git add "${{ inputs.readme-directory }}/README.md"
+        git add -f "${{ inputs.badge-data-path }}"
+
+        if git diff --cached --quiet; then
+          echo "No coverage badge change to commit"
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        git commit -m "${{ inputs.commit-message }}"
+
+        # Same push-rejected-retry-via-rebase loop as version-bump.yml's
+        # identical commit step, for the same reason: a second push-to-main
+        # landing while this job was running makes a plain push a
+        # non-fast-forward rejection. Safe to rebase - this commit only
+        # touches README.md + the badge-data file, nothing else on main
+        # should be touching those at the same time.
+        for attempt in 1 2 3 4 5; do
+          if git push origin HEAD:main; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$attempt" -eq 5 ]; then
+            echo "::error::git push origin HEAD:main failed after 5 attempts."
+            exit 1
+          fi
+          echo "push rejected (attempt ${attempt}/5) - fetching latest main and rebasing"
+          git fetch origin main
+          git rebase origin/main
+        done

@@ -341,7 +341,8 @@ triggers on `push`, not `pull_request`, so it needs `contents: read` only,
 no `pull-requests: read`), then `setup`/`lint`/`typecheck`/`build`/`test`
 as plain pass/fail gates (`lint`/`typecheck`/`build`/`test` additionally
 gated on `needs.changes.outputs.node == 'true'`), plus optional
-`dead-code` (off by default) and `deploy` (pushes to `dokku_remote_url`
+`dead-code` (off by default), `coverage-badge` (off by default,
+`enable_coverage_badge`, see below) and `deploy` (pushes to `dokku_remote_url`
 using secret `DOKKU_DEPLOY_SSH_KEY`) and `slack-notification` (posts the
 deploy result using secret `SLACK_WEBHOOK_URL`), identical semantics to
 `main-ci.yml`'s `deploy`/`slack-notification` — `deploy` runs only if
@@ -354,12 +355,57 @@ deliberately left unchanged (LAB-1866 scope) — `dead-code` is not a
 dependency of `deploy` here, so a caller that enables it should be aware
 `deploy` doesn't wait on it.
 
+This workflow also has `enable_coverage_badge` (boolean, default
+**`false`** — opt-in, same rationale as `enable_dead_code`): runs an
+optional `coverage-badge` job that re-runs `<package manager>
+test:coverage` a SECOND time with `--coverageReporters=json-summary`
+appended (deliberately a separate run from the `test` job above, not a
+reuse of its artifact — overriding `test`'s own `test_script_args`
+reporters via a shared CLI flag would silently drop whatever reporter(s)
+that caller's `enable_coverage_upload`/Codecov step actually needs, e.g.
+`lcov`), reads the overall statement-coverage percentage out of
+`coverage/coverage-summary.json`, and hands both to the
+`.github/actions/coverage-badge` composite action, which:
+
+- updates the caller's `README.md` coverage badge via `npx
+  istanbul-badges-readme` (requires the README to already contain at least
+  one of its placeholder hashes, e.g. `![Statements](#statements#)` — a
+  per-repo follow-up once this capability exists, not something enabling
+  this input does for you);
+- writes/updates a machine-readable `coverage/coverage-badge.json` (`{
+  "statements": <number>, "updatedAt": "<ISO8601>" }`) — this file, not the
+  badge image, is the real contract for a downstream consumer (e.g.
+  company-system's maintenance-ticket scanner) that needs "current
+  coverage %" without parsing badge markdown/SVG. The composite action
+  skips rewriting this file (and its `updatedAt`) when the percentage is
+  unchanged from the previously-committed value, specifically so a stable
+  coverage number doesn't force a commit on every single merge, and
+  `git add -f`s it specifically since `coverage/` is gitignored in
+  virtually every Node repo - a plain `git add` would be refused there;
+- commits + pushes both files straight to `main` (`chore: update coverage
+  badge [skip ci]`) if either changed, authenticating the push with
+  `secrets.GH_PAT` (the default checkout's `GITHUB_TOKEN` can't push to a
+  protected branch — same requirement as `version-bump.yml`). The
+  `[skip ci]` marker is what stops this commit from re-triggering this same
+  push-triggered workflow.
+
+Never fails the job on a low (or any) coverage number — this input only
+makes the number visible (README) and machine-readable
+(`coverage/coverage-badge.json`); enforcing an 80%-style target is
+explicitly out of scope for this repo (a separate consumer's job). Also
+deliberately absent from `develop-node-ci.yml` — coverage only matters for
+what's actually merged to `main`, and a badge-update commit on every PR
+branch would be noise nobody wants. Node/Jest only today; Python/Rust
+variants are a follow-up, not blocked on by this capability existing.
+
 **`required-checks` (LAB-2103):** same aggregator pattern as
 `develop-node-ci.yml`'s job (see that section for the full rationale),
 scoped to this file's actual job list - `needs: [lint, typecheck, build,
 test]` (this file has no `security-scan`/`dependency-audit` jobs at all,
 unlike `develop-node-ci.yml`, so there's nothing advisory to exclude
-besides `changes`/`setup`). `deploy`/`slack-notification` are also
+besides `changes`/`setup`/`coverage-badge` - the latter, like `dead-code`,
+stays advisory-only and is deliberately never a dependency of either
+`required-checks` or `deploy`). `deploy`/`slack-notification` are also
 excluded - `deploy` already has its own well-established
 `needs.*.result` failure/cancelled check (see that job's own comment
 above), so folding it into `required-checks` too would be redundant.

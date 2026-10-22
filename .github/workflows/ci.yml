@@ -43,6 +43,9 @@ jobs:
       - name: Test package-cluster.mjs
         run: node scripts/lib/package-cluster.test.mjs
 
+      - name: Test coverage-badge's write-badge-data.mjs
+        run: node .github/actions/coverage-badge/write-badge-data.test.mjs
+
       - name: File Linear ticket for failure
         if: failure() && github.event_name == 'pull_request'
         env:
