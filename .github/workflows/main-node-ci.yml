@@ -187,6 +187,17 @@ on:
         type: boolean
         required: false
         default: false
+      enable_ci_failure_ticket:
+        description: >
+          File a Linear ticket (via file-ci-failure-ticket.sh) when `required-checks` or `deploy`
+          fails. Defaults to true (existing behavior, unchanged for every current caller). Set to
+          false for a repo that's been deliberately dropped from company-system's project
+          registry but is still actively pushed to - its CI failures would otherwise keep filing
+          tickets that can never actually be dispatched (the repo isn't in the registry, so
+          resolveRepoPath can't route to it), accumulating as dead weight in Linear.
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: read
@@ -560,6 +571,7 @@ jobs:
     name: file-ci-failure-ticket
     needs: [required-checks, deploy]
     if: >-
+      inputs.enable_ci_failure_ticket &&
       always() &&
       (needs.required-checks.result == 'failure' || needs.deploy.result == 'failure')
     runs-on: [self-hosted, catfood, catfood-minimal]

@@ -415,6 +415,17 @@ it - this job exists here for parity with `develop-node-ci.yml` and as a
 single visible pass/fail signal on the run summary, not because any caller
 repo's branch protection currently (or will) point at it.
 
+**`file-ci-failure-ticket`:** files (or comments on) a Linear ticket when
+`required-checks` or `deploy` fails, via the same `file-ci-failure-ticket.sh`
+script `ci-failure-monitor.yml`'s `file-linear-tickets` job uses (see that
+section below for the dedup mechanism). Opt-out via `enable_ci_failure_ticket`
+(boolean, default `true` — existing behavior, unchanged for every current
+caller); set to `false` for a repo that's been deliberately dropped from
+company-system's project registry but is still actively pushed to - its CI
+failures would otherwise keep filing tickets that can never actually be
+dispatched (the repo isn't in the registry, so `resolveRepoPath` can't route
+to it), accumulating as dead weight in Linear.
+
 
 ## `ci-failure-monitor.yml`
 
