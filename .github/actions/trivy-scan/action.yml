@@ -20,6 +20,14 @@ description: >
   `continue-on-error` is only there to let this action reach its own
   report-capturing step instead of stopping dead.
 
+  The default (non-`cache-db`) Trivy step only enables trivy-action's own
+  vulnerability-DB caching/download (`cache`/`TRIVY_SKIP_DB_UPDATE`) when
+  `scanners` actually includes `vuln` — a `secret`-only scan has no use
+  for that DB at all, so every secret-scan caller skips it entirely
+  instead of paying a wasted date-keyed `actions/cache` restore+save each
+  run (LAB-5026: this was the whole source of secret-scan's ~53s-900s+
+  duration swings, unrelated to repo size).
+
 inputs:
   scanners:
     description: Trivy `scanners` value — `vuln` or `secret`.
@@ -108,6 +116,21 @@ runs:
       if: inputs.cache-db != 'true'
       continue-on-error: true
       uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+      env:
+        # The vulnerability DB is only ever consulted by the `vuln`
+        # scanner - a `secret`-only scan (every secret-scan caller, which
+        # never sets cache-db) never touches it. trivy-action's own
+        # `cache` input still defaults to `true` though, which - with no
+        # DB actually needed - was pure overhead: every run paid a
+        # date-keyed `actions/cache` restore *and* (since it's the full
+        # action, not `/restore`) a save of a multi-hundred-MB DB nothing
+        # used, with duration entirely at the mercy of the cache service's
+        # restore/upload latency that run. That's what made secret-scan's
+        # wall-clock swing ~53s-900s+ with no correlation to repo size
+        # (LAB-5026). Below, `cache` is only true when `vuln` is actually
+        # in play, and TRIVY_SKIP_DB_UPDATE belt-and-suspenders-skips any
+        # live DB fetch Trivy might otherwise attempt on a cache miss.
+        TRIVY_SKIP_DB_UPDATE: ${{ !contains(inputs.scanners, 'vuln') }}
       with:
         scan-type: fs
         scan-ref: ${{ inputs.working-directory }}
@@ -117,6 +140,7 @@ runs:
         format: table
         output: trivy-${{ inputs.scanners }}-report.txt
         trivyignores: ${{ inputs.trivyignores }}
+        cache: ${{ contains(inputs.scanners, 'vuln') }}
 
     - name: Run Trivy (${{ inputs.label }}, cached DB)
       id: trivy-cached
