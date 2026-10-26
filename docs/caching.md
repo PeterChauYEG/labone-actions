@@ -154,6 +154,21 @@ split below exists to avoid — so it's disabled here (`cache: false`) in
 favor of explicit `actions/cache`/`actions/cache/restore` steps pointed at
 the same cache dir.
 
+Every other `trivy-scan` caller (every `secret-scan`/`security-scan` job
+across `develop-*-ci.yml`/`main-*-ci.yml`) leaves `cache-db` at its default
+`'false'` and goes through trivy-action directly instead, with no explicit
+`cache:` override of its own. trivy-action's `cache` input still defaults
+to `'true'` there — fine for a `vuln` scan, but a `secret`-only scan never
+touches the vulnerability DB at all, so letting that default stand meant
+every secret-scan run paid a wasted date-keyed `actions/cache` restore
+*and* save of a multi-hundred-MB DB nothing used, with wall-clock entirely
+at the mercy of that run's cache-service latency — the actual cause of
+secret-scan's ~53s-900s+ duration swings (LAB-5026), unrelated to repo
+size or git history depth. `trivy-scan/action.yml` now only passes
+`cache: true` (and omits `TRIVY_SKIP_DB_UPDATE`) to that step when
+`scanners` actually includes `vuln`; a `secret`-only scan skips the DB
+cache round-trip entirely.
+
 ### Cargo cache scoping (`develop-rust-ci.yml`)
 
 `develop-rust-ci.yml` has no shared `setup` job (see that workflow's own
