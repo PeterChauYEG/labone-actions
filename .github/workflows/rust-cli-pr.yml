@@ -77,6 +77,19 @@ on:
         type: string
         required: false
         default: ''
+      enable_coverage_upload:
+        description: Passed straight through to develop-rust-ci.yml's identical input.
+        type: boolean
+        default: true
+      codecov_use_oidc:
+        description: Passed straight through to develop-rust-ci.yml's identical input.
+        type: boolean
+        default: false
+      codecov_token_secret_name:
+        description: Passed straight through to develop-rust-ci.yml's identical input.
+        type: string
+        required: false
+        default: 'CODECOV_TOKEN'
 
 permissions:
   contents: read
@@ -116,3 +129,6 @@ jobs:
       enable_security_scan: true
       security_scan_trivyignores: ${{ inputs.security_scan_trivyignores }}
       enable_dependency_audit: false
+      enable_coverage_upload: ${{ inputs.enable_coverage_upload }}
+      codecov_use_oidc: ${{ inputs.codecov_use_oidc }}
+      codecov_token_secret_name: ${{ inputs.codecov_token_secret_name }}
