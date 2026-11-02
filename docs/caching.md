@@ -268,7 +268,7 @@ a threshold:
 Both thresholds are `workflow_dispatch`/`workflow_call` inputs, not
 hardcoded, so a one-off run can override either without editing the
 workflow. Uses the same PAT every other cross-repo workflow in this repo
-already relies on (see `version-bump.yml`/`dependabot-automerge.yml`) —
+already relies on (see `version-bump.yml`) —
 cache list/delete is a
 repo-scoped `gh` permission that the ephemeral per-run `GITHUB_TOKEN` can't
 reach for any repo but the one currently running. Logs a per-repo summary
