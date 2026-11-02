@@ -33,7 +33,6 @@ out of this README into [`docs/`](docs/) — see the links at the bottom.
 | `.github/workflows/ci-failure-monitor.yml` | `workflow_run` (completed, on `main`) | Files (or comments on) one Urgent (P0) Linear ticket per repo, titled `🔴 CI failing on main: <repo>`, whenever the caller's own main-branch CI workflow(s) finish with `conclusion == 'failure'`. Deduped per-repo, NOT per-job — see [`docs/workflows.md`](docs/workflows.md) and `scripts/file-ci-failure-ticket.sh`'s header comment for how this differs from the PR-time `file-linear-tickets` job. |
 | `.github/workflows/security-scan.yml` | either | Trivy filesystem vuln/secret scan. |
 | `.github/workflows/actionlint.yml` | `pull_request` | Lints the caller's own `.github/workflows/*.yml` with actionlint. Stack-agnostic — any repo with a `.github/workflows/` directory can call it. |
-| `.github/workflows/dependabot-automerge.yml` | `pull_request` | Auto-merges dependabot minor/patch PRs. |
 | `.github/workflows/version-bump.yml` | `push` to `main` (mobile repos: `schedule` instead) + `workflow_dispatch` | CalVer version bump: pushes a bump commit and tags a release when there are new commits since the last tag. Requires the caller repo to provide `./scripts/bump-version.sh` (see below). |
 
 Full `workflow_call` inputs and job lists for every workflow above: [`docs/workflows.md`](docs/workflows.md).
@@ -133,20 +132,6 @@ jobs:
     with:
       is_dependabot: ${{ github.event.head_commit.author.name == 'dependabot[bot]' }}
       dokku_remote_url: 'ssh://dokku@192.168.1.31:22/<app-name>'
-```
-
-And `dependabot-automerge.yml`:
-
-```yaml
-name: Dependabot Auto-merge
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-jobs:
-  automerge:
-    uses: PeterChauYEG/labone-actions/.github/workflows/dependabot-automerge.yml@main
-    secrets: inherit
 ```
 
 For a Node/NestJS **backend service** repo, use `develop-node-ci.yml` and
@@ -273,7 +258,7 @@ that don't belong in a quick-start README live under `docs/`:
   `develop-node-ci.yml`, `main-node-ci.yml`, `ci-failure-monitor.yml`,
   `security-scan.yml`, `actionlint.yml`, `godot-develop-ci.yml`,
   `develop-python-ci.yml`, `develop-rust-ci.yml`, `develop-mobile-ci.yml`,
-  `dependabot-automerge.yml`, `version-bump.yml`).
+  `version-bump.yml`).
 - [`docs/orchestrators.md`](docs/orchestrators.md) — why the orchestrator
   layer (LAB-2096) exists and what it collapses for callers.
 - [`docs/caching.md`](docs/caching.md) — the three generations of the

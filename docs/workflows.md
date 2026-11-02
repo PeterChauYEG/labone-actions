@@ -887,20 +887,6 @@ exist in this repo (see "`develop-mobile-ci.yml` has no `main-*-ci.yml`
 counterpart" above), so there's nothing to document for either of those
 two push-to-main paths.
 
-## `dependabot-automerge.yml`
-
-Now a `workflow_call` reusable workflow (previously a standalone,
-non-reusable workflow that consumer repos had to copy verbatim). Converged
-from three near-identical copies — this repo's own prior version (no
-`--delete-branch`, PR-URL-based merge, `[opened, synchronize]` trigger) and
-laboratory-one-web's/ai-harness-web's byte-identical copies
-(`--delete-branch`, PR-number-based merge,
-`[opened, synchronize, reopened]` trigger) — keeping `--delete-branch` and
-the three-event trigger, since those matched 2 of the 3 prior copies. No
-`workflow_call` inputs: none of the three copies varied in anything worth
-parameterizing. Call it with `secrets: inherit`; see the caller example
-above.
-
 ## `version-bump.yml`
 
 Now a `workflow_call` reusable workflow, converged from
