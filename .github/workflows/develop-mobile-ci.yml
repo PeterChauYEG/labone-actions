@@ -872,7 +872,7 @@ jobs:
 
   secret-scan:
     name: secret-scan
-    needs: setup
+    needs: [setup, changes]
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 20
     if: ${{ inputs.enable_security_scan && !inputs.is_dependabot }}
