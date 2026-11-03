@@ -46,6 +46,9 @@ jobs:
       - name: Test coverage-badge's write-badge-data.mjs
         run: node .github/actions/coverage-badge/write-badge-data.test.mjs
 
+      - name: Test secret-scan-needs.mjs
+        run: node scripts/secret-scan-needs.test.mjs
+
       - name: File Linear ticket for failure
         if: failure() && github.event_name == 'pull_request'
         env:
