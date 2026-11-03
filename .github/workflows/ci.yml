@@ -36,6 +36,9 @@ jobs:
       - name: Test file-ci-failure-ticket.sh
         run: bash scripts/file-ci-failure-ticket.test.sh
 
+      - name: Test setup-node-yarn's install.sh
+        run: bash .github/actions/setup-node-yarn/install.test.sh
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22

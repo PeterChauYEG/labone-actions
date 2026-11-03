@@ -56,6 +56,20 @@ description: >
   script for the marker file this action touches on every use to track
   that.
 
+  Workspaces caveat (see install.sh's relink_workspaces/detach_shared_dir_if_symlink):
+  for yarn-workspaces monorepos, the bundle's node_modules/<workspace-pkg>
+  entries are themselves symlinks pointing at the ephemeral checkout that
+  originally built the bundle - stale as soon as that checkout is deleted.
+  Every reader must re-point its own copy at its own checkout. Scoped
+  package names (@scope/pkg) make the "readers never write the bundle"
+  claim above untrue if done carelessly: link_node_modules_shallow only
+  symlinks the TOP-LEVEL node_modules/@scope entry straight into the
+  bundle (not a real local directory), so writing to the nested
+  node_modules/@scope/pkg path without detaching that symlink first walks
+  straight through it and mutates the shared bundle in place. install.sh
+  detaches any such symlinked scope directory into a real local directory
+  before touching anything beneath it.
+
 inputs:
   cache-key-prefix:
     description: >
@@ -205,94 +219,4 @@ runs:
         BUNDLE: ${{ steps.cache-key.outputs.bundle }}
         REL_PATHS: ${{ steps.cache-key.outputs.rel-paths }}
         CACHE_WRITE: ${{ inputs.cache-write }}
-      run: |
-        set -euo pipefail
-        mkdir -p "$(dirname "$YARN_CACHE_FOLDER")" "$YARN_CACHE_FOLDER"
-
-        link_bundle() {
-          local bundle="$1"
-          touch "$bundle/.last-used"
-          while IFS= read -r rel; do
-            [[ -z "$rel" ]] && continue
-            if [[ "$rel" == "node_modules" ]]; then
-              link_node_modules_shallow "$bundle/node_modules"
-              continue
-            fi
-            mkdir -p "$(dirname "$rel")" "$bundle/$rel"
-            ln -sfn "$bundle/$rel" "$rel"
-          done <<< "$REL_PATHS"
-          relink_workspaces
-        }
-
-        link_node_modules_shallow() {
-          local bundle_nm="$1"
-          mkdir -p node_modules
-          shopt -s dotglob nullglob
-          for entry in "$bundle_nm"/*; do
-            ln -sfn "$entry" "node_modules/$(basename "$entry")"
-          done
-          shopt -u dotglob nullglob
-        }
-
-        relink_workspaces() {
-          command -v yarn >/dev/null 2>&1 || return 0
-          jq -e '.workspaces' package.json >/dev/null 2>&1 || return 0
-          local abs_wd
-          abs_wd="$(pwd)"
-          yarn workspaces list --json 2>/dev/null \
-            | jq -r 'select(.location != ".") | "\(.name)\t\(.location)"' \
-            | while IFS=$'\t' read -r name loc; do
-                [[ -z "$name" ]] && continue
-                rm -rf "node_modules/$name"
-                mkdir -p "$(dirname "node_modules/$name")"
-                ln -sfn "$abs_wd/$loc" "node_modules/$name"
-              done
-        }
-
-        install_with_retry() {
-          local attempt=1 max_attempts=3
-          while true; do
-            if yarn install --frozen-lockfile; then
-              return 0
-            fi
-            if (( attempt >= max_attempts )); then
-              echo "[setup-node-yarn] yarn install failed after ${max_attempts} attempts - not retrying further" >&2
-              return 1
-            fi
-            echo "[setup-node-yarn] yarn install failed (attempt ${attempt}/${max_attempts}) - wiping node_modules and retrying"
-            rm -rf node_modules
-            attempt=$(( attempt + 1 ))
-          done
-        }
-
-        if [[ -f "$BUNDLE/.complete" ]]; then
-          echo "[setup-node-yarn] bundle hit: $BUNDLE - symlinking, no install"
-          link_bundle "$BUNDLE"
-          exit 0
-        fi
-
-        if [[ "$CACHE_WRITE" == "true" ]]; then
-          echo "[setup-node-yarn] cache-write run, bundle miss: $BUNDLE - installing into shared cache"
-          scratch="${BUNDLE}.tmp-${RANDOM}-$$"
-          mkdir -p "$scratch"
-          while IFS= read -r rel; do
-            [[ -z "$rel" || "$rel" == "node_modules" ]] && continue
-            mkdir -p "$(dirname "$rel")" "$scratch/$rel"
-            ln -sfn "$scratch/$rel" "$rel"
-          done <<< "$REL_PATHS"
-          install_with_retry
-          mkdir -p "$(dirname "$scratch/node_modules")"
-          rm -rf "$scratch/node_modules"
-          mv node_modules "$scratch/node_modules"
-          if [[ ! -d "$BUNDLE" ]]; then
-            mv "$scratch" "$BUNDLE"
-            touch "$BUNDLE/.complete"
-          else
-            rm -rf "$scratch"
-          fi
-          link_bundle "$BUNDLE"
-          exit 0
-        fi
-
-        echo "[setup-node-yarn] bundle miss on a non-cache-write run: $BUNDLE - installing locally, not shared"
-        install_with_retry
+      run: bash "${{ github.action_path }}/install.sh"
