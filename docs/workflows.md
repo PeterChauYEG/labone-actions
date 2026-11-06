@@ -119,8 +119,9 @@ time), plus:
 Jobs: the same `setup`/`lint`/.../`max-lines` set as plain pass/fail
 gates (no sticky comments, no ticket filing), plus `deploy` (pushes to
 `dokku_remote_url` using secret `DOKKU_DEPLOY_SSH_KEY`) and
-`slack-notification` (posts the deploy result using secret
-`SLACK_WEBHOOK_URL`). `deploy` runs only if every enabled gate job actually
+`slack-notification` (posts the deploy result to `#release` via Slack's
+`chat.postMessage`, using secret `SLACK_BOT_TOKEN`, on both success and
+failure). `deploy` runs only if every enabled gate job actually
 passed — jobs skipped via `enable_*: false` don't block it (skipped isn't a
 failure), but any real failure or cancellation does.
 
@@ -344,7 +345,8 @@ gated on `needs.changes.outputs.node == 'true'`), plus optional
 `dead-code` (off by default), `coverage-badge` (off by default,
 `enable_coverage_badge`, see below) and `deploy` (pushes to `dokku_remote_url`
 using secret `DOKKU_DEPLOY_SSH_KEY`) and `slack-notification` (posts the
-deploy result using secret `SLACK_WEBHOOK_URL`), identical semantics to
+deploy result to `#release` via Slack's `chat.postMessage`, using secret
+`SLACK_BOT_TOKEN`, on both success and failure), identical semantics to
 `main-ci.yml`'s `deploy`/`slack-notification` — `deploy` runs only if
 every enabled gate job actually passed (skipped-via-`enable_*: false` or
 skipped-via-`changes` doesn't block it, but any real failure or

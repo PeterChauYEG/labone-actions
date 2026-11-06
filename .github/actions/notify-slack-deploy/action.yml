@@ -5,22 +5,27 @@ description: >
   across main-ci.yml and main-node-ci.yml.
 
 inputs:
-  webhook-url:
-    description: Slack incoming-webhook URL (e.g. secrets.SLACK_WEBHOOK_URL).
+  bot-token:
+    description: Slack bot token (e.g. secrets.SLACK_BOT_TOKEN) used to call chat.postMessage.
     required: true
   deploy-result:
     description: The deploy job's own result (e.g. needs.deploy.result), e.g. `failure`.
     required: true
+  channel:
+    description: Slack channel to post the notification to.
+    required: false
+    default: '#release'
 
 runs:
   using: composite
   steps:
     - name: Notify Slack
-      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d
+      uses: slackapi/slack-github-action@v2.1.1
       with:
-        webhook: ${{ inputs.webhook-url }}
-        webhook-type: incoming-webhook
+        method: chat.postMessage
+        token: ${{ inputs.bot-token }}
         payload: |
           {
+            "channel": "${{ inputs.channel }}",
             "text": "${{ github.repository }} deploy: ${{ inputs.deploy-result }}"
           }
