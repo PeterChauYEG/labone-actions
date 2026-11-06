@@ -301,13 +301,13 @@ jobs:
   slack-notification:
     name: slack-notification
     needs: [deploy]
-    if: ${{ always() && inputs.enable_slack_notification && needs.deploy.result == 'failure' }}
+    if: ${{ always() && inputs.enable_slack_notification }}
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 10
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/notify-slack-deploy@main
         with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
           deploy-result: ${{ needs.deploy.result }}
 
   # File (or comment on) one Urgent Linear ticket for a broken main - either
