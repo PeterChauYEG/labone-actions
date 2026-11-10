@@ -131,10 +131,11 @@ jobs:
           fi
 
       - name: Generate CalVer version
-        # Format: YY.MMDD.HHMM, all UTC, all zero-padded (e.g. 26.1009.1430).
-        # One merge to main (or one scheduled run, for mobile callers) is one
-        # version — no same-day patch counter: the HHMM component already
-        # makes same-day bumps distinct.
+        # Format: YY.MMDD.<HHMM as integer, UTC, no leading zero> (e.g.
+        # 26.1009.1430, or 26.1009.412 for 04:12 UTC). One merge to main (or
+        # one scheduled run, for mobile callers) is one version — no
+        # same-day patch counter: the HHMM component already makes same-day
+        # bumps distinct.
         if: steps.check.outputs.bumped == 'true'
         id: calver
         run: |
@@ -143,7 +144,14 @@ jobs:
             exit 1
           fi
 
-          NEW_VERSION=$(date -u +"%y.%m%d.%H%M")
+          # Cargo's semver parser (unlike npm's) rejects a leading zero in
+          # any numeric component, so a plain zero-padded %H%M (e.g. "0412")
+          # would produce an invalid patch version for every run before
+          # 10:00 UTC. The 10# prefix forces base-10 interpretation of the
+          # zero-padded string (without it, bash's arithmetic context would
+          # try — and fail — to parse it as octal) and strips the leading
+          # zero as a natural side effect of integer conversion.
+          NEW_VERSION="$(date -u +"%y.%m%d").$((10#$(date -u +%H%M)))"
 
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "New version: $NEW_VERSION"

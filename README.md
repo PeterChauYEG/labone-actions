@@ -208,8 +208,11 @@ jobs:
 And `version-bump.yml` (requires the caller repo to have its own
 `./scripts/bump-version.sh <new-version>` — that script is repo-specific
 (which files carry a version string varies per repo) and is deliberately
-not centralized here). Version strings are CalVer: `YY.MMDD.HHMM`, UTC,
-zero-padded (e.g. `26.1009.1430`).
+not centralized here). Version strings are CalVer: `YY.MMDD.HHMM`, UTC —
+the date part is zero-padded but the HHMM part is interpreted as an
+integer, so it has no leading zero (e.g. `26.1009.1430`, or `26.1009.412`
+for 04:12 UTC — Cargo's semver parser rejects leading zeros in numeric
+components, unlike npm's).
 
 **Every repo bumps on every merge to main, except mobile repos, which bump
 on a schedule instead** (mobile's build pipeline is expensive enough that
