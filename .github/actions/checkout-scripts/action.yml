@@ -14,6 +14,20 @@ description: >
   composite action's own steps can't see the caller's `inputs`/`needs`/
   `matrix` context to make that decision internally.
 
+  LAB-5420: this repo (PeterChauYEG/labone-actions) is PUBLIC, so cloning
+  it needs no credentials at all - every attempt below does a plain
+  anonymous `git fetch`, with no `token`/`AUTHORIZATION` header, no
+  reliance on the caller's ambient GITHUB_TOKEN (which is scoped to the
+  calling repo only and 404s on ANY other repo regardless of visibility -
+  see LAB-2929), and no reliance on the caller passing a correctly-scoped
+  PAT (gamecraft's own `GH_PAT`, passed through scan-with-report's
+  `gh-token`, hit exactly this: "Repository not found" on every attempt
+  even though the repo is public and the PAT is valid for gamecraft's own
+  needs - whatever scope mismatch caused that is irrelevant once the
+  checkout itself doesn't need a token). `token` is kept as an opt-in
+  fallback, used only on the final retry, for the day this repo goes
+  private again - no existing caller needs to pass it for this to work.
+
 inputs:
   path:
     description: >
@@ -25,67 +39,19 @@ inputs:
     default: 'labone-actions'
   token:
     description: >
-      Token used to check out this (private) repo. Defaults to the caller
-      job's ambient GITHUB_TOKEN, which relies on this repo's Settings ->
-      Actions -> General -> Access grant covering the caller repo/org for
-      cross-repo checkout to succeed. That grant has proven fragile
-      (LAB-2929 - every caller of this action started failing with
-      "Repository not found" with zero changes on either side), so pass
-      an explicit PAT (e.g. secrets.GH_PAT, already used fleet-wide for
-      this same cross-repo-access problem) here instead of relying on it.
+      Optional token, used only as a last-resort fallback on the final
+      retry below if every anonymous attempt fails. Not needed today -
+      see this action's own header comment for why the default (no
+      token) path is the reliable one now that this repo is public.
     required: false
     default: ''
 
 runs:
   using: composite
   steps:
-    - id: attempt1
-      continue-on-error: true
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        repository: PeterChauYEG/labone-actions
-        ref: main
-        path: ${{ inputs.path }}
-        token: ${{ inputs.token || github.token }}
-        sparse-checkout: |
-          scripts
-        sparse-checkout-cone-mode: true
-
-    - name: Wait before retry 1
-      if: steps.attempt1.outcome == 'failure'
+    - name: Checkout labone-actions scripts
       shell: bash
-      run: |
-        echo "::warning::Checkout of labone-actions failed, retrying in 15s"
-        sleep 15
-
-    - id: attempt2
-      if: steps.attempt1.outcome == 'failure'
-      continue-on-error: true
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        repository: PeterChauYEG/labone-actions
-        ref: main
-        path: ${{ inputs.path }}
-        token: ${{ inputs.token || github.token }}
-        sparse-checkout: |
-          scripts
-        sparse-checkout-cone-mode: true
-
-    - name: Wait before retry 2
-      if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
-      shell: bash
-      run: |
-        echo "::warning::Checkout of labone-actions failed again, retrying in 45s"
-        sleep 45
-
-    - id: attempt3
-      if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        repository: PeterChauYEG/labone-actions
-        ref: main
-        path: ${{ inputs.path }}
-        token: ${{ inputs.token || github.token }}
-        sparse-checkout: |
-          scripts
-        sparse-checkout-cone-mode: true
+      env:
+        CHECKOUT_PATH: ${{ inputs.path }}
+        CHECKOUT_TOKEN: ${{ inputs.token }}
+      run: bash "${{ github.action_path }}/checkout.sh"
