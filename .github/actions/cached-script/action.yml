@@ -41,10 +41,12 @@ inputs:
       extra-cache-key-glob-1 input - an extra glob (e.g.
       prisma/schema.prisma) folded into the node_modules cache key so a
       `postinstall` codegen input changing invalidates the cache even when
-      yarn.lock/pnpm-lock.yaml didn't change. Distinct from
-      cache-key-extra-glob-1 below, which only affects this action's own
-      script-specific cache (.eslintcache/tsbuildinfo/.jestcache), not the
-      node_modules restore.
+      yarn.lock/pnpm-lock.yaml didn't change. Also folded into this
+      action's own script-specific cache key (.eslintcache/tsbuildinfo/
+      .jestcache) below, alongside cache-key-extra-glob-1/2, so e.g. a
+      `tsc --incremental` build cache doesn't restore stale buildinfo
+      against source that changed under this glob but left
+      yarn.lock/pnpm-lock.yaml untouched (LAB-5835).
     required: false
     default: ''
   extra-deps-cache-key-glob-2:
@@ -160,7 +162,7 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
-        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '') }}
+        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '', (inputs.extra-deps-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-deps-cache-key-glob-1)) || '', (inputs.extra-deps-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-deps-cache-key-glob-2)) || '') }}
         restore-keys: |
           ${{ runner.os }}-${{ inputs.cache-key-prefix }}-
 
@@ -169,7 +171,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ inputs.working-directory }}/${{ inputs.cache-path }}
-        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '') }}
+        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ hashFiles(format('{0}/yarn.lock', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), (inputs.cache-key-extra-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-1)) || '', (inputs.cache-key-extra-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.cache-key-extra-glob-2)) || '', (inputs.extra-deps-cache-key-glob-1 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-deps-cache-key-glob-1)) || '', (inputs.extra-deps-cache-key-glob-2 != '' && format('{0}/{1}', inputs.working-directory, inputs.extra-deps-cache-key-glob-2)) || '') }}
         restore-keys: |
           ${{ runner.os }}-${{ inputs.cache-key-prefix }}-
 
