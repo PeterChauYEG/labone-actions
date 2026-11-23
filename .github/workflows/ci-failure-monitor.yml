@@ -31,6 +31,14 @@ name: CI Failure Monitor
 # job (this file) still sees that same top-level event context, so
 # `github.event.workflow_run.*` below resolves correctly even though this
 # file itself declares `on: workflow_call`, not `on: workflow_run`.
+#
+# Before filing, a `classify` step asks Claude (direct Anthropic Messages
+# API call, scoped `ANTHROPIC_API_KEY` secret via `secrets: inherit`) to
+# judge whether this failure looks like a transient flake or a genuine
+# break - see scripts/classify-ci-failure.sh. If that secret is unset or
+# the API call fails, the script fails open (`echo file`) so the
+# deterministic filing path below always still runs - a dropped ticket is
+# worse than an occasional flake ticket.
 on:
   workflow_call:
 
@@ -55,7 +63,20 @@ jobs:
       - uses: PeterChauYEG/labone-actions/.github/actions/checkout-scripts@main
         with:
           token: ${{ secrets.GH_PAT }}
+      - name: Classify CI failure
+        id: classify
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          verdict=$(bash labone-actions/scripts/classify-ci-failure.sh \
+            "${{ github.event.workflow_run.name }}" \
+            "${{ github.event.workflow_run.html_url }}" \
+            "${{ github.event.workflow_run.id }}")
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
       - name: File CI failure ticket
+        if: steps.classify.outputs.verdict != 'skip'
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_REPOSITORY: ${{ github.repository }}

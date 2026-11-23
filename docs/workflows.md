@@ -477,6 +477,14 @@ is resolved (main is green again and someone marks it done), the next
 failure files a fresh one. Required secret: `LINEAR_API_KEY` (same secret
 `file-linear-ticket.sh` already uses).
 
+Before filing, a `classify` step calls the Anthropic Messages API directly
+(`scripts/classify-ci-failure.sh`) with the failed run's job/step names, and
+asks it to judge transient flake vs. genuine failure. Optional secret:
+`ANTHROPIC_API_KEY`. If that secret is unset, or the API call fails for any
+reason, the script prints `file` and the ticket still gets filed — the
+classifier is a filter on top of the deterministic path, never a gate that
+can drop a ticket.
+
 **mecha-industries org repos**: this reusable workflow can't be called
 cross-org (`PeterChauYEG/labone-actions` is a personal-account repo; org
 policy blocks depending on it, same reason those repos already inline
