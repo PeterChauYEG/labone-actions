@@ -33,31 +33,24 @@ here — don't confuse them:
    the incident above — never when the two levels use genuinely different
    groups, whether that's a deliberate design (`main-ci.yml`'s family) or
    incidental redundancy (the PR-side pairs above).
-2. **The gha-runner host's job-concurrency semaphore** (`ci-semaphore-acquire.sh`
-   / `ci-semaphore-release.sh`, provisioned by the `gha-runners` skill in ops)
-   — a *global* cap (`GLOBAL_CI_CONCURRENCY`, default 8) and a *per-repo* cap
-   (`REPO_CI_CONCURRENCY`, default 2) across every self-hosted `catfood`
-   runner on the host, enforced at the runner-process level via
-   `ACTIONS_RUNNER_HOOK_JOB_*` hooks — completely outside GitHub Actions'
-   own YAML. This is what actually limits how many of `main-ci.yml`'s/
-   `develop-ci.yml`'s ~12 jobs run *simultaneously* for one repo: even though
-   the job graph has no `concurrency:` block between `lint`/`typecheck`/
-   `build`/etc. and lets them all become runnable at once after `setup`
-   finishes, only `REPO_CI_CONCURRENCY` (2) actually execute at a time — the
-   rest queue at the host, invisible to the workflow YAML. Don't try to
-   "fix" that queueing by adding more `concurrency:` groups here; it's a
+2. **The gha-runner host's job-concurrency cap.** This repo's workflows all
+   target `runs-on: [self-hosted, catfood, ...]`, which runs on the
+   **ephemeral Docker-dispatch system** (`gha-runner-docker`'s
+   `webhook-server.py` + `dispatch-one.sh`), not the ARC/k3s scale-set
+   pilot — completely outside GitHub Actions' own YAML. There is no
+   per-repo concurrency cap (`REPO_CI_CONCURRENCY`-style env var, and no
+   `ci-semaphore-acquire.sh`/`ci-semaphore-release.sh` — an earlier version
+   of this doc described those and they don't exist): concurrency is capped
+   globally (`globalMaxConcurrent` in the runner host's `.env`) and per
+   resolved image/flavor only, both via `repos.json` — see the `gha-runners`
+   skill's `references/commands.md` and `references/capacity.md` for the
+   current mechanism and how to read/tune it. Don't try to "fix" any
+   observed queueing by adding more `concurrency:` groups here; it's a
    different, correctly-functioning layer, and stacking a YAML-level group
-   on top of it is exactly the mistake described in point 1.
-   **Unverified as of LAB-1301** — investigating that OOM ticket couldn't
-   locate `ci-semaphore-acquire.sh`/`ci-semaphore-release.sh` or those env
-   vars anywhere in the current `gha-runners` ops skill, which instead
-   documents an ephemeral Docker-dispatch model (`webhook-server.py` +
-   `dispatch-one.sh`, per-repo `max-concurrent` in `repos.json` on the
-   runner host). If this section is stale, point 3 below is not a
-   redundant stack on top of a working per-repo job cap — it may be the
-   only thing actually limiting simultaneous `setup` jobs for one repo.
-   Flagging for whoever owns the runner host to confirm/update this
-   section rather than silently leaving it wrong.
+   on top of it is exactly the mistake described in point 1. Treat the
+   `gha-runners` skill as the source of truth for the live cap values —
+   don't duplicate the actual numbers here, they drift independently of
+   this repo.
 3. **`develop-ci.yml`'s `setup` job concurrency group**
    (`catfood-yarn-install-${{ github.repository }}`, `cancel-in-progress:
    false`) — added for LAB-1301 after budget PRs #170/#171/#173-#176 all
