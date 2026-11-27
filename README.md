@@ -42,7 +42,7 @@ Full `workflow_call` inputs and job lists for every workflow above: [`docs/workf
 For each `develop-*-ci.yml`/`main-*-ci.yml` pair that has a PR-time and/or push-to-main
 counterpart, this repo also ships a thin, type-specific **orchestrator** `workflow_call`
 workflow one level up: `mobile-pr.yml`, `node-pr.yml`, `web-pr.yml`, `python-pr.yml`,
-`rust-pr.yml`, `godot-pr.yml`, `node-main.yml`, `web-main.yml`. Prefer these over calling
+`rust-cli-pr.yml`, `godot-pr.yml`, `node-main.yml`, `web-main.yml`. Prefer these over calling
 `develop-*-ci.yml`/`main-*-ci.yml` directly — they bake in the `permissions:`/`concurrency:`
 wiring every caller needs, so a caller repo's own workflow file becomes a near-empty `uses:`
 block. See [`docs/orchestrators.md`](docs/orchestrators.md) for the full design rationale.
@@ -67,7 +67,7 @@ correct `permissions:`/`concurrency:` wiring with zero hand-authoring.
 | `templates/web-pr.yml` / `templates/web-main.yml` | Next.js/React web | `ci` |
 | `templates/python-pr.yml` | Python | `ci` |
 | `templates/godot-pr.yml` | Godot 4/GDScript | `godot-ci` |
-| `templates/rust-pr.yml` | Rust CLI/tool | `rust-ci` |
+| `templates/rust-cli-pr.yml` | Rust CLI/tool | `rust-ci` |
 | `templates/mobile-pr.yml` | Expo/React Native mobile | `ci` |
 | `templates/security.yml` | any (stack-agnostic) | `trivy` |
 
