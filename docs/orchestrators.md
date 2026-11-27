@@ -6,7 +6,7 @@ Full history and rationale behind the type-specific orchestrator workflows (LAB-
 For each `develop-*-ci.yml`/`main-*-ci.yml` pair that has a PR-time and/or push-to-main
 counterpart, this repo also ships a thin, type-specific **orchestrator** `workflow_call`
 workflow one level up: `mobile-pr.yml`, `node-pr.yml`, `web-pr.yml`, `python-pr.yml`,
-`rust-pr.yml`, `godot-pr.yml`, `node-main.yml`, `web-main.yml`. A consumer repo's own
+`rust-cli-pr.yml`, `godot-pr.yml`, `node-main.yml`, `web-main.yml`. A consumer repo's own
 `develop.yml`/`main.yml` calls the orchestrator, the orchestrator calls the underlying
 `develop-*-ci.yml`/`main-*-ci.yml` (GitHub supports up to 4 levels of nested `workflow_call`, so
 this 3-level chain — caller repo → orchestrator → develop-/main-*-ci.yml — is safely within
