@@ -526,13 +526,24 @@ jobs:
 
   required-checks:
     name: required-checks
-    needs: [setup, lint, typecheck, build, test, security-scan, secret-scan]
+    needs: [changes, setup, lint, typecheck, build, test, security-scan, secret-scan]
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 10
     if: always()
     steps:
-      - name: Fail if any required job failed or was cancelled
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      # `setup`/`lint`/`typecheck`/`build`/`test` all `needs: [..., changes]`
+      # above, so a cancelled/failed/timed-out `changes` cascades into every
+      # one of them reporting `skipped` rather than `failure`/`cancelled` -
+      # invisible to a condition that only checks those jobs' own results.
+      # Only treat a downstream `skipped` as trustworthy when `changes`
+      # itself actually succeeded.
+      - name: Fail if any required job did not succeed, or change-detection
+          did not succeed
+        if: >-
+          ${{ needs.changes.result != 'success' ||
+              contains(needs.*.result, 'failure') ||
+              contains(needs.*.result, 'cancelled') ||
+              contains(needs.*.result, 'timed_out') }}
         run: exit 1
 
   deploy:
