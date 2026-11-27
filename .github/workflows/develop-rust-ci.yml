@@ -935,6 +935,13 @@ jobs:
     timeout-minutes: 10
     if: always()
     steps:
-      - name: Fail if any required job failed or was cancelled
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      # A downstream `skipped` is only trustworthy when `changes` itself
+      # succeeded - otherwise it's an unverified skip, not a deliberate one.
+      - name: Fail if any required job did not succeed, or change-detection
+          did not succeed
+        if: >-
+          ${{ needs.changes.result != 'success' ||
+              contains(needs.*.result, 'failure') ||
+              contains(needs.*.result, 'cancelled') ||
+              contains(needs.*.result, 'timed_out') }}
         run: exit 1
