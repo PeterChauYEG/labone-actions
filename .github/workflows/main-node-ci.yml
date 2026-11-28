@@ -568,24 +568,62 @@ jobs:
     if: ${{ always() && inputs.enable_slack_notification }}
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 10
+    # LAB-6045: a notification step must never be able to turn a run red -
+    # notify-slack-deploy already no-ops on an empty bot-token (the known
+    # cause), continue-on-error is belt-and-braces against any other future
+    # notification bug. A continue-on-error job always resolves to 'success'
+    # in needs.<job>.result, so this also keeps it correctly out of
+    # file-ci-failure-ticket's failure detection below without needing to
+    # exclude it explicitly.
+    continue-on-error: true
     steps:
       - uses: PeterChauYEG/labone-actions/.github/actions/notify-slack-deploy@main
         with:
           bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
           deploy-result: ${{ needs.deploy.result }}
 
-  # File (or comment on) one Urgent Linear ticket for a broken main - either
-  # the CI gates themselves failed, or they passed but the Dokku deploy did.
-  # Reuses ci-failure-monitor.yml's own script so both paths dedup the same
-  # way (one open ticket per repo+workflow, matched on a marker in the
-  # description) - see file-ci-failure-ticket.sh's header comment.
+  # File (or comment on) one Urgent Linear ticket for a broken main.
+  # LAB-6045: previously only fired on required-checks/deploy themselves
+  # failing, so any OTHER job failing (e.g. slack-notification, before it got
+  # continue-on-error above) turned main red with no ticket filed at all -
+  # company-system-webhooks ran red for days undetected this way. Needs now
+  # mirrors required-checks' own needs list (the full set of real gates)
+  # plus required-checks/deploy themselves, and the condition checks
+  # contains(needs.*.result, 'failure'/'timed_out') across that whole set
+  # instead of enumerating two job names, so a job added later to
+  # required-checks' needs is covered automatically without a second edit
+  # here. coverage-badge and slack-notification are deliberately excluded -
+  # both are documented non-blocking jobs (coverage-badge: "a badge-update
+  # failure... must never block a real deploy"; slack-notification: now
+  # continue-on-error, see that job's comment) and a failure in either must
+  # never file a ticket. `cancelled` is deliberately NOT checked here,
+  # mirroring ci-failure-monitor.yml's own comment - a run superseded by a
+  # newer push (cancel-in-progress: true above) isn't a real breakage.
+  # required-checks' own `needs.changes.result != 'success'` guard (see its
+  # comment above) already converts any changes-job cascade/skip into a real
+  # 'failure' on required-checks itself, so this inherits that same
+  # anti-vacuous-green protection without needing its own copy of the guard -
+  # see the PR body for the full per-case walkthrough.
   file-ci-failure-ticket:
     name: file-ci-failure-ticket
-    needs: [required-checks, deploy]
+    needs:
+      [
+        changes,
+        setup,
+        lint,
+        typecheck,
+        build,
+        test,
+        security-scan,
+        secret-scan,
+        required-checks,
+        deploy,
+      ]
     if: >-
       inputs.enable_ci_failure_ticket &&
       always() &&
-      (needs.required-checks.result == 'failure' || needs.deploy.result == 'failure')
+      (contains(needs.*.result, 'failure') ||
+       contains(needs.*.result, 'timed_out'))
     runs-on: [self-hosted, catfood, catfood-minimal]
     timeout-minutes: 10
     permissions:

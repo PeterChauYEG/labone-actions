@@ -6,7 +6,13 @@ description: >
 
 inputs:
   bot-token:
-    description: Slack bot token (e.g. secrets.SLACK_BOT_TOKEN) used to call chat.postMessage.
+    description: >
+      Slack bot token (e.g. secrets.SLACK_BOT_TOKEN) used to call
+      chat.postMessage. A caller repo with no SLACK_BOT_TOKEN secret
+      configured passes an empty string here (a secret reference that
+      resolves to '' isn't an error) - LAB-6045: that must no-op with a
+      warning annotation, not fail the job, since slackapi/slack-github-action
+      throws on an empty token.
     required: true
   deploy-result:
     description: The deploy job's own result (e.g. needs.deploy.result), e.g. `failure`.
@@ -19,7 +25,12 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Warn and skip if Slack bot token is missing
+      if: ${{ inputs.bot-token == '' }}
+      shell: bash
+      run: echo "::warning::SLACK_BOT_TOKEN is empty - skipping Slack deploy notification."
     - name: Notify Slack
+      if: ${{ inputs.bot-token != '' }}
       uses: slackapi/slack-github-action@v2.1.1
       with:
         method: chat.postMessage
